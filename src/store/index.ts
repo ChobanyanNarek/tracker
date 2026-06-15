@@ -311,14 +311,22 @@ export const useStore = create<Store>((set, get) => {
       const { tasks } = get()
       const today = todayStr()
 
-      // Returns true if a jira URL is marked done in any later task for the same dev
-      function isDoneInLaterTask(devId: string, url: string, afterDate: string): boolean {
-        if (!url) return false
+      // Unique key for a jira item — prefer URL, fall back to name
+      function jiraKey(url: string, name: string): string {
+        return url || `name:${name}`
+      }
+
+      // Returns true if a jira is marked done in any later task for the same dev
+      function isDoneInLaterTask(devId: string, url: string, name: string, afterDate: string): boolean {
+        const key = jiraKey(url, name)
+        if (!key) return false
         return tasks.some(
           (x) =>
             x.devId === devId &&
             x.date > afterDate &&
-            (x.jiras ?? []).some((j) => j.url === url && j.status === 'done'),
+            (x.jiras ?? []).some(
+              (j) => jiraKey(j.url, j.name) === key && j.status === 'done',
+            ),
         )
       }
 
@@ -327,7 +335,7 @@ export const useStore = create<Store>((set, get) => {
         const jiras = getJiras(t)
         if (jiras.length) {
           return jiras.some(
-            (j) => j.status !== 'done' && !isDoneInLaterTask(t.devId, j.url, t.date),
+            (j) => j.status !== 'done' && !isDoneInLaterTask(t.devId, j.url, j.name, t.date),
           )
         }
         return t.status !== 'done'
@@ -346,7 +354,10 @@ export const useStore = create<Store>((set, get) => {
           // Seed with jiras already present in existing tasks on that date
           tasks
             .filter((x) => x.devId === devId && x.date === date)
-            .forEach((x) => (x.jiras ?? []).forEach((j) => { if (j.url) existing.add(j.url) }))
+            .forEach((x) => (x.jiras ?? []).forEach((j) => {
+              const k = jiraKey(j.url, j.name)
+              if (k) existing.add(k)
+            }))
           scheduledUrls.set(key, existing)
         }
         return scheduledUrls.get(key)!
@@ -363,13 +374,14 @@ export const useStore = create<Store>((set, get) => {
           .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
           .filter((j) => {
             if (j.status === 'done') return false
-            if (isDoneInLaterTask(t.devId, j.url, t.date)) return false
-            if (j.url && scheduled.has(j.url)) return false
+            if (isDoneInLaterTask(t.devId, j.url, j.name, t.date)) return false
+            const k = jiraKey(j.url, j.name)
+            if (k && scheduled.has(k)) return false
             return true
           })
         if (t.jiras?.length && !pendingJiras.length) return
         // Register these jiras as scheduled so later tasks don't duplicate them
-        pendingJiras.forEach((j) => { if (j.url) scheduled.add(j.url) })
+        pendingJiras.forEach((j) => { const k = jiraKey(j.url, j.name); if (k) scheduled.add(k) })
         newTasks.push({
           ...t,
           id: makeId('t'),
