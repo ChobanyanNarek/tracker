@@ -336,16 +336,40 @@ export const useStore = create<Store>((set, get) => {
 
       let carried = 0
       const newTasks: Task[] = []
+      // Track jira URLs already scheduled on a given dev+date to prevent cross-task duplicates
+      const scheduledUrls = new Map<string, Set<string>>()
+
+      function getScheduled(devId: string, date: string): Set<string> {
+        const key = `${devId}|${date}`
+        if (!scheduledUrls.has(key)) {
+          const existing = new Set<string>()
+          // Seed with jiras already present in existing tasks on that date
+          tasks
+            .filter((x) => x.devId === devId && x.date === date)
+            .forEach((x) => (x.jiras ?? []).forEach((j) => { if (j.url) existing.add(j.url) }))
+          scheduledUrls.set(key, existing)
+        }
+        return scheduledUrls.get(key)!
+      }
+
       unfinished.forEach((t) => {
         const targetDate = nextWorkDay(t.date)
         const exists = tasks.some(
           (x) => x.devId === t.devId && x.title === t.title && x.date === targetDate,
         )
         if (exists) return
+        const scheduled = getScheduled(t.devId, targetDate)
         const pendingJiras = (t.jiras ?? [])
           .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
-          .filter((j) => j.status !== 'done' && !isDoneInLaterTask(t.devId, j.url, t.date))
+          .filter((j) => {
+            if (j.status === 'done') return false
+            if (isDoneInLaterTask(t.devId, j.url, t.date)) return false
+            if (j.url && scheduled.has(j.url)) return false
+            return true
+          })
         if (t.jiras?.length && !pendingJiras.length) return
+        // Register these jiras as scheduled so later tasks don't duplicate them
+        pendingJiras.forEach((j) => { if (j.url) scheduled.add(j.url) })
         newTasks.push({
           ...t,
           id: makeId('t'),
