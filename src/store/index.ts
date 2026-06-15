@@ -310,10 +310,27 @@ export const useStore = create<Store>((set, get) => {
     autoCarryOverdue: () => {
       const { tasks } = get()
       const today = todayStr()
+
+      // Returns true if a jira URL is marked done in any later task for the same dev
+      function isDoneInLaterTask(devId: string, url: string, afterDate: string): boolean {
+        if (!url) return false
+        return tasks.some(
+          (x) =>
+            x.devId === devId &&
+            x.date > afterDate &&
+            (x.jiras ?? []).some((j) => j.url === url && j.status === 'done'),
+        )
+      }
+
       const unfinished = tasks.filter((t) => {
         if (t.date >= today || t.carriedOver) return false
         const jiras = getJiras(t)
-        return jiras.length ? jiras.some((j) => j.status !== 'done') : t.status !== 'done'
+        if (jiras.length) {
+          return jiras.some(
+            (j) => j.status !== 'done' && !isDoneInLaterTask(t.devId, j.url, t.date),
+          )
+        }
+        return t.status !== 'done'
       })
       if (!unfinished.length) return false
 
@@ -327,7 +344,7 @@ export const useStore = create<Store>((set, get) => {
         if (exists) return
         const pendingJiras = (t.jiras ?? [])
           .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
-          .filter((j) => j.status !== 'done')
+          .filter((j) => j.status !== 'done' && !isDoneInLaterTask(t.devId, j.url, t.date))
         if (t.jiras?.length && !pendingJiras.length) return
         newTasks.push({
           ...t,
