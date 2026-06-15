@@ -398,22 +398,36 @@ export const useStore = create<Store>((set, get) => {
     },
 
     updateJiraStatus: (taskId, jiraIdx, status) =>
-      set((s) =>
-        withSave({
+      set((s) => {
+        const targetTask = s.tasks.find((t) => t.id === taskId)
+        const targetJira = targetTask?.jiras?.[jiraIdx]
+        const targetKey = targetJira ? (targetJira.url || `name:${targetJira.name}`) : null
+
+        return withSave({
           ...s,
           tasks: s.tasks.map((t) => {
-            if (t.id !== taskId || !t.jiras) return t
-            const jiras = t.jiras.map((j, i) => (i === jiraIdx ? { ...j, status } : j))
-            const allDone = jiras.every((j) => j.status === 'done')
-            const hasBlocked = jiras.some((j) => j.status === 'blocked')
-            return {
-              ...t,
-              jiras,
-              status: allDone ? 'done' : hasBlocked ? 'blocked' : jiras[0]?.status ?? 'todo',
+            if (t.id === taskId) {
+              if (!t.jiras) return t
+              const jiras = t.jiras.map((j, i) => (i === jiraIdx ? { ...j, status } : j))
+              const allDone = jiras.every((j) => j.status === 'done')
+              const hasBlocked = jiras.some((j) => j.status === 'blocked')
+              return { ...t, jiras, status: allDone ? 'done' : hasBlocked ? 'blocked' : jiras[0]?.status ?? 'todo' }
             }
+            // Propagate done/undone to all copies of this jira for the same dev
+            if (targetKey && targetTask && t.devId === targetTask.devId && t.jiras) {
+              const jiras = t.jiras.map((j) => {
+                const k = j.url || `name:${j.name}`
+                return k === targetKey ? { ...j, status } : j
+              })
+              if (jiras.every((j, i) => j === t.jiras![i])) return t
+              const allDone = jiras.every((j) => j.status === 'done')
+              const hasBlocked = jiras.some((j) => j.status === 'blocked')
+              return { ...t, jiras, status: allDone ? 'done' : hasBlocked ? 'blocked' : jiras[0]?.status ?? 'todo' }
+            }
+            return t
           }),
-        }),
-      ),
+        })
+      }),
 
     updateJiraPriority: (taskId, jiraIdx, priority) =>
       set((s) =>
