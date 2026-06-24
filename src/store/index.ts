@@ -1,8 +1,9 @@
 import { create } from 'zustand'
-import type { AppState, Developer, Project, Task, JiraIssue, JiraConfig, View, EmploymentPeriod } from '../types'
-import { todayStr, offsetDate, nextWorkDay } from '../utils/dates'
-import { getJiras } from '../utils/format'
+import type { AppState, Developer, Project, Task, JiraIssue, JiraConfig, GitLabConfig, View, EmploymentPeriod } from '../types'
+import { todayStr, offsetDate, nextWorkDay, prevWorkDay } from '../utils/dates'
+import { getJiras, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, rawToJiraItem } from '../utils/jira-api'
+import { fetchGroupMRs, extractJiraKey } from '../utils/gitlab-api'
 
 const LS_KEY = 'pmtracker_v4'
 
@@ -28,6 +29,12 @@ function freshState(): AppState {
       projectKeys: [],
       syncInterval: 5,
       proxyUrl: '',
+    },
+    gitlabConfig: {
+      enabled: false,
+      token: '',
+      groupPath: '',
+      syncInterval: 10,
     },
     developers: [
       { id: 'd1', name: 'Alex Morgan', role: 'Frontend', color: '#2563eb', periods: [] },
@@ -85,6 +92,7 @@ function persistState(state: AppState): void {
         scheduleHours: state.scheduleHours,
         notifsEnabled: state.notifsEnabled,
         jiraConfig: state.jiraConfig,
+        gitlabConfig: state.gitlabConfig,
       }),
     )
   } catch {}
@@ -114,6 +122,7 @@ function loadState(): Partial<AppState> {
       scheduleHours: (d as AppState & { scheduleHours?: Record<string, Record<string, number>> }).scheduleHours ?? {},
       notifsEnabled: (d as AppState).notifsEnabled ?? false,
       ...((d as AppState).jiraConfig ? { jiraConfig: (d as AppState).jiraConfig } : {}),
+      ...((d as AppState).gitlabConfig ? { gitlabConfig: (d as AppState).gitlabConfig } : {}),
     }
   } catch {
     return {}
@@ -129,6 +138,8 @@ interface StoreActions {
   addDeveloper: (dev: Omit<Developer, 'id'>) => void
   removeDeveloper: (id: string) => void
   updateDeveloperPeriods: (devId: string, periods: EmploymentPeriod[]) => void
+  archiveDeveloper: (id: string, archivedAt: string) => void
+  unarchiveDeveloper: (id: string) => void
 
   addProject: (p: Omit<Project, 'id'>) => void
   deleteProject: (id: string) => void
@@ -140,10 +151,14 @@ interface StoreActions {
   duplicateTask: (id: string, targetDate: string) => void
   carryOver: (id: string) => string | null
   autoCarryOverdue: () => boolean
+  migrateIssueIds: () => void
+  deduplicateJiras: () => void
 
-  updateJiraStatus: (taskId: string, jiraIdx: number, status: JiraIssue['status']) => void
-  updateJiraPriority: (taskId: string, jiraIdx: number, priority: JiraIssue['priority']) => void
+  updateJiraStatus: (taskId: string, issueId: string | undefined, url: string, status: JiraIssue['status']) => void
+  updateJiraPriority: (taskId: string, issueId: string | undefined, url: string, priority: JiraIssue['priority']) => void
   reorderJiras: (taskId: string, fromIdx: number, toIdx: number) => void
+  deleteJira: (taskId: string, issueId: string | undefined, url: string) => void
+  toggleJiraHidden: (taskId: string, issueId: string | undefined, url: string) => void
 
   setScheduleDay: (devId: string, date: string, type: string | null) => void
   setScheduleHours: (devId: string, date: string, hours: number) => void
@@ -151,6 +166,8 @@ interface StoreActions {
   setNotifsEnabled: (v: boolean) => void
   setJiraConfig: (cfg: JiraConfig) => void
   syncJira: () => Promise<{ added: number; updated: number }>
+  setGitlabConfig: (cfg: GitLabConfig) => void
+  syncGitlab: () => Promise<{ linked: number; updated: number }>
   exportJSON: () => void
   importJSON: (json: string) => void
 }
@@ -194,6 +211,27 @@ export const useStore = create<Store>((set, get) => {
         }),
       ),
 
+    archiveDeveloper: (id, archivedAt) =>
+      set((s) =>
+        withSave({
+          ...s,
+          developers: s.developers.map((d) => (d.id === id ? { ...d, archivedAt } : d)),
+          selectedDev: s.selectedDev === id ? 'ALL' : s.selectedDev,
+        }),
+      ),
+
+    unarchiveDeveloper: (id) =>
+      set((s) =>
+        withSave({
+          ...s,
+          developers: s.developers.map((d) => {
+            if (d.id !== id) return d
+            const { archivedAt: _, ...rest } = d
+            return rest
+          }),
+        }),
+      ),
+
     addProject: (p) =>
       set((s) => withSave({ ...s, projects: [...s.projects, { id: makeId('p'), ...p }] })),
 
@@ -222,15 +260,56 @@ export const useStore = create<Store>((set, get) => {
       ),
 
     addTask: (t) =>
-      set((s) => withSave({ ...s, tasks: [...s.tasks, { id: makeId('t'), ...t }] })),
+      set((s) => {
+        const jiras = t.jiras?.map((j) => j.issueId ? j : { ...j, issueId: makeId('i') })
+        return withSave({ ...s, tasks: [...s.tasks, { id: makeId('t'), ...t, ...(jiras ? { jiras } : {}) }] })
+      }),
 
     updateTask: (id, patch) =>
-      set((s) =>
-        withSave({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)) }),
-      ),
+      set((s) => {
+        const existing = s.tasks.find((t) => t.id === id)
+        let jiras = patch.jiras
+        if (jiras) {
+          jiras = jiras.map((j) => {
+            if (j.issueId) return j
+            const key = jiraDedupeKey(j.url, j.name)
+            const match = existing?.jiras?.find((ej) => ej.issueId && jiraDedupeKey(ej.url, ej.name) === key)
+            return { ...j, issueId: match?.issueId ?? makeId('i') }
+          })
+        }
+        return withSave({
+          ...s,
+          tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch, ...(jiras ? { jiras } : {}) } : t)),
+        })
+      }),
 
     deleteTask: (id) =>
-      set((s) => withSave({ ...s, tasks: s.tasks.filter((t) => t.id !== id) })),
+      set((s) => {
+        const task = s.tasks.find((t) => t.id === id)
+        // For carried tasks: mark their jiras as done on the source task so that
+        // autoCarryOverdue won't re-create this checkpoint on the next page load.
+        if (task?.carriedOver && task.jiras?.length) {
+          const sourceDate = task.carriedFrom ?? prevWorkDay(task.date)
+          const issueIds = new Set(task.jiras.map((j) => j.issueId).filter((x): x is string => !!x))
+          const dedupeKeys = new Set(
+            task.jiras.map((j) => jiraDedupeKey(j.url, j.name)).filter((k): k is string => !!(k && k !== 'name:')),
+          )
+          const tasks = s.tasks.filter((t) => t.id !== id).map((t) => {
+            if (t.devId !== task.devId || t.date !== sourceDate || !t.jiras?.length) return t
+            const jiras = t.jiras.map((j) => {
+              const dk = jiraDedupeKey(j.url, j.name)
+              const hit = (j.issueId && issueIds.has(j.issueId)) || (dk && dk !== 'name:' && dedupeKeys.has(dk))
+              return hit ? { ...j, status: 'done' as JiraIssue['status'] } : j
+            })
+            if (jiras.every((j, i) => j === t.jiras![i])) return t
+            const allDone = jiras.every((j) => j.status === 'done')
+            const hasBlocked = jiras.some((j) => j.status === 'blocked')
+            return { ...t, jiras, status: allDone ? 'done' : hasBlocked ? 'blocked' : jiras[0]?.status ?? 'todo' }
+          })
+          return withSave({ ...s, tasks })
+        }
+        return withSave({ ...s, tasks: s.tasks.filter((t) => t.id !== id) })
+      }),
 
     duplicateTask: (id, targetDate) => {
       const task = get().tasks.find((t) => t.id === id)
@@ -310,115 +389,214 @@ export const useStore = create<Store>((set, get) => {
     autoCarryOverdue: () => {
       const { tasks } = get()
       const today = todayStr()
+      const yesterday = prevWorkDay(today)
 
-      // Unique key for a jira item — prefer URL, fall back to name
-      function jiraKey(url: string, name: string): string {
-        return url || `name:${name}`
-      }
-
-      // Returns true if a jira is marked done in any later task for the same dev
-      function isDoneInLaterTask(devId: string, url: string, name: string, afterDate: string): boolean {
-        const key = jiraKey(url, name)
-        if (!key) return false
+      // Returns true if a jira (by issueId, falling back to dedupeKey) is done in any task
+      // for the same dev on any date after `afterDate`. Searches all tasks so that a user
+      // marking a carried issue as "done" is always treated as completion evidence.
+      function isDoneInLaterTask(devId: string, issueId: string | undefined, url: string, name: string, afterDate: string): boolean {
+        if (issueId) {
+          return tasks.some(
+            (x) =>
+              x.devId === devId &&
+              x.date > afterDate &&
+              (x.jiras ?? []).some((j) => j.issueId === issueId && j.status === 'done'),
+          )
+        }
+        const key = jiraDedupeKey(url, name)
+        if (!key || key === 'name:') return false
         return tasks.some(
           (x) =>
             x.devId === devId &&
             x.date > afterDate &&
-            (x.jiras ?? []).some(
-              (j) => jiraKey(j.url, j.name) === key && j.status === 'done',
-            ),
+            (x.jiras ?? []).some((j) => jiraDedupeKey(j.url, j.name) === key && j.status === 'done'),
         )
       }
 
+      // Only look at yesterday's tasks.
       const unfinished = tasks.filter((t) => {
-        if (t.date >= today || t.carriedOver) return false
-        const jiras = getJiras(t)
-        if (jiras.length) {
-          return jiras.some(
-            (j) => j.status !== 'done' && !isDoneInLaterTask(t.devId, j.url, j.name, t.date),
+        if (t.date !== yesterday) return false
+        if (t.jiras !== undefined) {
+          return t.jiras.some(
+            (j) => j.status !== 'done' && !isDoneInLaterTask(t.devId, j.issueId, j.url, j.name, t.date),
           )
         }
         return t.status !== 'done'
       })
-      if (!unfinished.length) return false
 
-      let carried = 0
       const newTasks: Task[] = []
-      // Track jira URLs already scheduled on a given dev+date to prevent cross-task duplicates
-      const scheduledUrls = new Map<string, Set<string>>()
+      // Track issueIds (falling back to dedupeKey) already on today per dev
+      const scheduledKeys = new Map<string, Set<string>>()
 
-      function getScheduled(devId: string, date: string): Set<string> {
-        const key = `${devId}|${date}`
-        if (!scheduledUrls.has(key)) {
+      function getScheduled(devId: string): Set<string> {
+        if (!scheduledKeys.has(devId)) {
           const existing = new Set<string>()
-          // Seed with jiras already present in existing tasks on that date
           tasks
-            .filter((x) => x.devId === devId && x.date === date)
-            .forEach((x) => (x.jiras ?? []).forEach((j) => {
-              const k = jiraKey(j.url, j.name)
-              if (k) existing.add(k)
-            }))
-          scheduledUrls.set(key, existing)
+            .filter((x) => x.devId === devId && x.date === today)
+            .forEach((x) =>
+              (x.jiras ?? []).forEach((j) => {
+                // Register both issueId and dedupeKey so mismatched ids don't slip through
+                if (j.issueId) existing.add(j.issueId)
+                const dk = jiraDedupeKey(j.url, j.name)
+                if (dk && dk !== 'name:') existing.add(dk)
+              }),
+            )
+          scheduledKeys.set(devId, existing)
         }
-        return scheduledUrls.get(key)!
+        return scheduledKeys.get(devId)!
       }
 
       unfinished.forEach((t) => {
         const targetDate = nextWorkDay(t.date)
-        const exists = tasks.some(
-          (x) => x.devId === t.devId && x.title === t.title && x.date === targetDate,
-        )
-        if (exists) return
-        const scheduled = getScheduled(t.devId, targetDate)
-        const pendingJiras = (t.jiras ?? [])
-          .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
-          .filter((j) => {
-            if (j.status === 'done') return false
-            if (isDoneInLaterTask(t.devId, j.url, j.name, t.date)) return false
-            const k = jiraKey(j.url, j.name)
-            if (k && scheduled.has(k)) return false
-            return true
+        if (t.jiras !== undefined) {
+          const scheduled = getScheduled(t.devId)
+          const pendingJiras = t.jiras
+            .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
+            .filter((j) => {
+              if (j.status === 'done') return false
+              if (isDoneInLaterTask(t.devId, j.issueId, j.url, j.name, t.date)) return false
+              // Block if either issueId or dedupeKey is already scheduled
+              if (j.issueId && scheduled.has(j.issueId)) return false
+              const dk = jiraDedupeKey(j.url, j.name)
+              if (dk && dk !== 'name:' && scheduled.has(dk)) return false
+              return true
+            })
+          if (!pendingJiras.length) return
+          pendingJiras.forEach((j) => {
+            if (j.issueId) scheduled.add(j.issueId)
+            const dk = jiraDedupeKey(j.url, j.name)
+            if (dk && dk !== 'name:') scheduled.add(dk)
           })
-        if (t.jiras?.length && !pendingJiras.length) return
-        // Register these jiras as scheduled so later tasks don't duplicate them
-        pendingJiras.forEach((j) => { const k = jiraKey(j.url, j.name); if (k) scheduled.add(k) })
-        newTasks.push({
-          ...t,
-          id: makeId('t'),
-          date: targetDate,
-          carriedOver: true,
-          carriedFrom: t.date,
-          jiras: pendingJiras.length ? pendingJiras : (t.jiras ?? []).map((j) => ({ ...j })),
-          prs: (t.prs ?? []).map((p) => ({ ...p })),
-        })
-        carried++
+          newTasks.push({
+            ...t,
+            id: makeId('t'),
+            date: targetDate,
+            carriedOver: true,
+            carriedFrom: t.date,
+            jiras: pendingJiras,
+            prs: (t.prs ?? []).map((p) => ({ ...p })),
+          })
+        } else {
+          const alreadyOnToday = tasks.some(
+            (x) => x.devId === t.devId && x.jira === t.jira && x.date === today,
+          )
+          if (alreadyOnToday) return
+          newTasks.push({
+            ...t,
+            id: makeId('t'),
+            date: targetDate,
+            carriedOver: true,
+            carriedFrom: t.date,
+            prs: (t.prs ?? []).map((p) => ({ ...p })),
+          })
+        }
       })
-      if (carried > 0) set((s) => withSave({ ...s, tasks: [...s.tasks, ...newTasks] }))
-      return carried > 0
+
+      if (newTasks.length > 0) {
+        set((s) =>
+          withSave({
+            ...s,
+            tasks: [...s.tasks, ...newTasks],
+          }),
+        )
+      }
+      return newTasks.length > 0
     },
 
-    updateJiraStatus: (taskId, jiraIdx, status) =>
+    migrateIssueIds: () => {
+      const { tasks } = get()
+      if (!tasks.some((t) => t.jiras?.some((j) => !j.issueId))) return
+
+      // Build a stable mapping: devId + normalized key → issueId
+      // Jiras that are copies of the same ticket (same dev, same normalized key) share one issueId
+      const idMap = new Map<string, string>()
+      tasks.forEach((t) => {
+        ;(t.jiras ?? []).forEach((j) => {
+          if (j.issueId) return
+          const mapKey = `${t.devId}:${jiraDedupeKey(j.url, j.name)}`
+          if (!idMap.has(mapKey)) idMap.set(mapKey, makeId('i'))
+        })
+      })
+
+      set((s) =>
+        withSave({
+          ...s,
+          tasks: s.tasks.map((t) => {
+            if (!t.jiras?.some((j) => !j.issueId)) return t
+            const jiras = t.jiras.map((j) => {
+              if (j.issueId) return j
+              const mapKey = `${t.devId}:${jiraDedupeKey(j.url, j.name)}`
+              return { ...j, issueId: idMap.get(mapKey) ?? makeId('i') }
+            })
+            return { ...t, jiras }
+          }),
+        }),
+      )
+    },
+
+    deduplicateJiras: () => {
+      const { tasks } = get()
+
+      // For each (devId, date, issueId) only one jira should exist.
+      // Sort so non-carried tasks claim their issueIds first (originals win over copies).
+      const sorted = [...tasks].sort((a, b) => {
+        if (a.carriedOver !== b.carriedOver) return a.carriedOver ? 1 : -1
+        return a.id < b.id ? -1 : 1
+      })
+
+      const seen = new Set<string>()
+      const patches = new Map<string, JiraIssue[]>()
+      const toDelete = new Set<string>()
+
+      sorted.forEach((t) => {
+        if (!Array.isArray(t.jiras) || !t.jiras.length) return
+        const kept: JiraIssue[] = []
+        t.jiras.forEach((j) => {
+          // Use dedupeKey (ticket key like NML-454747) as canonical identity.
+          // issueIds can differ across carry-over copies due to historical migration gaps.
+          const dk = jiraDedupeKey(j.url, j.name)
+          const identity = (dk && dk !== 'name:') ? dk : j.issueId
+          if (!identity) { kept.push(j); return }
+          const k = `${t.devId}:${t.date}:${identity}`
+          if (!seen.has(k)) { seen.add(k); kept.push(j) }
+          // else: duplicate on same dev+date — drop it
+        })
+        if (kept.length !== t.jiras.length) {
+          if (kept.length === 0) toDelete.add(t.id)
+          else patches.set(t.id, kept)
+        }
+      })
+
+      if (toDelete.size === 0 && patches.size === 0) return
+
+      set((s) =>
+        withSave({
+          ...s,
+          tasks: s.tasks
+            .filter((t) => !toDelete.has(t.id))
+            .map((t) => (patches.has(t.id) ? { ...t, jiras: patches.get(t.id)! } : t)),
+        }),
+      )
+    },
+
+    updateJiraStatus: (taskId, issueId, url, status) =>
       set((s) => {
         const targetTask = s.tasks.find((t) => t.id === taskId)
-        const targetJira = targetTask?.jiras?.[jiraIdx]
-        const targetKey = targetJira ? (targetJira.url || `name:${targetJira.name}`) : null
+        const matchJira = (j: JiraIssue) => issueId ? j.issueId === issueId : j.url === url
 
         return withSave({
           ...s,
           tasks: s.tasks.map((t) => {
+            if (!t.jiras) return t
             if (t.id === taskId) {
-              if (!t.jiras) return t
-              const jiras = t.jiras.map((j, i) => (i === jiraIdx ? { ...j, status } : j))
+              const jiras = t.jiras.map((j) => matchJira(j) ? { ...j, status } : j)
               const allDone = jiras.every((j) => j.status === 'done')
               const hasBlocked = jiras.some((j) => j.status === 'blocked')
               return { ...t, jiras, status: allDone ? 'done' : hasBlocked ? 'blocked' : jiras[0]?.status ?? 'todo' }
             }
-            // Propagate done/undone to all copies of this jira for the same dev
-            if (targetKey && targetTask && t.devId === targetTask.devId && t.jiras) {
-              const jiras = t.jiras.map((j) => {
-                const k = j.url || `name:${j.name}`
-                return k === targetKey ? { ...j, status } : j
-              })
+            // Propagate by issueId to every other task for the same dev
+            if (issueId && targetTask && t.devId === targetTask.devId) {
+              const jiras = t.jiras.map((j) => j.issueId === issueId ? { ...j, status } : j)
               if (jiras.every((j, i) => j === t.jiras![i])) return t
               const allDone = jiras.every((j) => j.status === 'done')
               const hasBlocked = jiras.some((j) => j.status === 'blocked')
@@ -429,13 +607,14 @@ export const useStore = create<Store>((set, get) => {
         })
       }),
 
-    updateJiraPriority: (taskId, jiraIdx, priority) =>
+    updateJiraPriority: (taskId, issueId, url, priority) =>
       set((s) =>
         withSave({
           ...s,
           tasks: s.tasks.map((t) => {
             if (t.id !== taskId || !t.jiras) return t
-            return { ...t, jiras: t.jiras.map((j, i) => (i === jiraIdx ? { ...j, priority } : j)) }
+            const matchJira = (j: JiraIssue) => issueId ? j.issueId === issueId : j.url === url
+            return { ...t, jiras: t.jiras.map((j) => matchJira(j) ? { ...j, priority } : j) }
           }),
         }),
       ),
@@ -450,6 +629,31 @@ export const useStore = create<Store>((set, get) => {
             const [moved] = jiras.splice(fromIdx, 1)
             jiras.splice(toIdx, 0, moved)
             return { ...t, jiras }
+          }),
+        }),
+      ),
+
+    deleteJira: (taskId, issueId, url) =>
+      set((s) =>
+        withSave({
+          ...s,
+          tasks: s.tasks.map((t) => {
+            if (t.id !== taskId || !t.jiras) return t
+            const matchJira = (j: JiraIssue) => issueId ? j.issueId === issueId : j.url === url
+            const jiras = t.jiras.filter((j) => !matchJira(j))
+            return { ...t, jiras, ...(jiras.length === 0 ? { jira: '' } : {}) }
+          }),
+        }),
+      ),
+
+    toggleJiraHidden: (taskId, issueId, url) =>
+      set((s) =>
+        withSave({
+          ...s,
+          tasks: s.tasks.map((t) => {
+            if (t.id !== taskId || !t.jiras) return t
+            const matchJira = (j: JiraIssue) => issueId ? j.issueId === issueId : j.url === url
+            return { ...t, jiras: t.jiras.map((j) => matchJira(j) ? { ...j, hidden: !j.hidden } : j) }
           }),
         }),
       ),
@@ -522,39 +726,76 @@ export const useStore = create<Store>((set, get) => {
         const syncTask = tasksCopy.find((t) => t.devId === devId && t.date === today && t.jiraSync)
         const incoming = devIssues.map((i) => rawToJiraItem(i, jiraConfig.baseUrl))
 
-        if (syncTask) {
-          const merged = incoming.map((nj) => {
-            const existing = syncTask.jiras.find((ej) => ej.url === nj.url)
-            if (existing) {
+        // Build a key→task map of every issue already in today's tasks for this dev (across all tasks)
+        const todayTasks = tasksCopy.filter((t) => t.devId === devId && t.date === today)
+        const keyToTask = new Map<string, { task: typeof tasksCopy[number]; idx: number }>()
+        todayTasks.forEach((t) => {
+          ;(t.jiras ?? []).forEach((j, idx) => {
+            const k = jiraDedupeKey(j.url, j.name)
+            if (k && k !== 'name:') keyToTask.set(k, { task: t, idx })
+          })
+        })
+
+        const trulyNew: typeof incoming = []
+
+        incoming.forEach((nj) => {
+          const njKey = jiraDedupeKey(nj.url, nj.name)
+
+          // Check existing in the jiraSync task first (by key or URL)
+          if (syncTask) {
+            const existIdx = syncTask.jiras.findIndex((ej) => {
+              const ejKey = jiraDedupeKey(ej.url, ej.name)
+              return (njKey && njKey !== 'name:' && ejKey === njKey) || ej.url === nj.url
+            })
+            if (existIdx >= 0) {
+              const ex = syncTask.jiras[existIdx]
+              syncTask.jiras[existIdx] = { ...ex, status: nj.status, priority: nj.priority, deadline: nj.deadline || ex.deadline }
               updated++
-              return { ...existing, status: nj.status, priority: nj.priority, deadline: nj.deadline || existing.deadline }
+              return
             }
-            added++
-            return nj
-          })
-          const manual = syncTask.jiras.filter((ej) => !incoming.some((nj) => nj.url === ej.url))
-          syncTask.jiras = [...merged, ...manual]
+          }
+
+          // Check if the same key exists in any other task today
+          if (njKey && njKey !== 'name:' && keyToTask.has(njKey)) {
+            const { task, idx } = keyToTask.get(njKey)!
+            const ex = task.jiras[idx]
+            task.jiras[idx] = { ...ex, status: nj.status, priority: nj.priority, deadline: nj.deadline || ex.deadline }
+            updated++
+            return
+          }
+
+          trulyNew.push(nj)
+        })
+
+        if (trulyNew.length > 0) {
+          if (syncTask) {
+            syncTask.jiras = [...syncTask.jiras, ...trulyNew]
+            added += trulyNew.length
+          } else {
+            added += trulyNew.length
+            newTasks.push({
+              id: makeId('t'),
+              devId,
+              projectId: '',
+              title: 'Jira Issues',
+              status: 'inprogress',
+              jira: '',
+              jiras: trulyNew,
+              pr: '',
+              prs: [],
+              deadline: '',
+              deadlineTime: '',
+              reviewDate: '',
+              reviewTime: '',
+              comment: '',
+              date: today,
+              jiraSync: true,
+            })
+          }
+        }
+
+        if (syncTask) {
           syncTask.status = syncTask.jiras.every((j) => j.status === 'done') ? 'done' : 'inprogress'
-        } else {
-          added += incoming.length
-          newTasks.push({
-            id: makeId('t'),
-            devId,
-            projectId: '',
-            title: 'Jira Issues',
-            status: 'inprogress',
-            jira: '',
-            jiras: incoming,
-            pr: '',
-            prs: [],
-            deadline: '',
-            deadlineTime: '',
-            reviewDate: '',
-            reviewTime: '',
-            comment: '',
-            date: today,
-            jiraSync: true,
-          })
         }
       })
 
@@ -565,6 +806,80 @@ export const useStore = create<Store>((set, get) => {
       }
       set((s) => withSave({ ...s, tasks: [...tasksCopy, ...newTasks], jiraConfig: newConfig }))
       return { added, updated }
+    },
+
+    setGitlabConfig: (gitlabConfig) => set((s) => withSave({ ...s, gitlabConfig })),
+
+    syncGitlab: async () => {
+      const { gitlabConfig, developers, tasks } = get()
+      if (!gitlabConfig.enabled || !gitlabConfig.token || !gitlabConfig.groupPath) {
+        throw new Error('GitLab not configured — open GitLab settings and save')
+      }
+
+      const mrs = await fetchGroupMRs(gitlabConfig)
+      const glDevs = developers.filter((d) => d.gitlabUsername)
+
+      let linked = 0
+      let updated = 0
+      const skippedNoKey: string[] = []
+      const skippedNoIssue: string[] = []
+      const tasksCopy = tasks.map((t) => ({ ...t, jiras: t.jiras.map((j) => ({ ...j, prs: [...(j.prs ?? [])] })) }))
+
+      const findJiraInTasks = (searchTasks: typeof tasksCopy, jiraKey: string) => {
+        const sorted = [...searchTasks].sort((a, b) => b.date.localeCompare(a.date))
+        for (const task of sorted) {
+          const idx = task.jiras.findIndex((j) => {
+            const k = jiraDedupeKey(j.url, j.name)
+            return k && k !== 'name:' && k.toUpperCase() === jiraKey
+          })
+          if (idx >= 0) return { task, idx }
+        }
+        return null
+      }
+
+      mrs.forEach((mr) => {
+        const jiraKey = extractJiraKey(mr)
+        if (!jiraKey) {
+          skippedNoKey.push(`!${mr.iid} "${mr.title}"`)
+          return
+        }
+
+        const createdAt = new Date(mr.created_at)
+        const pushDate = createdAt.toISOString().slice(0, 10)
+        const pushTime = createdAt.toTimeString().slice(0, 5)
+
+        // Try dev-matched tasks first, then fall back to all tasks
+        const matchedDev = glDevs.find((d) => d.gitlabUsername?.toLowerCase() === mr.author.username.toLowerCase())
+        const devTasks = matchedDev ? tasksCopy.filter((t) => t.devId === matchedDev.id) : []
+        const found = findJiraInTasks(devTasks, jiraKey) ?? findJiraInTasks(tasksCopy, jiraKey)
+
+        if (!found) {
+          skippedNoIssue.push(`!${mr.iid} [${jiraKey}]`)
+          return
+        }
+
+        const { task, idx } = found
+        const jira = task.jiras[idx]
+        const alreadyLinked = jira.prs.some((p) => p.url === mr.web_url)
+        if (alreadyLinked) {
+          updated++
+        } else {
+          task.jiras[idx] = { ...jira, prs: [...jira.prs, { url: mr.web_url, date: pushDate, time: pushTime }] }
+          linked++
+        }
+      })
+
+      console.log(`[GitLab sync] done — linked=${linked} updated=${updated} noKey=${skippedNoKey.length} noIssue=${skippedNoIssue.length}`)
+      if (skippedNoKey.length) console.log('[GitLab sync] no Jira key in branch/title:', skippedNoKey)
+      if (skippedNoIssue.length) console.log('[GitLab sync] Jira key found but no matching issue in tracker:', skippedNoIssue)
+
+      const newGitlabConfig: GitLabConfig = {
+        ...gitlabConfig,
+        lastSync: new Date().toISOString(),
+        lastSyncResult: `+${linked} linked, ${updated} already tracked`,
+      }
+      set((s) => withSave({ ...s, tasks: tasksCopy, gitlabConfig: newGitlabConfig }))
+      return { linked, updated }
     },
 
     exportJSON: () => {
@@ -599,41 +914,111 @@ export const useStore = create<Store>((set, get) => {
 })
 
 export function getVisibleDevIds(state: AppState): string[] {
-  if (state.selectedProject === 'ALL') return state.developers.map((d) => d.id)
+  // An archived developer is only visible on dates up to and including their archive date.
+  const activeOnDate = (d: AppState['developers'][number]) =>
+    !d.archivedAt || state.selectedDate <= d.archivedAt
+
+  if (state.selectedProject === 'ALL')
+    return state.developers.filter(activeOnDate).map((d) => d.id)
+
   const proj = state.projects.find((p) => p.id === state.selectedProject)
   return proj?.members
-    ? state.developers.filter((d) => proj.members.includes(d.id)).map((d) => d.id)
+    ? state.developers.filter((d) => proj.members.includes(d.id) && activeOnDate(d)).map((d) => d.id)
     : []
 }
 
 export function getVisibleTasks(state: AppState, devId?: string): Task[] {
-  return state.tasks.filter((t) => {
+  const base = state.tasks.filter((t) => {
     const dv = devId ? t.devId === devId : state.selectedDev === 'ALL' || t.devId === state.selectedDev
     const pj = state.selectedProject === 'ALL' || t.projectId === state.selectedProject
-    const dt = t.date === state.selectedDate
-    return dv && pj && dt
+    return dv && pj && t.date === state.selectedDate
   })
+
+  // Non-carried tasks claim their jira identities first so carry-over duplicates are hidden.
+  const ordered = [...base].sort((a, b) => {
+    if (a.carriedOver !== b.carriedOver) return a.carriedOver ? 1 : -1
+    return a.id < b.id ? -1 : 1
+  })
+
+  const seenJira = new Set<string>()
+  const result: Task[] = []
+
+  for (const t of ordered) {
+    if (Array.isArray(t.jiras) && t.jiras.length > 0) {
+      const freshJiras = t.jiras.filter((j) => {
+        const dk = jiraDedupeKey(j.url, j.name)
+        const identity = dk && dk !== 'name:' ? dk : j.issueId
+        if (!identity) return true
+        const k = `${t.devId}:${identity}`
+        if (seenJira.has(k)) return false
+        seenJira.add(k)
+        return true
+      })
+      if (freshJiras.length > 0) {
+        result.push(freshJiras.length !== t.jiras.length ? { ...t, jiras: freshJiras } : t)
+      } else if (!t.carriedOver && (t.deadline || t.comment || t.pr || (t.prs?.length ?? 0) > 0)) {
+        // Non-carried task lost all its jiras to dedup but still has other content worth showing
+        result.push({ ...t, jiras: [] })
+      }
+      // Carried task with no remaining jiras: silently drop — the surviving card already shows everything
+    } else {
+      // Task has no jiras array (old-format uses t.jira string)
+      if (t.jira) {
+        const dk = jiraDedupeKey(t.jira, '')
+        if (dk && dk !== 'name:') {
+          const k = `${t.devId}:${dk}`
+          if (seenJira.has(k)) {
+            // Only keep if non-carried with independent content
+            if (!t.carriedOver && (t.deadline || t.comment)) result.push(t)
+          } else {
+            seenJira.add(k)
+            result.push(t)
+          }
+        } else {
+          result.push(t)
+        }
+      } else {
+        // No jiras at all — hide carried shells, show non-carried only if they have content
+        const hasContent = !!(t.deadline || t.comment || t.pr || (t.prs?.length ?? 0) > 0)
+        if (!t.carriedOver || hasContent) result.push(t)
+      }
+    }
+  }
+
+  return result
 }
 
-export function countUrgentDeadlines(tasks: AppState['tasks']): number {
-  const seen = new Set<string>()
-  let count = 0
+export function countUrgentDeadlines(
+  tasks: AppState['tasks'],
+  developers: AppState['developers'],
+): number {
+  const today = todayStr()
+  const yesterday = new Date(new Date(today + 'T12:00:00').getTime() - 86_400_000)
+    .toISOString()
+    .slice(0, 10)
+  const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
+
+  // Mirror DeadlinesView exactly: today + yesterday window, deduped, exclude archived
+  const jiraMap = new Map<string, { status: string; taskDate: string }>()
+
   tasks.forEach((t) => {
+    if (archivedIds.has(t.devId)) return
+    if (t.date !== today && t.date !== yesterday) return
     const jiras = getJiras(t)
     if (jiras.length) {
-      jiras.forEach((j) => {
-        if (!j.deadline || j.status === 'done') return
-        const dedupeKey = `${t.devId}|${j.name || j.url}|${j.deadline}`
-        if (seen.has(dedupeKey)) return
-        seen.add(dedupeKey)
-        count++
+      jiras.forEach((j, ji) => {
+        const k = `${t.devId}|${jiraDedupeKey(j.url, j.name) || `_anon${ji}`}`
+        const ex = jiraMap.get(k)
+        if (!ex || t.date > ex.taskDate) jiraMap.set(k, { status: j.status, taskDate: t.date })
       })
-    } else if (t.deadline && t.status !== 'done') {
-      const dedupeKey = `${t.devId}|${t.title}|${t.deadline}`
-      if (seen.has(dedupeKey)) return
-      seen.add(dedupeKey)
-      count++
+    } else if (t.deadline) {
+      const k = `${t.devId}|task-title:${t.title}`
+      const ex = jiraMap.get(k)
+      if (!ex || t.date > ex.taskDate) jiraMap.set(k, { status: t.status, taskDate: t.date })
     }
   })
+
+  let count = 0
+  jiraMap.forEach(({ status }) => { if (status !== 'done') count++ })
   return count
 }

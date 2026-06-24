@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PM Tracker – Jira Bridge</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0 }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      width: 300px;
+      background: #0f1117;
+      color: #e2e8f0;
+      padding: 18px 16px 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      flex-shrink: 0;
+      box-shadow: 0 0 6px #22c55e;
+    }
+    h1 { font-size: 14px; font-weight: 600; color: #f1f5f9; }
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-family: monospace;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: #22c55e20;
+      color: #22c55e;
+      border: 1px solid #22c55e50;
+      margin-left: auto;
+    }
+    .card {
+      background: #1e2433;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 12px 13px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #94a3b8;
+    }
+    .card strong { color: #e2e8f0; display: block; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+    .rules { display: flex; flex-direction: column; gap: 4px; }
+    .rule {
+      display: flex; align-items: center; gap: 6px;
+      font-family: monospace; font-size: 11px; color: #7dd3fc;
+    }
+    .rule::before { content: '→'; color: #475569; }
+    .steps { list-style: none; counter-reset: steps; }
+    .steps li {
+      counter-increment: steps;
+      display: flex; gap: 8px; align-items: flex-start;
+      margin-bottom: 6px; font-size: 12px; color: #94a3b8;
+    }
+    .steps li::before {
+      content: counter(steps);
+      min-width: 18px; height: 18px;
+      border-radius: 50%;
+      background: #2d3748;
+      color: #7dd3fc;
+      font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    a { color: #7dd3fc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="dot"></div>
+    <h1>Jira Bridge</h1>
+    <span class="badge">ACTIVE</span>
+  </div>
+
+  <div class="card">
+    <strong>Patching CORS for</strong>
+    <div class="rules">
+      <div class="rule">*.atlassian.net/rest/*</div>
+      <div class="rule">*.jira.com/rest/*</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <strong>Setup (one-time)</strong>
+    <ol class="steps">
+      <li>Open PM Tracker and click the <b>Jira config</b> button (⚙)</li>
+      <li>Enter your Atlassian Base URL, e.g.<br><code style="color:#7dd3fc">https://company.atlassian.net</code></li>
+      <li>Enter your Atlassian email and an <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">API token</a></li>
+      <li>Leave <b>Proxy URL</b> empty — this extension handles CORS directly</li>
+    </ol>
+  </div>
+
+  <div class="card" style="font-size:11px; color: #475569; text-align: center;">
+    Only modifies responses from Atlassian REST endpoints.<br>
+    Credentials never leave your browser.
+  </div>
+</body>
+</html>

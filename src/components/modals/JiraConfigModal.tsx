@@ -135,6 +135,18 @@ export default function JiraConfigModal({ onClose }: Props) {
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', marginBottom: 10, paddingBottom: 5, borderBottom: '1px solid var(--border)' }}>
               Connection
             </div>
+            {cfg.proxyUrl && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#7c3aed18', border: '1px solid #7c3aed60', borderRadius: 7, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: '#a78bfa', flex: 1 }}>
+                  ⚠ Proxy URL is set — this overrides direct Jira calls. Clear it if you are using the Chrome extension.
+                </span>
+                <button
+                  onClick={() => patch('proxyUrl', '')}
+                  style={{ padding: '3px 10px', borderRadius: 5, border: '1px solid #7c3aed', background: '#7c3aed30', color: '#a78bfa', cursor: 'pointer', fontSize: 11, fontFamily: 'var(--mono)', flexShrink: 0 }}
+                >Clear</button>
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div>
                 <span style={labelStyle}>Jira Base URL</span>
@@ -212,17 +224,25 @@ export default function JiraConfigModal({ onClose }: Props) {
               </div>
               <div>
                 <span style={labelStyle}>
-                  CORS Proxy URL (required for GitHub Pages)
-                  <a href="https://developers.cloudflare.com/workers/get-started/guide/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', marginLeft: 4 }}>↗ setup guide</a>
+                  CORS Proxy URL
+                  <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--green)', fontWeight: 400 }}>leave empty if using the Chrome extension</span>
                 </span>
-                <input
-                  style={inputStyle}
-                  placeholder="https://your-worker.workers.dev/?url="
-                  value={cfg.proxyUrl}
-                  onChange={(e) => patch('proxyUrl', e.target.value)}
-                />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    style={{ ...inputStyle, flex: 1 }}
+                    placeholder="https://your-worker.workers.dev/?url="
+                    value={cfg.proxyUrl}
+                    onChange={(e) => patch('proxyUrl', e.target.value)}
+                  />
+                  {cfg.proxyUrl && (
+                    <button
+                      onClick={() => patch('proxyUrl', '')}
+                      style={{ padding: '0 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}
+                    >Clear</button>
+                  )}
+                </div>
                 <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
-                  Jira blocks direct browser requests. Deploy a free Cloudflare Worker and paste the URL here.
+                  Only needed without the Jira Bridge Chrome extension.
                 </div>
               </div>
             </div>

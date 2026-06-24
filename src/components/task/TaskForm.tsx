@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { JiraIssue, PrEntry, Status, Priority } from '../../types'
 import { useStore } from '../../store'
-import { PRIORITY_CONF } from '../../constants'
+import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
 import { todayStr } from '../../utils/dates'
 import { loadPresets, savePresets, loadJiraPresets, saveJiraPresets } from '../../utils/format'
 
@@ -104,7 +104,7 @@ function JiraRow({ value, onChange, onRemove }: { value: JiraFormRow; onChange: 
         </div>
 
         <select value={value.status} onChange={(e) => onChange({ ...value, status: e.target.value as Status })} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '4px 8px', borderRadius: 6, outline: 'none', cursor: 'pointer' }}>
-          {(['todo', 'inprogress', 'review', 'done', 'blocked'] as Status[]).map((s) => <option key={s} value={s}>{s}</option>)}
+          {(['todo', 'inprogress', 'review', 'done', 'blocked'] as Status[]).map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
         </select>
 
         <select value={value.priority} onChange={(e) => onChange({ ...value, priority: e.target.value as Priority })} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '4px 8px', borderRadius: 6, outline: 'none', cursor: 'pointer' }}>
@@ -154,10 +154,22 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
   const existing = taskId ? tasks.find((t) => t.id === taskId) : undefined
 
   const defaultDev = existing?.devId ?? forDevId ?? (selectedDev !== 'ALL' ? selectedDev : developers[0]?.id ?? '')
-  const defaultProj = existing?.projectId ?? (selectedProject !== 'ALL' ? selectedProject : '')
+
+  const inferProject = (dId: string) => {
+    if (selectedProject !== 'ALL') return selectedProject
+    const devProjects = projects.filter((p) => p.members.includes(dId))
+    return devProjects[0]?.id ?? ''
+  }
+
+  const defaultProj = existing?.projectId ?? inferProject(defaultDev)
 
   const [devId, setDevId] = useState(defaultDev)
   const [projectId, setProjectId] = useState(defaultProj)
+
+  const handleDevChange = (newDevId: string) => {
+    setDevId(newDevId)
+    if (!taskId) setProjectId(inferProject(newDevId))
+  }
   const [comment, setComment] = useState(existing?.comment ?? '')
   const [jiraRows, setJiraRows] = useState<JiraFormRow[]>(() => {
     if (existing?.jiras?.length) {
@@ -209,7 +221,7 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <div>
           <label style={labelStyle}>Developer</label>
-          <select value={devId} onChange={(e) => setDevId(e.target.value)} style={selectStyle}>
+          <select value={devId} onChange={(e) => handleDevChange(e.target.value)} style={selectStyle}>
             {developers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>

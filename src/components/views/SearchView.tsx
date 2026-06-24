@@ -14,7 +14,9 @@ export default function SearchView() {
 
   const q = query.trim().toLowerCase()
 
-  let filtered = tasks
+  const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
+
+  let filtered = tasks.filter((t) => !archivedIds.has(t.devId))
   if (selectedProject !== 'ALL') filtered = filtered.filter((t) => t.projectId === selectedProject)
   if (statusFilter !== 'ALL') filtered = filtered.filter((t) => t.status === statusFilter)
   if (q) {

@@ -74,7 +74,7 @@ export default function Calendar() {
               title={holiday ?? ''}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, padding: '4px 7px', borderRadius: 'var(--r)', border, cursor: 'pointer', background: bg, transition: 'all .15s', minWidth: 38, flexShrink: 0, position: 'relative', opacity }}
             >
-              {alertType && (
+              {alertType && isToday && (
                 <div style={{ position: 'absolute', top: 3, right: 3, width: 5, height: 5, borderRadius: '50%', background: alertType === 'over' ? 'var(--red)' : 'var(--amber)', border: '1px solid var(--surface)' }} />
               )}
               <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: textColor, textTransform: 'uppercase', letterSpacing: '.4px' }}>{dow}</div>

@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        { "header": "Access-Control-Allow-Origin",  "operation": "set", "value": "*" },
+        { "header": "Access-Control-Allow-Headers", "operation": "set", "value": "authorization, content-type, accept, origin, x-atlassian-token" },
+        { "header": "Access-Control-Allow-Methods", "operation": "set", "value": "GET, POST, PUT, DELETE, PATCH, OPTIONS" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||atlassian.net/rest/"
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        { "header": "Access-Control-Allow-Origin",  "operation": "set", "value": "*" },
+        { "header": "Access-Control-Allow-Headers", "operation": "set", "value": "authorization, content-type, accept, origin, x-atlassian-token" },
+        { "header": "Access-Control-Allow-Methods", "operation": "set", "value": "GET, POST, PUT, DELETE, PATCH, OPTIONS" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||jira.com/rest/"
+    }
+  }
+]

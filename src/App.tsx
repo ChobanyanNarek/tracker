@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useStore, countUrgentDeadlines } from './store'
-import { getJiras } from './utils/format'
+import { jiraDedupeKey } from './utils/format'
 import TopBar from './components/layout/TopBar'
 import Sidebar from './components/layout/Sidebar'
 import Calendar from './components/calendar/Calendar'
@@ -11,6 +11,7 @@ import PerformanceView from './components/views/PerformanceView'
 import ScheduleView from './components/views/ScheduleView'
 import StandupModal from './components/modals/StandupModal'
 import JiraConfigModal from './components/modals/JiraConfigModal'
+import GitLabConfigModal from './components/modals/GitLabConfigModal'
 
 const VIEW_LABELS: Record<string, string> = {
   daily: '📅 Daily',
@@ -20,22 +21,6 @@ const VIEW_LABELS: Record<string, string> = {
   schedule: '🗓 Schedule',
 }
 
-// In-app alert notification component
-interface InAppAlert { id: number; title: string; body: string }
-function AlertStack({ alerts, onDismiss }: { alerts: InAppAlert[]; onDismiss: (id: number) => void }) {
-  if (!alerts.length) return null
-  return (
-    <div style={{ position: 'fixed', top: 66, right: 16, zIndex: 99999, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 320, pointerEvents: 'none' }}>
-      {alerts.map((a) => (
-        <div key={a.id} onClick={() => onDismiss(a.id)} style={{ background: '#1e293b', color: '#fff', borderRadius: 12, padding: '14px 16px 12px', boxShadow: '0 8px 32px rgba(0,0,0,.45)', borderLeft: '4px solid #f59e0b', cursor: 'pointer', pointerEvents: 'all' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{a.title}</div>
-          <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5, whiteSpace: 'pre-line' }}>{a.body}</div>
-          <div style={{ fontSize: 10, opacity: 0.3, marginTop: 6 }}>tap to dismiss</div>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 const NOTIF_KEY = 'pmtracker_notified'
 function loadNotified(): Record<string, number> {
@@ -46,86 +31,113 @@ function saveNotified(o: Record<string, number>) {
 }
 
 export default function App() {
-  const { view, setView, selectedDate, selectedProject, projects, tasks, developers, autoCarryOverdue, syncJira } = useStore()
+  const { view, setView, selectedDate, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, syncJira, syncGitlab, notifsEnabled, setNotifsEnabled } = useStore()
   const jiraConfig = useStore((s) => s.jiraConfig)
+  const gitlabConfig = useStore((s) => s.gitlabConfig)
   const [toast, setToast] = useState<string | null>(null)
   const [standupOpen, setStandupOpen] = useState(false)
   const [jiraConfigOpen, setJiraConfigOpen] = useState(false)
-  const [alerts, setAlerts] = useState<InAppAlert[]>([])
-  const alertIdRef = useRef(0)
+  const [gitlabConfigOpen, setGitlabConfigOpen] = useState(false)
   const tasksRef = useRef(tasks)
   const developersRef = useRef(developers)
   useEffect(() => { tasksRef.current = tasks }, [tasks])
   useEffect(() => { developersRef.current = developers }, [developers])
 
-  const urgentCount = countUrgentDeadlines(tasks)
+  const urgentCount = countUrgentDeadlines(tasks, developers)
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }, [])
+  const showToast = useCallback((msg: string) => { setToast(msg) }, [])
 
-  const showInAppAlert = useCallback((title: string, body: string) => {
-    const id = ++alertIdRef.current
-    setAlerts((a) => [...a, { id, title, body }])
-    // Play soft beep
-    try {
-      const ctx = new AudioContext()
-      ;[[880, 0], [660, 0.15]].forEach(([freq, t]) => {
-        const o = ctx.createOscillator(); const g = ctx.createGain()
-        o.connect(g); g.connect(ctx.destination)
-        o.frequency.value = freq
-        g.gain.setValueAtTime(0.2, ctx.currentTime + t)
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.3)
-        o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.3)
-      })
-    } catch {}
-    setTimeout(() => setAlerts((a) => a.filter((x) => x.id !== id)), 9000)
-  }, [])
+  const notifsEnabledRef = useRef(notifsEnabled)
+  useEffect(() => { notifsEnabledRef.current = notifsEnabled }, [notifsEnabled])
 
-  // Check deadlines for 15-min notifications — uses refs so interval doesn't restart on every task mutation
   const checkDeadlineNotifications = useCallback(() => {
+    if (!notifsEnabledRef.current) return
+    if (!('Notification' in window) || Notification.permission !== 'granted') return
+
     const nowMs = Date.now()
     const notified = loadNotified()
     let changed = false
 
-    tasksRef.current.forEach((task) => {
-      const deadlines: { key: string; name: string; dl: string; t: string }[] = []
-      const jiras = getJiras(task)
-      jiras.forEach((j, ji) => {
-        if (j.deadline && j.status !== 'done') {
-          deadlines.push({ key: `${task.id}-j${ji}`, name: j.name || j.url.split('/').pop() || 'Issue', dl: j.deadline, t: j.deadlineTime || '' })
-        }
-      })
-      if (!jiras.length && task.deadline && task.status !== 'done') {
-        deadlines.push({ key: `${task.id}-task`, name: task.title || 'Checkpoint', dl: task.deadline, t: task.deadlineTime || '' })
-      }
+    // Prune entries older than 2 days so a re-scheduled deadline can re-fire
+    const twoDaysAgo = nowMs - 172_800_000
+    for (const k of Object.keys(notified)) {
+      if (notified[k] < twoDaysAgo) { delete notified[k]; changed = true }
+    }
 
-      deadlines.forEach(({ key, name, dl, t }) => {
-        const nk = key + '-15'
+    // Deduplicate across carry-over copies: one notification per unique issue
+    const seen = new Set<string>()
+
+    tasksRef.current.forEach((task) => {
+      // Use task.jiras directly — getJiras() returns a synthetic fallback for old-format
+      // tasks which has an empty deadline and length=1, blocking the task-level check below.
+      const realJiras = Array.isArray(task.jiras) && task.jiras.length > 0 ? task.jiras : []
+
+      realJiras.forEach((j) => {
+        if (!j.deadline || j.status === 'done') return
+        const stableKey = j.issueId
+          ? `${task.devId}:${j.issueId}`
+          : `${task.devId}:${jiraDedupeKey(j.url, j.name)}`
+        if (seen.has(stableKey)) return
+        seen.add(stableKey)
+        // Include deadline in key: carry-over that changes the deadline date fires a fresh notif
+        const nk = `${stableKey}:${j.deadline}:${j.deadlineTime || '23:59'}:15min`
         if (notified[nk]) return
-        const [y, mo, d] = dl.split('-').map(Number)
-        const [hh, mm] = (t || '23:59').split(':').map(Number)
-        const dlMs = new Date(y, mo - 1, d, hh, mm, 0, 0).getTime()
-        const diffMin = (dlMs - nowMs) / 60000
+        const [y, mo, d] = j.deadline.split('-').map(Number)
+        const [hh, mm] = (j.deadlineTime || '23:59').split(':').map(Number)
+        const diffMin = (new Date(y, mo - 1, d, hh, mm).getTime() - nowMs) / 60000
         if (diffMin > 14 && diffMin <= 16) {
           const dev = developersRef.current.find((dv) => dv.id === task.devId)
-          showInAppAlert('⏰ 15 min until deadline!', `${name}\n${dev?.name ?? ''}${t ? ` · due at ${t}` : ''}`)
-          if ('Notification' in window && Notification.permission === 'granted') {
-            try { new Notification('⏰ 15 min until deadline!', { body: `${name} · ${dev?.name ?? ''}`, tag: nk }) } catch {}
-          }
+          const label = j.name || j.url || 'Issue'
+          try {
+            new Notification('⏰ 15 min until deadline!', {
+              body: `${label} · ${dev?.name ?? ''}${j.deadlineTime ? ` · due at ${j.deadlineTime}` : ''}`,
+              tag: nk,
+              requireInteraction: true,
+            })
+          } catch {}
           notified[nk] = nowMs
           changed = true
         }
       })
+
+      // Task-level deadline: old-format (jira string, no jiras array) or tasks without jiras
+      if (!realJiras.length && task.deadline && task.status !== 'done') {
+        const stableKey = `${task.devId}:task:${task.title}`
+        if (!seen.has(stableKey)) {
+          seen.add(stableKey)
+          const nk = `${stableKey}:${task.deadline}:${task.deadlineTime || '23:59'}:15min`
+          if (!notified[nk]) {
+            const [y, mo, d] = task.deadline.split('-').map(Number)
+            const [hh, mm] = (task.deadlineTime || '23:59').split(':').map(Number)
+            const diffMin = (new Date(y, mo - 1, d, hh, mm).getTime() - nowMs) / 60000
+            if (diffMin > 14 && diffMin <= 16) {
+              const dev = developersRef.current.find((dv) => dv.id === task.devId)
+              try {
+                new Notification('⏰ 15 min until deadline!', {
+                  body: `${task.title || 'Checkpoint'} · ${dev?.name ?? ''}${task.deadlineTime ? ` · due at ${task.deadlineTime}` : ''}`,
+                  tag: nk,
+                  requireInteraction: true,
+                })
+              } catch {}
+              notified[nk] = nowMs
+              changed = true
+            }
+          }
+        }
+      }
     })
     if (changed) saveNotified(notified)
-  }, [showInAppAlert])
+  }, [])
 
-  // auto carry overdue on mount
+  // migrate existing jiras to have stable issueIds, then carry overdue
   useEffect(() => {
-    const carried = autoCarryOverdue()
-    if (carried) showToast('Overdue tasks carried over to today')
+    // If browser already has notification permission granted, keep the store flag in sync
+    if ('Notification' in window && Notification.permission === 'granted') {
+      setNotifsEnabled(true)
+    }
+    migrateIssueIds()
+    deduplicateJiras()
+    autoCarryOverdue()
   }, [])
 
   // Escape closes modals
@@ -142,9 +154,12 @@ export default function App() {
     return () => clearInterval(id)
   }, [checkDeadlineNotifications])
 
-  // auto carry every minute in case day rolls over
+  // auto carry every minute in case day rolls over; deduplicate after each carry
   useEffect(() => {
-    const id = setInterval(() => { if (autoCarryOverdue()) showToast('Overdue tasks carried over to today') }, 60000)
+    const id = setInterval(() => {
+      deduplicateJiras()
+      autoCarryOverdue()
+    }, 60000)
     return () => clearInterval(id)
   }, [])
 
@@ -161,11 +176,24 @@ export default function App() {
     return () => clearInterval(id)
   }, [jiraConfig.enabled, jiraConfig.syncInterval, jiraConfig.token])
 
+  // GitLab auto-poll
+  useEffect(() => {
+    if (!gitlabConfig.enabled || !gitlabConfig.syncInterval || !gitlabConfig.token) return
+    const ms = gitlabConfig.syncInterval * 60 * 1000
+    const id = setInterval(async () => {
+      try {
+        const { linked } = await syncGitlab()
+        if (linked) showToast(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked`)
+      } catch {}
+    }, ms)
+    return () => clearInterval(id)
+  }, [gitlabConfig.enabled, gitlabConfig.syncInterval, gitlabConfig.token])
+
   const proj = projects.find((p) => p.id === selectedProject)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
-      <TopBar onStandup={() => setStandupOpen(true)} urgentCount={urgentCount} onJiraConfig={() => setJiraConfigOpen(true)} />
+      <TopBar onStandup={() => setStandupOpen(true)} urgentCount={urgentCount} onJiraConfig={() => setJiraConfigOpen(true)} onGitlabConfig={() => setGitlabConfigOpen(true)} onFeedback={showToast} />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* sidebar */}
@@ -223,19 +251,20 @@ export default function App() {
 
       {/* toast */}
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--text)', color: 'var(--bg)', fontFamily: 'var(--mono)', fontSize: 12, padding: '9px 20px', borderRadius: 24, boxShadow: '0 4px 20px rgba(0,0,0,.3)', zIndex: 2000, pointerEvents: 'none' }}>
-          {toast}
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--text)', color: 'var(--bg)', fontFamily: 'var(--mono)', fontSize: 12, padding: '9px 16px 9px 20px', borderRadius: 24, boxShadow: '0 4px 20px rgba(0,0,0,.3)', zIndex: 2000, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span>{toast}</span>
+          <button onClick={() => setToast(null)} style={{ background: 'none', border: 'none', color: 'var(--bg)', opacity: 0.6, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0, display: 'flex', alignItems: 'center' }}>✕</button>
         </div>
       )}
-
-      {/* in-app deadline alerts */}
-      <AlertStack alerts={alerts} onDismiss={(id) => setAlerts((a) => a.filter((x) => x.id !== id))} />
 
       {/* standup modal */}
       {standupOpen && <StandupModal onClose={() => setStandupOpen(false)} />}
 
       {/* jira config modal */}
       {jiraConfigOpen && <JiraConfigModal onClose={() => setJiraConfigOpen(false)} />}
+
+      {/* gitlab config modal */}
+      {gitlabConfigOpen && <GitLabConfigModal onClose={() => setGitlabConfigOpen(false)} />}
     </div>
   )
 }

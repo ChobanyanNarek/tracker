@@ -24,10 +24,10 @@ function fmtDelta(wh: number): string {
 }
 
 export default function PerformanceView() {
-  const [devFilter, setDevFilter] = useState<string>('ALL')
   const [sortKey, setSortKey] = useState<SortKey>('newest')
 
-  const { developers, tasks, projects, selectedProject } = useStore()
+  const { developers: allDevelopers, tasks, projects, selectedDev, selectedProject } = useStore()
+  const developers = allDevelopers.filter((d) => !d.archivedAt)
 
   interface TaskPerf {
     title: string
@@ -59,7 +59,7 @@ export default function PerformanceView() {
 
     devTasks.forEach((t) => {
       const jiras = getJiras(t)
-      const reviewItems: { reviewDate: string; reviewTime: string; deadline: string; deadlineTime: string; title: string; projectId: string; date: string }[] =
+      const reviewItems: { reviewDate: string; reviewTime: string; deadline: string; deadlineTime: string; title: string; projectId: string; date: string; issueKey: string }[] =
         jiras.length
           ? jiras.flatMap((j) =>
               j.prs?.length
@@ -71,16 +71,18 @@ export default function PerformanceView() {
                     title: j.name || 'Issue',
                     projectId: t.projectId,
                     date: t.date,
+                    issueKey: j.url || `name:${j.name}`,
                   }))
                 : [],
             )
           : t.reviewDate && t.deadline
-            ? [{ reviewDate: t.reviewDate, reviewTime: t.reviewTime, deadline: t.deadline, deadlineTime: t.deadlineTime, title: t.title, projectId: t.projectId, date: t.date }]
+            ? [{ reviewDate: t.reviewDate, reviewTime: t.reviewTime, deadline: t.deadline, deadlineTime: t.deadlineTime, title: t.title, projectId: t.projectId, date: t.date, issueKey: `task:${t.title}` }]
             : []
 
       reviewItems.forEach((r) => {
         if (!r.reviewDate || !r.deadline) return
-        const dedupeKey = `${r.title}|${r.reviewDate}|${r.deadline}`
+        // Dedup by (unique issue key + PR date) to avoid counting carry-over copies
+        const dedupeKey = `${r.issueKey}|${r.reviewDate}|${r.reviewTime}`
         if (seen.has(dedupeKey)) return
         seen.add(dedupeKey)
         const rdMs = new Date(r.reviewDate + 'T' + (r.reviewTime || '12:00')).getTime()
@@ -109,7 +111,7 @@ export default function PerformanceView() {
   })
 
   const withData = allPerfData.filter((dp) => dp.taskPerfs.length > 0)
-  const filteredPerfData = devFilter === 'ALL' ? withData : withData.filter((dp) => dp.dev.id === devFilter)
+  const filteredPerfData = selectedDev === 'ALL' ? withData : withData.filter((dp) => dp.dev.id === selectedDev)
 
   const sorted = [...filteredPerfData]
   if (sortKey === 'newest') {
@@ -153,30 +155,8 @@ export default function PerformanceView() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* filter bar */}
+      {/* sort bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', flexShrink: 0 }}>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginRight: 2 }}>Assignee:</span>
-        <div
-          onClick={() => setDevFilter('ALL')}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 20, border: `1px solid ${devFilter === 'ALL' ? 'var(--accent)' : 'var(--border)'}`, background: devFilter === 'ALL' ? 'var(--accent-dim)' : 'var(--surface2)', cursor: 'pointer', fontSize: 12, fontWeight: 500, color: devFilter === 'ALL' ? 'var(--accent)' : 'var(--text2)' }}
-        >
-          <span style={{ fontSize: 13 }}>⚡</span> All
-        </div>
-        {developers.map((dev) => {
-          const rgb = hexRgb(dev.color)
-          const isActive = devFilter === dev.id
-          return (
-            <div
-              key={dev.id}
-              onClick={() => setDevFilter(dev.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 20, border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`, background: isActive ? 'var(--accent-dim)' : 'var(--surface2)', cursor: 'pointer', fontSize: 12, fontWeight: 500, color: isActive ? 'var(--accent)' : 'var(--text2)' }}
-            >
-              <div className="av" style={{ background: `rgba(${rgb},.15)`, color: dev.color, width: 18, height: 18, fontSize: 8, flexShrink: 0 }}>{initials(dev.name)}</div>
-              {dev.name}
-            </div>
-          )
-        })}
-        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px', flexShrink: 0 }} />
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>Sort:</span>
         <select
           value={sortKey}
@@ -187,7 +167,7 @@ export default function PerformanceView() {
         </select>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
         {totalTasks === 0 ? (
           <div style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text3)' }}>
             <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.35 }}>📊</div>
@@ -199,7 +179,7 @@ export default function PerformanceView() {
             {/* Summary section */}
             <div>
               <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 10 }}>
-                {devFilter === 'ALL' ? 'Team overview' : (developers.find((d) => d.id === devFilter)?.name ?? 'Developer') + ' overview'}
+                {selectedDev === 'ALL' ? 'Team overview' : (developers.find((d) => d.id === selectedDev)?.name ?? 'Developer') + ' overview'}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
                 {([
@@ -224,7 +204,7 @@ export default function PerformanceView() {
 
             {/* Per-dev cards */}
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>
-              {devFilter === 'ALL' ? 'All developers' : 'Developer detail'}
+              {selectedDev === 'ALL' ? 'All developers' : 'Developer detail'}
             </div>
 
             {sorted.map(({ dev, taskPerfs, avgDelta, earlyCount, lateCount, earlyPct, latePct }) => {
@@ -237,7 +217,7 @@ export default function PerformanceView() {
               }[verdictCls]
 
               return (
-                <div key={dev.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', overflow: 'hidden' }}>
+                <div key={dev.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', overflow: 'hidden', flexShrink: 0 }}>
                   {/* Header */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
                     <div className="av" style={{ background: `rgba(${rgb},.15)`, color: dev.color, width: 32, height: 32, fontSize: 12 }}>{initials(dev.name)}</div>
@@ -296,8 +276,13 @@ export default function PerformanceView() {
                           <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', flexShrink: 0 }}>
                             {p.reviewDate}{p.reviewTime ? ' ' + p.reviewTime : ''}
                           </div>
-                          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, color: isEarly ? 'var(--green)' : 'var(--red)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                            {isEarly ? '−' : '+'}{fmtDelta(Math.abs(p.delta))}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 5, background: isEarly ? 'var(--green-dim)' : 'var(--red-dim)', color: isEarly ? 'var(--green)' : 'var(--red)', border: `1px solid ${isEarly ? '#86efac' : '#fca5a5'}` }}>
+                              {isEarly ? 'Early' : 'Late'}
+                            </span>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, color: isEarly ? 'var(--green)' : 'var(--red)', whiteSpace: 'nowrap' }}>
+                              {isEarly ? '−' : '+'}{fmtDelta(Math.abs(p.delta))}
+                            </span>
                           </div>
                         </div>
                       )

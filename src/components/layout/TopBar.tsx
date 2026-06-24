@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react'
 import { useStore } from '../../store'
 import { PALETTE } from '../../constants'
 import MembersModal from '../modals/MembersModal'
@@ -29,7 +29,7 @@ function ProjectDropdown() {
   const [membersModalProjId, setMembersModalProjId] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
-  const { projects, tasks, selectedProject, selectedDate, addProject, deleteProject, setSelectedProject } = useStore()
+  const { projects, selectedProject, addProject, deleteProject, setSelectedProject } = useStore()
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -87,15 +87,11 @@ function ProjectDropdown() {
               >
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--text3)', display: 'block', flexShrink: 0 }} />
                 <span style={{ fontSize: 13, fontWeight: 500, flex: 1, color: selectedProject === 'ALL' ? 'var(--accent)' : 'var(--text2)' }}>All projects</span>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, background: selectedProject === 'ALL' ? '#bfdbfe' : 'var(--surface3)', color: selectedProject === 'ALL' ? 'var(--accent)' : 'var(--text3)', padding: '1px 6px', borderRadius: 8 }}>
-                  {tasks.filter((t) => t.date === selectedDate).length}
-                </span>
               </div>
 
               {projects.length > 0 && <div style={{ height: 1, background: 'var(--border)', margin: '3px 0' }} />}
 
               {projects.map((p) => {
-                const cnt = tasks.filter((t) => t.projectId === p.id && t.date === selectedDate).length
                 const isActive = selectedProject === p.id
                 return (
                   <div key={p.id} style={{ marginBottom: 2 }}>
@@ -111,7 +107,6 @@ function ProjectDropdown() {
                         {p.desc && <div style={{ fontSize: 11, color: 'var(--text3)' }}>{p.desc}</div>}
                         <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{p.members.length} member{p.members.length !== 1 ? 's' : ''}</div>
                       </div>
-                      <span style={{ fontFamily: 'var(--mono)', fontSize: 10, background: isActive ? '#bfdbfe' : 'var(--surface3)', color: isActive ? 'var(--accent)' : 'var(--text3)', padding: '1px 6px', borderRadius: 8 }}>{cnt}</span>
                       <button
                         onClick={(e) => { e.stopPropagation(); setMembersModalProjId(p.id) }}
                         title="Edit members"
@@ -160,16 +155,127 @@ function ProjectDropdown() {
   )
 }
 
+interface IntegrationsProps {
+  jiraEnabled: boolean
+  gitlabEnabled: boolean
+  jiraSyncing: boolean
+  glSyncing: boolean
+  onJiraConfig: () => void
+  onGitlabConfig: () => void
+  onJiraSync: () => void
+  onGitlabSync: () => void
+}
+
+function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, jiraSyncing, glSyncing, onJiraConfig, onGitlabConfig, onJiraSync, onGitlabSync }: IntegrationsProps) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const anyEnabled = jiraEnabled || gitlabEnabled
+
+  const rowStyle: CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+    borderBottom: '1px solid var(--border)',
+  }
+  const iconBtnStyle: CSSProperties = {
+    background: 'none', border: '1px solid var(--border)', borderRadius: 5,
+    color: 'var(--text3)', fontSize: 11, padding: '3px 7px', cursor: 'pointer',
+    fontFamily: 'var(--mono)', transition: 'all .15s',
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title="Integrations (Jira, GitLab)"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          border: `1px solid ${anyEnabled ? 'var(--accent)' : 'var(--border)'}`,
+          background: 'var(--surface)', color: anyEnabled ? 'var(--accent)' : 'var(--text3)',
+          fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 11px',
+          borderRadius: 6, cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap',
+        }}
+      >
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        Services
+        {anyEnabled && (
+          <span style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+            {jiraEnabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#60a5fa' }} />}
+            {gitlabEnabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#fb923c' }} />}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 220,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 'var(--rl)', boxShadow: 'var(--shadow)', zIndex: 500, overflow: 'hidden',
+        }}>
+          <div style={{ padding: '8px 12px 6px', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.8px' }}>Integrations</span>
+          </div>
+
+          {/* Jira */}
+          <div style={rowStyle}>
+            <span style={{ fontSize: 13 }}>🔗</span>
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: jiraEnabled ? '#60a5fa' : 'var(--text3)' }}>Jira</span>
+            {jiraEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#60a5fa', padding: '1px 5px', border: '1px solid #60a5fa40', borderRadius: 8 }}>on</span>}
+            <button
+              style={iconBtnStyle}
+              title="Jira settings"
+              onClick={() => { setOpen(false); onJiraConfig() }}
+            >⚙</button>
+            <button
+              style={{ ...iconBtnStyle, opacity: jiraSyncing ? 0.5 : 1, color: jiraEnabled ? '#60a5fa' : 'var(--text3)', borderColor: jiraEnabled ? '#60a5fa50' : 'var(--border)' }}
+              title="Sync from Jira"
+              disabled={jiraSyncing}
+              onClick={() => { setOpen(false); onJiraSync() }}
+            >{jiraSyncing ? '⟳' : '↻'}</button>
+          </div>
+
+          {/* GitLab */}
+          <div style={{ ...rowStyle, borderBottom: 'none' }}>
+            <span style={{ fontSize: 13 }}>🦊</span>
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: gitlabEnabled ? '#fb923c' : 'var(--text3)' }}>GitLab</span>
+            {gitlabEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#fb923c', padding: '1px 5px', border: '1px solid #fb923c40', borderRadius: 8 }}>on</span>}
+            <button
+              style={iconBtnStyle}
+              title="GitLab settings"
+              onClick={() => { setOpen(false); onGitlabConfig() }}
+            >⚙</button>
+            <button
+              style={{ ...iconBtnStyle, opacity: glSyncing ? 0.5 : 1, color: gitlabEnabled ? '#fb923c' : 'var(--text3)', borderColor: gitlabEnabled ? '#fb923c50' : 'var(--border)' }}
+              title="Sync MRs from GitLab"
+              disabled={glSyncing}
+              onClick={() => { setOpen(false); onGitlabSync() }}
+            >{glSyncing ? '⟳' : '↻'}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface TopBarProps {
   onStandup: () => void
   urgentCount: number
   onJiraConfig: () => void
+  onGitlabConfig: () => void
+  onFeedback: (msg: string) => void
 }
 
-export default function TopBar({ onStandup, urgentCount, onJiraConfig }: TopBarProps) {
-  const { exportJSON, importJSON, setNotifsEnabled, syncJira } = useStore()
+export default function TopBar({ onStandup, urgentCount, onJiraConfig, onGitlabConfig, onFeedback }: TopBarProps) {
+  const { exportJSON, importJSON, setNotifsEnabled, syncJira, syncGitlab, notifsEnabled } = useStore()
   const jiraConfig = useStore((s) => s.jiraConfig)
+  const gitlabConfig = useStore((s) => s.gitlabConfig)
   const [jiraSyncing, setJiraSyncing] = useState(false)
+  const [glSyncing, setGlSyncing] = useState(false)
 
   const handleImport = () => {
     const input = document.createElement('input')
@@ -193,17 +299,40 @@ export default function TopBar({ onStandup, urgentCount, onJiraConfig }: TopBarP
   }
 
   const toggleNotifs = async () => {
-    if (!('Notification' in window)) { alert('Notifications not supported in this browser'); return }
-    if (Notification.permission === 'denied') {
-      alert('Notifications are blocked. Go to browser Settings → Site settings → Notifications → allow this site.')
+    if (!('Notification' in window)) {
+      onFeedback('Notifications not supported by your browser.')
       return
     }
-    const r = await Notification.requestPermission().catch(() => 'denied')
+    if (Notification.permission === 'denied') {
+      onFeedback('Notifications blocked — open browser Site Settings → Notifications and allow this site.')
+      return
+    }
+    // Already enabled: clicking again fires a test notification so the user can verify visibility
+    if (Notification.permission === 'granted' && notifsEnabled) {
+      try {
+        new Notification('🔔 PM Tracker — test', {
+          body: 'Notifications are working! You will see this 15 min before any deadline.',
+          requireInteraction: true,
+        })
+        onFeedback('Test notification sent — it should stay visible until you dismiss it.')
+      } catch {
+        onFeedback('Notification API failed — check macOS System Settings → Notifications → allow your browser.')
+      }
+      return
+    }
+    const r = await Notification.requestPermission().catch(() => 'denied' as const)
     if (r === 'granted') {
       setNotifsEnabled(true)
-      new Notification('🔔 PM Tracker', { body: 'Notifications enabled — you will be alerted 15 min before deadlines' })
+      try {
+        new Notification('🔔 PM Tracker notifications ON', {
+          body: 'You will be notified 15 min before any deadline. Click the bell again to test.',
+          requireInteraction: true,
+        })
+      } catch {}
+      onFeedback('🔔 Enabled — click the bell again to send a test notification.')
     } else {
       setNotifsEnabled(false)
+      onFeedback('Notifications denied — enable them in your browser site settings.')
     }
   }
 
@@ -214,9 +343,23 @@ export default function TopBar({ onStandup, urgentCount, onJiraConfig }: TopBarP
     setJiraSyncing(false)
   }, [jiraConfig.enabled, jiraConfig.token, syncJira, onJiraConfig])
 
+  const handleGitlabSync = useCallback(async () => {
+    if (!gitlabConfig.enabled || !gitlabConfig.token) { onGitlabConfig(); return }
+    setGlSyncing(true)
+    try {
+      const { linked, updated } = await syncGitlab()
+      onFeedback(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked, ${updated} already tracked`)
+    } catch (err) {
+      onFeedback(`GitLab sync failed: ${(err as Error).message}`)
+    }
+    setGlSyncing(false)
+  }, [gitlabConfig.enabled, gitlabConfig.token, syncGitlab, onGitlabConfig, onFeedback])
+
   const notifPerm = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
-  const notifIcon = notifPerm === 'granted' ? '🔔' : '🔕'
-  const notifOpacity = notifPerm === 'granted' ? 1 : 0.5
+  const notifOn = notifPerm === 'granted' && notifsEnabled
+  const notifIcon = notifOn ? '🔔' : '🔕'
+  const notifOpacity = notifOn ? 1 : 0.45
+  const notifTitle = notifOn ? 'Notifications ON — click to send a test notification' : 'Click to enable notifications'
 
   const btnStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 5,
@@ -244,7 +387,7 @@ export default function TopBar({ onStandup, urgentCount, onJiraConfig }: TopBarP
           </span>
         )}
 
-        <button onClick={toggleNotifs} title={notifPerm === 'granted' ? 'Notifications ON — click to test' : 'Enable notifications'} style={{ ...btnStyle, opacity: notifOpacity, padding: '5px 8px' }}>
+        <button onClick={toggleNotifs} title={notifTitle} style={{ ...btnStyle, opacity: notifOpacity, padding: '5px 8px', borderColor: notifOn ? 'var(--accent)' : 'var(--border)' }}>
           {notifIcon}
         </button>
         <button onClick={exportJSON} style={btnStyle}>
@@ -255,21 +398,16 @@ export default function TopBar({ onStandup, urgentCount, onJiraConfig }: TopBarP
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 14 12 9 17 14"/><line x1="12" y1="9" x2="12" y2="21"/></svg>
           Restore
         </button>
-        <button
-          onClick={onJiraConfig}
-          title="Jira settings"
-          style={{ ...btnStyle, paddingRight: 6, borderRight: 'none', borderRadius: '6px 0 0 6px', borderColor: jiraConfig.enabled ? '#60a5fa' : 'var(--border)', color: jiraConfig.enabled ? '#60a5fa' : 'var(--text3)' }}
-        >
-          🔗 Jira
-        </button>
-        <button
-          onClick={handleJiraSync}
-          disabled={jiraSyncing}
-          title="Sync from Jira"
-          style={{ ...btnStyle, paddingLeft: 7, borderLeft: '1px solid var(--border)', borderRadius: '0 6px 6px 0', borderColor: jiraConfig.enabled ? '#60a5fa' : 'var(--border)', color: jiraConfig.enabled ? '#60a5fa' : 'var(--text3)', opacity: jiraSyncing ? 0.6 : 1 }}
-        >
-          {jiraSyncing ? '⟳' : '↻'}
-        </button>
+        <IntegrationsDropdown
+          jiraEnabled={jiraConfig.enabled}
+          gitlabEnabled={gitlabConfig.enabled}
+          jiraSyncing={jiraSyncing}
+          glSyncing={glSyncing}
+          onJiraConfig={onJiraConfig}
+          onGitlabConfig={onGitlabConfig}
+          onJiraSync={handleJiraSync}
+          onGitlabSync={handleGitlabSync}
+        />
         <button onClick={onStandup} style={{ ...btnStyle, background: 'var(--green-dim)', borderColor: '#86efac', color: 'var(--green)' }}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           Standup

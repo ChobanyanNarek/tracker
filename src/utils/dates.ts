@@ -32,6 +32,14 @@ export function nextWorkDay(dateStr: string): string {
   return localDate(d)
 }
 
+export function prevWorkDay(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  do {
+    d.setDate(d.getDate() - 1)
+  } while (d.getDay() === 0 || d.getDay() === 6 || isAmHoliday(localDate(d)))
+  return localDate(d)
+}
+
 export interface DlInfo {
   cls: 'dl-none' | 'dl-over' | 'dl-warn' | 'dl-ok'
   text: string

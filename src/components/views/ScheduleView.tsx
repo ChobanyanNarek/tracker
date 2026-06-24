@@ -170,7 +170,8 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
 
 // Schedule report modal
 function ScheduleReportModal({ year, month, onClose }: { year: number; month: number; onClose: () => void }) {
-  const { developers, schedule } = useStore()
+  const { developers: allDevelopers, schedule } = useStore()
+  const developers = allDevelopers.filter((d) => !d.archivedAt)
   const [copied, setCopied] = useState(false)
   const days = daysInMonth(year, month)
   const daysList: string[] = []
@@ -264,7 +265,7 @@ export default function ScheduleView() {
   const [empModal, setEmpModal] = useState<string | null>(null) // devId
   const [report, setReport] = useState(false)
 
-  const developers = useStore((s) => s.developers)
+  const developers = useStore((s) => s.developers.filter((d) => !d.archivedAt))
   const schedule = useStore((s) => s.schedule)
   const setScheduleDay = useStore((s) => s.setScheduleDay)
   const updateDeveloperPeriods = useStore((s) => s.updateDeveloperPeriods)
@@ -349,7 +350,16 @@ export default function ScheduleView() {
                 const isToday = ds === today
                 const isRS = rangeStart?.date === ds
                 return (
-                  <th key={ds} title={isAmHoliday(ds) || ''} style={{ padding: '3px 2px', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 600, color: isHol ? '#0891b2' : isWe ? 'var(--text3)' : 'var(--text2)', borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)', background: isRS ? 'var(--accent-dim)' : isToday ? '#eff6ff' : isHol ? '#cffafe' : isWe ? 'var(--surface3)' : undefined, minWidth: 28 }}>
+                  <th key={ds} title={isAmHoliday(ds) || ''} style={{
+                    padding: '3px 2px', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 9,
+                    fontWeight: isToday ? 800 : 600,
+                    color: isToday ? 'var(--accent)' : isHol ? '#0891b2' : isWe ? 'var(--text3)' : 'var(--text2)',
+                    borderBottom: isToday ? '2px solid var(--accent)' : '1px solid var(--border)',
+                    borderRight: '1px solid var(--border)',
+                    borderLeft: isToday ? '2px solid var(--accent)' : undefined,
+                    background: isRS ? 'var(--accent-dim)' : isToday ? '#dbeafe' : isHol ? '#cffafe' : isWe ? 'var(--surface3)' : undefined,
+                    minWidth: 28,
+                  }}>
                     <div>{d.getDate()}</div>
                     <div style={{ fontSize: 8, opacity: 0.7 }}>{dow}</div>
                   </th>
@@ -405,6 +415,7 @@ export default function ScheduleView() {
                     const effective = entry ?? (amHol ? 'holiday' : null)
                     const dt = effective ? DAY_TYPES[effective] : null
                     const isRS = rangeStart?.devId === dev.id && rangeStart.date === ds
+                    const isTodayCol = ds === today
                     const hours = getDevHoursForDate(dev, ds)
                     const isPartial = !effective && !isWe && hours !== 8
 
@@ -413,6 +424,7 @@ export default function ScheduleView() {
                       : isWe ? 'var(--surface3)'
                       : amHol ? '#cffafe'
                       : (isPartial && !isWe) ? '#eff6ff'
+                      : isTodayCol ? 'rgba(37,99,235,0.05)'
                       : undefined
 
                     return (
@@ -427,6 +439,7 @@ export default function ScheduleView() {
                         title={amHol || dt?.label || (isPartial && !isWe ? `${hours}h / part-time` : 'Full day')}
                         style={{
                           padding: 2, borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)', textAlign: 'center',
+                          borderLeft: isTodayCol ? '2px solid var(--accent)' : undefined,
                           cursor: isWe ? 'default' : 'pointer',
                           background: cellBg,
                           transition: 'filter .1s',

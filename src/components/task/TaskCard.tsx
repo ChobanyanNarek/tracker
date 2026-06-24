@@ -14,7 +14,7 @@ interface Props {
 }
 
 export default function TaskCard({ task, onEdit, onToast }: Props) {
-  const { developers, projects, deleteTask, duplicateTask, carryOver, updateJiraStatus, updateJiraPriority, reorderJiras, selectedDate } = useStore()
+  const { developers, projects, deleteTask, duplicateTask, carryOver, updateJiraStatus, updateJiraPriority, reorderJiras, deleteJira, toggleJiraHidden, selectedDate } = useStore()
 
   const dev = developers.find((d) => d.id === task.devId)
   const proj = projects.find((p) => p.id === task.projectId)
@@ -104,8 +104,10 @@ export default function TaskCard({ task, onEdit, onToast }: Props) {
                   issue={j}
                   taskId={task.id}
                   index={i}
-                  onStatusChange={(idx, s) => updateJiraStatus(task.id, idx, s)}
-                  onPriorityChange={(idx, p) => updateJiraPriority(task.id, idx, p)}
+                  onStatusChange={(iid, url, s) => updateJiraStatus(task.id, iid, url, s)}
+                  onPriorityChange={(iid, url, p) => updateJiraPriority(task.id, iid, url, p)}
+                  onDelete={(iid, url) => deleteJira(task.id, iid, url)}
+                  onHide={(iid, url) => toggleJiraHidden(task.id, iid, url)}
                 />
               ))}
             </SortableContext>

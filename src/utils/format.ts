@@ -48,6 +48,27 @@ export function jiraPresetLabel(url: string): string {
   }
 }
 
+// Returns a stable dedup key for a jira issue.
+// Extracts the Jira ticket ID (e.g. "MONE-781") from the URL or name when
+// possible so that the same issue entered with slightly different URL formats
+// (https://…/browse/MONE-781, https://…/MONE-781, bare "MONE-781") always
+// maps to a single card in the Deadlines dashboard.
+export function jiraDedupeKey(url: string, name: string): string {
+  const u = (url ?? '').trim()
+  if (u) {
+    const ticket = u.match(/([A-Z][A-Z0-9]+-\d+)/)
+    if (ticket) return ticket[1]
+    return u.replace(/\/+$/, '')
+  }
+  const n = (name ?? '').trim()
+  if (n) {
+    const ticket = n.match(/([A-Z][A-Z0-9]+-\d+)/)
+    if (ticket) return ticket[1]
+    return `name:${n}`
+  }
+  return 'name:'
+}
+
 export function getJiras(task: Task): JiraIssue[] {
   if (Array.isArray(task.jiras) && task.jiras.length) return task.jiras
   if (task.jira)

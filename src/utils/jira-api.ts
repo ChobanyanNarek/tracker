@@ -1,4 +1,5 @@
 import type { JiraConfig, JiraIssue, Priority, Status } from '../types'
+import { fetchViaBridge } from './bridge'
 
 export interface JiraIssueRaw {
   key: string
@@ -15,6 +16,7 @@ function mapStatus(categoryKey: string, statusName: string): Status {
   const cat = categoryKey.toLowerCase()
   const name = statusName.toLowerCase()
   if (cat === 'done') return 'done'
+  if (name.includes('code review') || name === 'code_review') return 'done'
   if (name.includes('block') || name.includes('impediment')) return 'blocked'
   if (name.includes('review') || name.includes('testing') || name.includes('qa')) return 'review'
   if (cat === 'indeterminate' || name.includes('progress') || name.includes('develop')) return 'inprogress'
@@ -30,6 +32,7 @@ function mapPriority(name?: string | null): Priority {
   return 'medium'
 }
 
+
 export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<JiraIssueRaw[]> {
   const auth = btoa(`${config.email}:${config.token}`)
   const params = new URLSearchParams({
@@ -38,17 +41,26 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
     maxResults: '100',
   })
 
-  const directUrl = `${config.baseUrl.replace(/\/$/, '')}/rest/api/3/search?${params}`
-  const url = config.proxyUrl
+  const directUrl = `${config.baseUrl.replace(/\/$/, '')}/rest/api/3/search/jql?${params}`
+  const proxyUrl = config.proxyUrl
     ? `${config.proxyUrl.replace(/\/$/, '')}${encodeURIComponent(directUrl)}`
-    : directUrl
+    : null
 
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Basic ${auth}`,
-      Accept: 'application/json',
-    },
-  })
+  const fetchHeaders = {
+    Authorization: `Basic ${auth}`,
+    Accept: 'application/json',
+  }
+
+  let res: Response | null = null
+
+  if (!proxyUrl) {
+    res = await fetchViaBridge(directUrl, fetchHeaders)
+  }
+
+  if (!res) {
+    // Fall back: proxy URL if configured, otherwise direct (will CORS-fail without extension)
+    res = await fetch(proxyUrl ?? directUrl, { headers: fetchHeaders })
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
@@ -62,7 +74,7 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
 export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string): JiraIssue {
   return {
     url: `${baseUrl.replace(/\/$/, '')}/browse/${issue.key}`,
-    name: `${issue.key} ${issue.fields.summary}`,
+    name: issue.fields.summary,
     status: mapStatus(issue.fields.status.statusCategory.key, issue.fields.status.name),
     priority: mapPriority(issue.fields.priority?.name),
     deadline: issue.fields.duedate ?? '',

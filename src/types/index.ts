@@ -3,6 +3,15 @@ export type Priority = 'low' | 'medium' | 'high' | 'critical'
 export type ScheduleType = 'work' | 'vacation' | 'dayoff' | 'sick' | 'holiday'
 export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule'
 
+export interface GitLabConfig {
+  enabled: boolean
+  token: string
+  groupPath: string       // e.g. 'mycompany' or 'mycompany/subgroup'
+  syncInterval: number    // minutes; 0 = manual only
+  lastSync?: string
+  lastSyncResult?: string
+}
+
 export interface JiraConfig {
   enabled: boolean
   baseUrl: string
@@ -22,6 +31,7 @@ export interface PrEntry {
 }
 
 export interface JiraIssue {
+  issueId?: string   // stable identity — same across all days this issue appears on
   url: string
   name: string
   status: Status
@@ -30,6 +40,7 @@ export interface JiraIssue {
   deadlineTime: string
   prs: PrEntry[]
   comment: string
+  hidden?: boolean
   _srcIdx?: number
 }
 
@@ -68,6 +79,8 @@ export interface Developer {
   color: string
   periods?: EmploymentPeriod[]
   jiraEmail?: string
+  gitlabUsername?: string
+  archivedAt?: string
 }
 
 export interface Project {
@@ -88,6 +101,7 @@ export interface DeadlineItem {
   taskDate: string
   _key: string
   _daysStuck: number
+  _sinceDate: string
 }
 
 export interface AppState {
@@ -102,4 +116,5 @@ export interface AppState {
   view: View
   notifsEnabled: boolean
   jiraConfig: JiraConfig
+  gitlabConfig: GitLabConfig
 }
