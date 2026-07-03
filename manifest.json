@@ -1,0 +1,23 @@
+{
+  "name": "PM Daily Tracker",
+  "short_name": "pm/tracker",
+  "description": "Daily checkpoint tracker for developer teams",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f0f2f9",
+  "theme_color": "#171a2d",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
