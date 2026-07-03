@@ -16,10 +16,17 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap"
       rel="stylesheet"
     />
-    <script type="module" crossorigin src="./assets/index-DSH0ieGz.js"></script>
+    <script type="module" crossorigin src="./assets/index-BtVO7FaD.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-E4e4SHwv.css">
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('./sw.js');
+        });
+      }
+    </script>
   </body>
 </html>
