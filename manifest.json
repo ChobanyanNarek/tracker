@@ -6,7 +6,7 @@
   "start_url": "./",
   "scope": "/tracker/",
   "display": "standalone",
-  "background_color": "#f0f2f9",
+  "background_color": "#ffffff",
   "theme_color": "#171a2d",
   "icons": [
     {

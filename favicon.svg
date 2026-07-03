@@ -1,11 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-  <path fill-rule="evenodd" fill="#171a2d" d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z"/>
-  <g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round">
-    <line x1="21" y1="7" x2="27" y2="5"/>
-    <line x1="21" y1="7" x2="27" y2="5" transform="rotate(60 24 24)"/>
-    <line x1="21" y1="7" x2="27" y2="5" transform="rotate(120 24 24)"/>
-    <line x1="21" y1="7" x2="27" y2="5" transform="rotate(180 24 24)"/>
-    <line x1="21" y1="7" x2="27" y2="5" transform="rotate(240 24 24)"/>
-    <line x1="21" y1="7" x2="27" y2="5" transform="rotate(300 24 24)"/>
+  <!-- Outer thin ring -->
+  <circle cx="24" cy="24" r="22.5" fill="none" stroke="#171a2d" stroke-width="0.8"/>
+  <!-- Thick inner donut -->
+  <path fill-rule="evenodd" fill="#171a2d"
+    d="M24,6.5 A17.5,17.5 0 1,0 24,41.5 A17.5,17.5 0 1,0 24,6.5 Z
+       M24,13 A11,11 0 1,0 24,35 A11,11 0 1,0 24,13 Z"/>
+  <!-- 6 tick marks in the gap between the two rings -->
+  <g stroke="#171a2d" stroke-width="2.5" stroke-linecap="round">
+    <line x1="21" y1="5" x2="27" y2="3"/>
+    <line x1="21" y1="5" x2="27" y2="3" transform="rotate(60 24 24)"/>
+    <line x1="21" y1="5" x2="27" y2="3" transform="rotate(120 24 24)"/>
+    <line x1="21" y1="5" x2="27" y2="3" transform="rotate(180 24 24)"/>
+    <line x1="21" y1="5" x2="27" y2="3" transform="rotate(240 24 24)"/>
+    <line x1="21" y1="5" x2="27" y2="3" transform="rotate(300 24 24)"/>
   </g>
 </svg>
