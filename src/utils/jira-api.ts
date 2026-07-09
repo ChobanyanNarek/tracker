@@ -98,22 +98,19 @@ export function mergeStatusHistory(
   return localTail.length ? [...fresh, ...localTail] : fresh
 }
 
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+
 export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<JiraIssueRaw[]> {
-  const auth = btoa(`${config.email}:${config.token}`)
-  const params = new URLSearchParams({
-    jql,
-    fields: 'summary,status,priority,duedate,assignee,created',
-    maxResults: '100',
-    expand: 'changelog',
+  const res = await fetch(`${API_URL}/pm-tracker/jira-search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      baseUrl: config.baseUrl.trim(),
+      email: config.email.trim(),
+      token: config.token.trim(),
+      jql,
+    }),
   })
-
-  const url = `${config.baseUrl.replace(/\/$/, '')}/rest/api/3/search/jql?${params}`
-  const fetchHeaders = {
-    Authorization: `Basic ${auth}`,
-    Accept: 'application/json',
-  }
-
-  const res = await fetch(url, { headers: fetchHeaders })
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
