@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useStore, countUrgentDeadlines } from './store'
-import { jiraDedupeKey } from './utils/format'
+import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
+import { useAutoSync } from './hooks/useAutoSync'
 import TopBar from './components/layout/TopBar'
-import Sidebar from './components/layout/Sidebar'
+import DevPanel from './components/layout/DevPanel'
+import ProjectPanel from './components/layout/ProjectPanel'
 import Calendar from './components/calendar/Calendar'
 import DailyView from './components/views/DailyView'
 import DeadlinesView from './components/views/DeadlinesView'
@@ -10,6 +12,7 @@ import SearchView from './components/views/SearchView'
 import PerformanceView from './components/views/PerformanceView'
 import ScheduleView from './components/views/ScheduleView'
 import StandupModal from './components/modals/StandupModal'
+import GanttModal from './components/modals/GanttModal'
 import JiraConfigModal from './components/modals/JiraConfigModal'
 import GitLabConfigModal from './components/modals/GitLabConfigModal'
 
@@ -21,185 +24,86 @@ const VIEW_LABELS: Record<string, string> = {
   schedule: '🗓 Schedule',
 }
 
-
-const NOTIF_KEY = 'pmtracker_notified'
-function loadNotified(): Record<string, number> {
-  try { return JSON.parse(localStorage.getItem(NOTIF_KEY) || '{}') } catch { return {} }
-}
-function saveNotified(o: Record<string, number>) {
-  try { localStorage.setItem(NOTIF_KEY, JSON.stringify(o)) } catch {}
-}
-
 export default function App() {
-  const { view, setView, selectedDate, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, syncJira, syncGitlab, notifsEnabled, setNotifsEnabled } = useStore()
-  const jiraConfig = useStore((s) => s.jiraConfig)
-  const gitlabConfig = useStore((s) => s.gitlabConfig)
+  const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled } = useStore()
   const [toast, setToast] = useState<string | null>(null)
   const [standupOpen, setStandupOpen] = useState(false)
+  const [ganttOpen, setGanttOpen] = useState(false)
   const [jiraConfigOpen, setJiraConfigOpen] = useState(false)
   const [gitlabConfigOpen, setGitlabConfigOpen] = useState(false)
-  const tasksRef = useRef(tasks)
-  const developersRef = useRef(developers)
-  useEffect(() => { tasksRef.current = tasks }, [tasks])
-  useEffect(() => { developersRef.current = developers }, [developers])
+  // Right-side drawers — only one open at a time
+  const [openPanel, setOpenPanel] = useState<'dev' | 'proj' | null>(null)
+  const togglePanel = (which: 'dev' | 'proj') => setOpenPanel((p) => (p === which ? null : which))
 
   const urgentCount = countUrgentDeadlines(tasks, developers)
 
-  const showToast = useCallback((msg: string) => { setToast(msg) }, [])
-
-  const notifsEnabledRef = useRef(notifsEnabled)
-  useEffect(() => { notifsEnabledRef.current = notifsEnabled }, [notifsEnabled])
-
-  const checkDeadlineNotifications = useCallback(() => {
-    if (!notifsEnabledRef.current) return
-    if (!('Notification' in window) || Notification.permission !== 'granted') return
-
-    const nowMs = Date.now()
-    const notified = loadNotified()
-    let changed = false
-
-    // Prune entries older than 2 days so a re-scheduled deadline can re-fire
-    const twoDaysAgo = nowMs - 172_800_000
-    for (const k of Object.keys(notified)) {
-      if (notified[k] < twoDaysAgo) { delete notified[k]; changed = true }
-    }
-
-    // Deduplicate across carry-over copies: one notification per unique issue
-    const seen = new Set<string>()
-
-    tasksRef.current.forEach((task) => {
-      // Use task.jiras directly — getJiras() returns a synthetic fallback for old-format
-      // tasks which has an empty deadline and length=1, blocking the task-level check below.
-      const realJiras = Array.isArray(task.jiras) && task.jiras.length > 0 ? task.jiras : []
-
-      realJiras.forEach((j) => {
-        if (!j.deadline || j.status === 'done') return
-        const stableKey = j.issueId
-          ? `${task.devId}:${j.issueId}`
-          : `${task.devId}:${jiraDedupeKey(j.url, j.name)}`
-        if (seen.has(stableKey)) return
-        seen.add(stableKey)
-        // Include deadline in key: carry-over that changes the deadline date fires a fresh notif
-        const nk = `${stableKey}:${j.deadline}:${j.deadlineTime || '23:59'}:15min`
-        if (notified[nk]) return
-        const [y, mo, d] = j.deadline.split('-').map(Number)
-        const [hh, mm] = (j.deadlineTime || '23:59').split(':').map(Number)
-        const diffMin = (new Date(y, mo - 1, d, hh, mm).getTime() - nowMs) / 60000
-        if (diffMin > 14 && diffMin <= 16) {
-          const dev = developersRef.current.find((dv) => dv.id === task.devId)
-          const label = j.name || j.url || 'Issue'
-          try {
-            new Notification('⏰ 15 min until deadline!', {
-              body: `${label} · ${dev?.name ?? ''}${j.deadlineTime ? ` · due at ${j.deadlineTime}` : ''}`,
-              tag: nk,
-              requireInteraction: true,
-            })
-          } catch {}
-          notified[nk] = nowMs
-          changed = true
-        }
-      })
-
-      // Task-level deadline: old-format (jira string, no jiras array) or tasks without jiras
-      if (!realJiras.length && task.deadline && task.status !== 'done') {
-        const stableKey = `${task.devId}:task:${task.title}`
-        if (!seen.has(stableKey)) {
-          seen.add(stableKey)
-          const nk = `${stableKey}:${task.deadline}:${task.deadlineTime || '23:59'}:15min`
-          if (!notified[nk]) {
-            const [y, mo, d] = task.deadline.split('-').map(Number)
-            const [hh, mm] = (task.deadlineTime || '23:59').split(':').map(Number)
-            const diffMin = (new Date(y, mo - 1, d, hh, mm).getTime() - nowMs) / 60000
-            if (diffMin > 14 && diffMin <= 16) {
-              const dev = developersRef.current.find((dv) => dv.id === task.devId)
-              try {
-                new Notification('⏰ 15 min until deadline!', {
-                  body: `${task.title || 'Checkpoint'} · ${dev?.name ?? ''}${task.deadlineTime ? ` · due at ${task.deadlineTime}` : ''}`,
-                  tag: nk,
-                  requireInteraction: true,
-                })
-              } catch {}
-              notified[nk] = nowMs
-              changed = true
-            }
-          }
-        }
-      }
-    })
-    if (changed) saveNotified(notified)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showToast = useCallback((msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast(msg)
+    toastTimer.current = setTimeout(() => setToast(null), 5000)
   }, [])
 
-  // migrate existing jiras to have stable issueIds, then carry overdue
+  useDeadlineNotifications()
+  useAutoSync(showToast)
+
+  // Startup: sync notif permission, migrate legacy jira formats, dedupe, carry overdue
   useEffect(() => {
-    // If browser already has notification permission granted, keep the store flag in sync
     if ('Notification' in window && Notification.permission === 'granted') {
       setNotifsEnabled(true)
     }
     migrateIssueIds()
     deduplicateJiras()
     autoCarryOverdue()
+    mergeSameDayTasks()
   }, [])
 
-  // Escape closes modals
+  // Service-worker → page bridge: notification clicks when the tab is backgrounded
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setStandupOpen(false) }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    if (!navigator.serviceWorker) return
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type !== 'PM_NOTIF_CLICK') return
+      setView('daily')
+      if (e.data.date) setSelectedDate(e.data.date as string)
+      if (e.data.taskId) setHighlightedTaskId(e.data.taskId as string)
+    }
+    navigator.serviceWorker.addEventListener('message', handler)
+    return () => navigator.serviceWorker.removeEventListener('message', handler)
+  }, [setView, setSelectedDate, setHighlightedTaskId])
+
+  // Console helper: run __gitlabDebug() to see how MRs map to tracked issues.
+  useEffect(() => {
+    ;(window as Window & { __gitlabDebug?: () => void }).__gitlabDebug = () => { void useStore.getState().debugGitlab() }
+    console.info(`[pm-tracker] build ${__BUILD_ID__}`)
   }, [])
 
-  // Notification check interval
-  useEffect(() => {
-    checkDeadlineNotifications()
-    const id = setInterval(checkDeadlineNotifications, 30000)
-    return () => clearInterval(id)
-  }, [checkDeadlineNotifications])
-
-  // auto carry every minute in case day rolls over; deduplicate after each carry
+  // Auto carry every minute in case day rolls over; deduplicate and merge after each carry
   useEffect(() => {
     const id = setInterval(() => {
       deduplicateJiras()
       autoCarryOverdue()
+      mergeSameDayTasks()
     }, 60000)
     return () => clearInterval(id)
   }, [])
-
-  // Jira auto-poll
-  useEffect(() => {
-    if (!jiraConfig.enabled || !jiraConfig.syncInterval || !jiraConfig.token) return
-    const ms = jiraConfig.syncInterval * 60 * 1000
-    const id = setInterval(async () => {
-      try {
-        const { added, updated } = await syncJira()
-        if (added || updated) showToast(`Jira synced — ${added} added, ${updated} updated`)
-      } catch {}
-    }, ms)
-    return () => clearInterval(id)
-  }, [jiraConfig.enabled, jiraConfig.syncInterval, jiraConfig.token])
-
-  // GitLab auto-poll
-  useEffect(() => {
-    if (!gitlabConfig.enabled || !gitlabConfig.syncInterval || !gitlabConfig.token) return
-    const ms = gitlabConfig.syncInterval * 60 * 1000
-    const id = setInterval(async () => {
-      try {
-        const { linked } = await syncGitlab()
-        if (linked) showToast(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked`)
-      } catch {}
-    }, ms)
-    return () => clearInterval(id)
-  }, [gitlabConfig.enabled, gitlabConfig.syncInterval, gitlabConfig.token])
 
   const proj = projects.find((p) => p.id === selectedProject)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
-      <TopBar onStandup={() => setStandupOpen(true)} urgentCount={urgentCount} onJiraConfig={() => setJiraConfigOpen(true)} onGitlabConfig={() => setGitlabConfigOpen(true)} onFeedback={showToast} />
+      <TopBar
+        urgentCount={urgentCount}
+        onJiraConfig={() => setJiraConfigOpen(true)}
+        onGitlabConfig={() => setGitlabConfigOpen(true)}
+        onFeedback={showToast}
+        onDevPanel={() => togglePanel('dev')}
+        devPanelOpen={openPanel === 'dev'}
+        onProjPanel={() => togglePanel('proj')}
+        projPanelOpen={openPanel === 'proj'}
+      />
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* sidebar */}
-        <Sidebar />
-
-        {/* main area */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+        {/* main area — full width */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* view tabs */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 14px 0', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
@@ -207,7 +111,7 @@ export default function App() {
               <button
                 key={v}
                 onClick={() => setView(v as Parameters<typeof setView>[0])}
-                style={{ position: 'relative', fontFamily: 'var(--mono)', fontSize: 11, padding: '6px 14px', border: 'none', borderRadius: '6px 6px 0 0', background: view === v ? 'var(--bg)' : 'transparent', color: view === v ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', fontWeight: view === v ? 600 : 400, borderBottom: view === v ? '2px solid var(--accent)' : '2px solid transparent', transition: 'all .15s' }}
+                className={`view-tab${view === v ? ' active' : ''}`}
               >
                 {VIEW_LABELS[v]}
                 {v === 'deadlines' && urgentCount > 0 && (
@@ -216,13 +120,8 @@ export default function App() {
               </button>
             ))}
 
-            {/* date / project context chips */}
+            {/* project context chip */}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6 }}>
-              {view === 'daily' && (
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', padding: '2px 8px', borderRadius: 8, background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                  {selectedDate}
-                </span>
-              )}
               {proj && (
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '2px 8px', borderRadius: 8, background: proj.color + '18', color: proj.color, border: `1px solid ${proj.color}40` }}>
                   {proj.name}
@@ -240,13 +139,17 @@ export default function App() {
 
           {/* view content */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {view === 'daily' && <DailyView onToast={showToast} />}
+            {view === 'daily' && <DailyView onToast={showToast} onStandup={() => setStandupOpen(true)} onGantt={() => setGanttOpen(true)} />}
             {view === 'deadlines' && <DeadlinesView />}
             {view === 'search' && <SearchView />}
             {view === 'performance' && <PerformanceView />}
             {view === 'schedule' && <ScheduleView />}
           </div>
         </div>
+
+        {/* right-side panels */}
+        <DevPanel open={openPanel === 'dev'} onClose={() => setOpenPanel(null)} topOffset={54} />
+        <ProjectPanel open={openPanel === 'proj'} onClose={() => setOpenPanel(null)} topOffset={54} />
       </div>
 
       {/* toast */}
@@ -257,13 +160,9 @@ export default function App() {
         </div>
       )}
 
-      {/* standup modal */}
       {standupOpen && <StandupModal onClose={() => setStandupOpen(false)} />}
-
-      {/* jira config modal */}
+      {ganttOpen && <GanttModal onClose={() => setGanttOpen(false)} />}
       {jiraConfigOpen && <JiraConfigModal onClose={() => setJiraConfigOpen(false)} />}
-
-      {/* gitlab config modal */}
       {gitlabConfigOpen && <GitLabConfigModal onClose={() => setGitlabConfigOpen(false)} />}
     </div>
   )

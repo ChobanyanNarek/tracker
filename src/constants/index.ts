@@ -5,6 +5,10 @@ export const PRESETS_KEY = 'pmtracker_presets'
 export const JIRA_PRESETS_KEY = 'pmtracker_jira_presets'
 export const DEFAULT_PRESETS = ['Code Review', 'Fix Comments', 'Bug Fix', 'Code Refactor']
 
+// Built via BASE_URL (not a literal "/…" path) so it still resolves once deployed
+// under the GitHub Pages subpath (vite.config.ts sets base: './').
+export const NOTIFICATION_ICON = `${import.meta.env.BASE_URL}icon-v3.png`
+
 export const PALETTE = [
   '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#dc2626',
   '#0891b2', '#db2777', '#65a30d', '#ea580c', '#6366f1',
