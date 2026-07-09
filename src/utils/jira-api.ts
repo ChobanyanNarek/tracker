@@ -107,17 +107,13 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
     expand: 'changelog',
   })
 
-  const directUrl = `${config.baseUrl.replace(/\/$/, '')}/rest/api/3/search/jql?${params}`
-  const proxyUrl = config.proxyUrl
-    ? `${config.proxyUrl.replace(/\/$/, '')}${encodeURIComponent(directUrl)}`
-    : null
-
+  const url = `${config.baseUrl.replace(/\/$/, '')}/rest/api/3/search/jql?${params}`
   const fetchHeaders = {
     Authorization: `Basic ${auth}`,
     Accept: 'application/json',
   }
 
-  const res = await fetch(proxyUrl ?? directUrl, { headers: fetchHeaders })
+  const res = await fetch(url, { headers: fetchHeaders })
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')

@@ -16,21 +16,6 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4, display: 'block',
 }
 
-const WORKER_CODE = `// 1. Go to https://workers.cloudflare.com  (free account)
-// 2. Create a new Worker → paste this code → Deploy
-export default {
-  async fetch(req) {
-    const target = new URL(req.url).searchParams.get('url')
-    if (!target) return new Response('Missing ?url=', { status: 400 })
-    const res = await fetch(target, { headers: req.headers })
-    const h = new Headers(res.headers)
-    h.set('Access-Control-Allow-Origin', '*')
-    h.set('Access-Control-Allow-Headers', '*')
-    return new Response(res.body, { status: res.status, headers: h })
-  }
-}
-// 3. Copy the Worker URL (e.g. https://my-proxy.user.workers.dev)
-// 4. Paste it below as:  https://my-proxy.user.workers.dev/?url=`
 
 function makeEmptyConn(): JiraConfig {
   return {
@@ -42,7 +27,6 @@ function makeEmptyConn(): JiraConfig {
     token: '',
     projectKeys: [],
     syncInterval: 5,
-    proxyUrl: '',
   }
 }
 
@@ -56,10 +40,8 @@ interface ConnFormProps {
 function ConnForm({ conn, onChange, onDelete, isOnly }: ConnFormProps) {
   const [projectKeysRaw, setProjectKeysRaw] = useState(conn.projectKeys.join(', '))
   const [showToken, setShowToken] = useState(false)
-  const [showProxy, setShowProxy] = useState(!!conn.proxyUrl)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  const [copied, setCopied] = useState(false)
 
   function patch<K extends keyof JiraConfig>(key: K, value: JiraConfig[K]) {
     onChange({ ...conn, [key]: value })
@@ -73,15 +55,11 @@ function ConnForm({ conn, onChange, onDelete, isOnly }: ConnFormProps) {
   async function testConnection() {
     setTesting(true)
     setTestResult(null)
-    const testCfg: JiraConfig = { ...conn, projectKeys: conn.projectKeys }
     try {
-      await fetchJiraIssues(testCfg, 'assignee is not EMPTY AND statusCategory != Done ORDER BY updated DESC')
+      await fetchJiraIssues(conn, 'assignee is not EMPTY AND statusCategory != Done ORDER BY updated DESC')
       setTestResult({ ok: true, msg: 'Connection successful ✓' })
     } catch (err) {
-      const msg = (err as Error).message
-      const isCors = !conn.proxyUrl && (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('network error'))
-      setTestResult({ ok: false, msg: isCors ? 'CORS error — Jira blocks browser requests. Set up a proxy below.' : msg })
-      if (isCors) setShowProxy(true)
+      setTestResult({ ok: false, msg: (err as Error).message })
     }
     setTesting(false)
   }
@@ -173,46 +151,6 @@ function ConnForm({ conn, onChange, onDelete, isOnly }: ConnFormProps) {
       >
         {testing ? '…testing' : 'Test connection'}
       </button>
-
-      {/* CORS proxy */}
-      <div style={{ border: '1px solid var(--border)', borderRadius: 7, overflow: 'hidden' }}>
-        <button
-          onClick={() => setShowProxy((s) => !s)}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: conn.proxyUrl ? 'rgba(22,163,74,.08)' : 'var(--surface3)', border: 'none', cursor: 'pointer', textAlign: 'left' }}
-        >
-          <span style={{ fontSize: 11, fontWeight: 600, color: conn.proxyUrl ? '#16a34a' : 'var(--text3)', flex: 1 }}>
-            {conn.proxyUrl ? '✓ CORS proxy configured' : '⚠ CORS proxy (if Jira blocks direct requests)'}
-          </span>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{showProxy ? '▲' : '▼'}</span>
-        </button>
-        {showProxy && (
-          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.5 }}>
-              Paste a free Cloudflare Worker URL ending in <code style={{ background: 'var(--surface3)', padding: '1px 4px', borderRadius: 3 }}>?url=</code>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <pre style={{ margin: 0, padding: '8px 10px', background: 'var(--surface3)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 9.5, fontFamily: 'var(--mono)', color: 'var(--text2)', overflow: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
-                {WORKER_CODE}
-              </pre>
-              <button
-                onClick={() => { navigator.clipboard.writeText(WORKER_CODE).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) }) }}
-                style={{ position: 'absolute', top: 6, right: 6, padding: '3px 7px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 10, cursor: 'pointer' }}
-              >{copied ? '✓' : 'copy'}</button>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-              <input
-                style={{ ...inputStyle, flex: 1 }}
-                placeholder="https://my-proxy.user.workers.dev/?url="
-                value={conn.proxyUrl}
-                onChange={(e) => patch('proxyUrl', e.target.value)}
-              />
-              {conn.proxyUrl && (
-                <button onClick={() => patch('proxyUrl', '')} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}>Clear</button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
 
       {conn.lastSync && (
         <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>

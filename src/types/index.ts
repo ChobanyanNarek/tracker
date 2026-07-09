@@ -21,7 +21,6 @@ export interface JiraConfig {
   token: string
   projectKeys: string[]
   syncInterval: number  // minutes; 0 = manual only
-  proxyUrl: string      // optional CORS proxy prefix, e.g. https://worker.dev/?url=
   lastSync?: string
   lastSyncResult?: string
 }
