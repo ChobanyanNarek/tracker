@@ -1,5 +1,4 @@
 import type { JiraConfig, JiraIssue, Priority, Status, StatusHistoryEntry } from '../types'
-import { fetchViaBridge } from './bridge'
 
 export interface JiraIssueRaw {
   key: string
@@ -118,16 +117,7 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
     Accept: 'application/json',
   }
 
-  let res: Response | null = null
-
-  if (!proxyUrl) {
-    res = await fetchViaBridge(directUrl, fetchHeaders)
-  }
-
-  if (!res) {
-    // Fall back: proxy URL if configured, otherwise direct (will CORS-fail without extension)
-    res = await fetch(proxyUrl ?? directUrl, { headers: fetchHeaders })
-  }
+  const res = await fetch(proxyUrl ?? directUrl, { headers: fetchHeaders })
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')

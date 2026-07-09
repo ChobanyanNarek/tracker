@@ -1,4 +1,3 @@
-import { fetchViaBridge } from './bridge'
 import type { GitLabConfig } from '../types'
 
 export interface GitLabMR {
@@ -80,8 +79,7 @@ export async function fetchGroupMRs(config: GitLabConfig): Promise<GitLabMR[]> {
     for (const state of ['opened', 'merged'] as const) {
       for (let page = 1; page <= MAX_PAGES; page++) {
         const url = `https://gitlab.com/api/v4/${scope}/${encoded}/merge_requests?state=${state}&per_page=100&page=${page}&order_by=updated_at&sort=desc`
-        let res = await fetchViaBridge(url, headers)
-        if (!res) res = await fetch(url, { headers })
+        const res = await fetch(url, { headers })
         if (!res.ok) {
           if (res.status !== 404) {
             const text = await res.text().catch(() => '')
@@ -124,8 +122,7 @@ export async function fetchUserMRs(usernames: string[], token: string): Promise<
     for (const state of ['opened', 'merged'] as const) {
       for (let page = 1; page <= MAX_PAGES; page++) {
         const url = `https://gitlab.com/api/v4/users/${encoded}/merge_requests?state=${state}&per_page=100&page=${page}&order_by=updated_at&sort=desc`
-        let res = await fetchViaBridge(url, headers)
-        if (!res) res = await fetch(url, { headers })
+        const res = await fetch(url, { headers })
         if (!res.ok) break // 404 = username wrong; 403 = skip; move to next
         okCount++
         const batch = (await res.json()) as GitLabMR[]
