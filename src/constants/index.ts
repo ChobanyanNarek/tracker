@@ -1,8 +1,5 @@
 import type { Status, Priority } from '../types'
 
-export const LS_KEY = 'pmtracker_v4'
-export const PRESETS_KEY = 'pmtracker_presets'
-export const JIRA_PRESETS_KEY = 'pmtracker_jira_presets'
 export const DEFAULT_PRESETS = ['Code Review', 'Fix Comments', 'Bug Fix', 'Code Refactor']
 
 // Built via BASE_URL (not a literal "/…" path) so it still resolves once deployed

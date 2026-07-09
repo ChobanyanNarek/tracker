@@ -3,14 +3,6 @@ import { useStore } from '../store'
 import { jiraDedupeKey } from '../utils/format'
 import { NOTIFICATION_ICON } from '../constants'
 
-const NOTIF_KEY = 'pmtracker_notified'
-
-function loadNotified(): Record<string, number> {
-  try { return JSON.parse(localStorage.getItem(NOTIF_KEY) || '{}') } catch { return {} }
-}
-function saveNotified(o: Record<string, number>) {
-  try { localStorage.setItem(NOTIF_KEY, JSON.stringify(o)) } catch {}
-}
 
 /** Fires a browser notification once an in-progress issue/task has 15 minutes
  *  or less left before its deadline. Todo/review/blocked/done issues are
@@ -25,6 +17,7 @@ export function useDeadlineNotifications() {
   const tasksRef = useRef(tasks)
   const developersRef = useRef(developers)
   const notifsEnabledRef = useRef(notifsEnabled)
+  const notifiedRef = useRef<Record<string, number>>({})
   useEffect(() => { tasksRef.current = tasks }, [tasks])
   useEffect(() => { developersRef.current = developers }, [developers])
   useEffect(() => { notifsEnabledRef.current = notifsEnabled }, [notifsEnabled])
@@ -34,7 +27,7 @@ export function useDeadlineNotifications() {
     if (!('Notification' in window) || Notification.permission !== 'granted') return
 
     const nowMs = Date.now()
-    const notified = loadNotified()
+    const notified = notifiedRef.current
     let changed = false
 
     // Prune entries older than 2 days so a re-scheduled deadline can re-fire
@@ -123,7 +116,7 @@ export function useDeadlineNotifications() {
         }
       }
     })
-    if (changed) saveNotified(notified)
+    if (changed) notifiedRef.current = { ...notified }
   }, [])
 
   useEffect(() => {

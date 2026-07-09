@@ -1314,62 +1314,29 @@ export const useStore = create<Store>((set, get) => {
   }
 })
 
-// Reads the old Zustand-persist localStorage snapshot (pmtracker_v4) as a fallback.
-// Zustand persist wraps state in { state: {...}, version: N }; handle both that and bare objects.
-function readLocalStorageFallback(): Record<string, unknown> | null {
-  try {
-    const raw = localStorage.getItem('pmtracker_v4')
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    const data = (parsed.state as Record<string, unknown> | undefined) ?? parsed
-    const devs = data.developers as unknown[] | undefined
-    const tasks = data.tasks as unknown[] | undefined
-    if (!Array.isArray(devs) || !Array.isArray(tasks)) return null
-    if (devs.length === 0 && tasks.length === 0) return null
-    return data
-  } catch { return null }
-}
-
-function isCloudEmpty(cloud: Record<string, unknown> | null): boolean {
-  if (!cloud) return true
-  const devs = cloud.developers as unknown[] | undefined
-  const tasks = cloud.tasks as unknown[] | undefined
-  return (!devs || devs.length === 0) && (!tasks || tasks.length === 0)
-}
-
 function applyCloudState(cloud: Record<string, unknown> | null) {
-  // If cloud has no real data, fall back to old localStorage snapshot and migrate it up.
-  let effective = cloud
-  if (isCloudEmpty(cloud)) {
-    const local = readLocalStorageFallback()
-    if (local) {
-      effective = local
-      void saveCloudState(local) // migrate to cloud so future sessions skip this path
-    }
-  }
-
   useStore.setState((s) => ({
     ...s,
     cloudSyncing: false,
-    ...(effective
+    ...(cloud
       ? {
-          ...(effective.developers ? { developers: (effective.developers as AppState['developers']).map((d) => ({ periods: [], ...d })) } : {}),
-          ...(effective.projects ? { projects: (effective.projects as AppState['projects']).map((p) => ({ ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
-          ...(effective.tasks ? { tasks: (effective.tasks as AppState['tasks']).map(normalizeTask) } : {}),
-          ...(effective.schedule ? { schedule: effective.schedule as AppState['schedule'] } : {}),
-          ...(effective.scheduleHours ? { scheduleHours: effective.scheduleHours as AppState['scheduleHours'] } : {}),
-          ...(effective.jiraConnections
-            ? { jiraConnections: effective.jiraConnections as AppState['jiraConnections'] }
-            : effective.jiraConfig
-              ? { jiraConnections: [{ ...(effective.jiraConfig as JiraConfig), id: 'j_legacy', name: 'Default' }] }
+          ...(cloud.developers ? { developers: (cloud.developers as AppState['developers']).map((d) => ({ periods: [], ...d })) } : {}),
+          ...(cloud.projects ? { projects: (cloud.projects as AppState['projects']).map((p) => ({ ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
+          ...(cloud.tasks ? { tasks: (cloud.tasks as AppState['tasks']).map(normalizeTask) } : {}),
+          ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
+          ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),
+          ...(cloud.jiraConnections
+            ? { jiraConnections: cloud.jiraConnections as AppState['jiraConnections'] }
+            : cloud.jiraConfig
+              ? { jiraConnections: [{ ...(cloud.jiraConfig as JiraConfig), id: 'j_legacy', name: 'Default' }] }
               : {}),
-          ...(effective.gitlabConnections
-            ? { gitlabConnections: effective.gitlabConnections as AppState['gitlabConnections'] }
-            : effective.gitlabConfig
-              ? { gitlabConnections: [{ ...(effective.gitlabConfig as GitLabConfig), id: 'gl_legacy', name: 'Default' }] }
+          ...(cloud.gitlabConnections
+            ? { gitlabConnections: cloud.gitlabConnections as AppState['gitlabConnections'] }
+            : cloud.gitlabConfig
+              ? { gitlabConnections: [{ ...(cloud.gitlabConfig as GitLabConfig), id: 'gl_legacy', name: 'Default' }] }
               : {}),
-          ...(effective.githubConnections ? { githubConnections: effective.githubConnections as AppState['githubConnections'] } : {}),
-          ...(effective.trackerTimezone !== undefined ? { trackerTimezone: effective.trackerTimezone as string | undefined } : {}),
+          ...(cloud.githubConnections ? { githubConnections: cloud.githubConnections as AppState['githubConnections'] } : {}),
+          ...(cloud.trackerTimezone !== undefined ? { trackerTimezone: cloud.trackerTimezone as string | undefined } : {}),
         }
       : {}),
   }))

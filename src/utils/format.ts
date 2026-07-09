@@ -93,32 +93,10 @@ export function hasPending(task: Task): boolean {
   return j.length ? j.some((x) => x.status !== 'done') : task.status !== 'done'
 }
 
-export function loadPresets(): string[] {
-  try {
-    const raw = localStorage.getItem('pmtracker_presets')
-    return raw ? (JSON.parse(raw) as string[]) : ['Code Review', 'Fix Comments', 'Bug Fix', 'Code Refactor']
-  } catch {
-    return ['Code Review', 'Fix Comments', 'Bug Fix', 'Code Refactor']
-  }
-}
+let _presets: string[] = ['Code Review', 'Fix Comments', 'Bug Fix', 'Code Refactor']
+let _jiraPresets: string[] = []
 
-export function savePresets(arr: string[]): void {
-  try {
-    localStorage.setItem('pmtracker_presets', JSON.stringify(arr))
-  } catch {}
-}
-
-export function loadJiraPresets(): string[] {
-  try {
-    const raw = localStorage.getItem('pmtracker_jira_presets')
-    return raw ? (JSON.parse(raw) as string[]) : []
-  } catch {
-    return []
-  }
-}
-
-export function saveJiraPresets(arr: string[]): void {
-  try {
-    localStorage.setItem('pmtracker_jira_presets', JSON.stringify(arr))
-  } catch {}
-}
+export function loadPresets(): string[] { return _presets }
+export function savePresets(arr: string[]): void { _presets = arr }
+export function loadJiraPresets(): string[] { return _jiraPresets }
+export function saveJiraPresets(arr: string[]): void { _jiraPresets = arr }

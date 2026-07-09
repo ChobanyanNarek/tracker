@@ -28,6 +28,6 @@ export async function saveCloudState(data: Record<string, unknown>): Promise<voi
     })
     if (res.status === 401) clearToken()
   } catch {
-    // silent — localStorage is still the fallback
+    // silent
   }
 }
