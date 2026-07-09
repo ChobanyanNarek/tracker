@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { isAuthenticated } from './utils/auth'
+import LoginPage from './components/auth/LoginPage'
 import { useStore, countUrgentDeadlines } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useAutoSync } from './hooks/useAutoSync'
@@ -26,6 +28,16 @@ const VIEW_LABELS: Record<string, string> = {
 }
 
 export default function App() {
+  const [authed, setAuthed] = useState(isAuthenticated)
+
+  if (!authed) {
+    return <LoginPage onAuth={() => setAuthed(true)} />
+  }
+
+  return <AuthedApp />
+}
+
+function AuthedApp() {
   const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing } = useStore()
   const [toast, setToast] = useState<string | null>(null)
   const [standupOpen, setStandupOpen] = useState(false)

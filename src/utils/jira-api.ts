@@ -98,12 +98,14 @@ export function mergeStatusHistory(
   return localTail.length ? [...fresh, ...localTail] : fresh
 }
 
+import { authHeaders } from './auth'
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<JiraIssueRaw[]> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({
       baseUrl: config.baseUrl.trim(),
       email: config.email.trim(),
