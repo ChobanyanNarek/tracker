@@ -444,7 +444,7 @@
 </head>
 <body>
 
-<!-- ══ Login view ══ -->
+<!-- ══ Not-authenticated view ══ -->
 <div id="login-view">
   <div class="login-card">
     <div class="login-brand">
@@ -454,22 +454,9 @@
         <div class="brand-sub">Admin Panel</div>
       </div>
     </div>
-    <h1 class="login-heading">Sign in</h1>
-    <p class="login-hint">Admin accounts only. Your role must be ADMIN.</p>
-    <form id="login-form" novalidate>
-      <div class="field">
-        <label class="field-label" for="f-email">Email</label>
-        <input class="field-input" type="email" id="f-email" name="email"
-               placeholder="you@example.com" autocomplete="email" required />
-      </div>
-      <div class="field">
-        <label class="field-label" for="f-password">Password</label>
-        <input class="field-input" type="password" id="f-password" name="password"
-               placeholder="••••••••" autocomplete="current-password" required />
-      </div>
-      <div id="login-err" class="error-banner"></div>
-      <button class="btn btn-primary" id="login-btn" type="submit">Sign in</button>
-    </form>
+    <h1 class="login-heading" id="gate-title">Not signed in</h1>
+    <p class="login-hint" id="gate-hint">You need to be logged in to the main app first. Open the tracker, sign in with your account, then come back here.</p>
+    <a class="btn btn-primary" href="/" style="text-decoration:none;margin-top:20px" id="gate-btn">Go to ProgressOr →</a>
   </div>
 </div>
 
@@ -557,7 +544,8 @@
 <script>
   /* ─── Config ─── */
   const API = 'https://progressor-backend.onrender.com';
-  const TOKEN_KEY = 'admin_access_token';
+  /* Read the same token the pm-tracker SPA stores — same origin, same localStorage */
+  const TOKEN_KEY = 'pm_tracker_token';
 
   /* ─── Token ─── */
   const getToken  = ()  => localStorage.getItem(TOKEN_KEY);
@@ -587,7 +575,9 @@
   }
 
   /* ─── Views ─── */
-  function showLogin() {
+  function showLogin(hint, title) {
+    el('gate-title').textContent = title || 'Not signed in';
+    el('gate-hint').textContent  = hint  || 'You need to be logged in to the main app first. Open the tracker, sign in with your account, then come back here.';
     el('login-view').classList.remove('hidden');
     el('admin-view').classList.add('hidden');
   }
@@ -597,25 +587,19 @@
   }
 
   /* ─── API ─── */
-  async function apiLogin(email, password) {
-    const res = await fetch(`${API}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) {
-      throw new Error(res.status === 401 ? 'Invalid email or password.' : `Login failed (${res.status}).`);
-    }
-    const data = await res.json();
-    const token = data.accessToken?.token;
-    if (!token) throw new Error('Unexpected response from server.');
-    return token;
-  }
-
   async function apiFetchUsers() {
     const res = await fetch(`${API}/admin/pm-tracker/users`, { headers: authHdr() });
-    if (res.status === 401) { dropToken(); showLogin(); return null; }
-    if (res.status === 403) throw new Error('This account does not have ADMIN access.');
+    if (res.status === 401) {
+      showLogin('Your session has expired. Sign in again via the main app, then return here.');
+      return null;
+    }
+    if (res.status === 403) {
+      showLogin(
+        'Your account does not have ADMIN access. Contact an admin to upgrade your role.',
+        'Access denied',
+      );
+      return null;
+    }
     if (!res.ok) throw new Error(`Server error (${res.status}).`);
     const data = await res.json();
     return data.users;
@@ -757,31 +741,9 @@
     else { toast('Failed to update password.', 'err'); }
   };
 
-  /* ─── Login form ─── */
-  el('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const errEl = el('login-err');
-    const btn   = el('login-btn');
-    errEl.style.display = 'none';
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spin" style="border-color:#fff;border-top-color:transparent"></span> Signing in…';
-    try {
-      const token = await apiLogin(el('f-email').value.trim(), el('f-password').value);
-      saveToken(token);
-      showAdmin();
-      await loadUsers();
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.style.display = 'block';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Sign in';
-    }
-  });
-
   /* ─── Header actions ─── */
   el('refresh-btn').onclick = loadUsers;
-  el('logout-btn').onclick  = () => { dropToken(); showLogin(); };
+  el('logout-btn').onclick  = () => { showLogin('Sign out successful. Sign back in via the main app.'); };
 
   /* ─── Boot ─── */
   (async function init() {
