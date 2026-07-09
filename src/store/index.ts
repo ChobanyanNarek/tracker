@@ -1314,7 +1314,7 @@ export const useStore = create<Store>((set, get) => {
   }
 })
 
-loadCloudState().then((cloud) => {
+function applyCloudState(cloud: Record<string, unknown> | null) {
   useStore.setState((s) => ({
     ...s,
     cloudSyncing: false,
@@ -1340,7 +1340,19 @@ loadCloudState().then((cloud) => {
         }
       : {}),
   }))
-}).catch(() => {
+}
+
+export async function syncCloudToStore(): Promise<void> {
+  useStore.setState({ cloudSyncing: true })
+  try {
+    const cloud = await loadCloudState()
+    applyCloudState(cloud)
+  } catch {
+    useStore.setState({ cloudSyncing: false })
+  }
+}
+
+loadCloudState().then(applyCloudState).catch(() => {
   useStore.setState({ cloudSyncing: false })
 })
 

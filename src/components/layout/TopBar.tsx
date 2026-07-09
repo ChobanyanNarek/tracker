@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useStore } from '../../store'
+import { clearToken, getUserInfo } from '../../utils/auth'
 import { NOTIFICATION_ICON } from '../../constants'
 import { todayStr } from '../../utils/dates'
 import Clock from './Clock'
@@ -22,6 +23,28 @@ interface TopBarProps {
 
 export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGithubConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen }: TopBarProps) {
   const { setNotifsEnabled, syncJira, syncGitlab, syncGithub, notifsEnabled, setView, setSelectedDate } = useStore()
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileRef = useRef<HTMLDivElement>(null)
+  const user = getUserInfo()
+
+  useEffect(() => {
+    if (!profileOpen) return
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [profileOpen])
+
+  const handleSignOut = () => {
+    clearToken()
+    window.location.reload()
+  }
+
+  const initials = user
+    ? `${(user.firstName ?? '?')[0]}${(user.lastName ?? '')[0] ?? ''}`.toUpperCase()
+    : '?'
+  const displayName = user ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email : null
   const jiraConnections = useStore((s) => s.jiraConnections)
   const jiraEnabled = jiraConnections.some((c) => c.enabled && c.token)
   const gitlabConnections = useStore((s) => s.gitlabConnections)
@@ -163,6 +186,58 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
           onGitlabSync={handleGitlabSync}
           onGithubSync={handleGithubSync}
         />
+
+        {/* Profile avatar + dropdown */}
+        <div ref={profileRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setProfileOpen((o) => !o)}
+            title={displayName ?? 'Profile'}
+            style={{
+              width: 30, height: 30, borderRadius: '50%', border: '1.5px solid var(--border)',
+              background: 'var(--accent)', color: '#fff',
+              fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 700,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'opacity .15s', flexShrink: 0,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.8')}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+          >
+            {initials}
+          </button>
+
+          {profileOpen && (
+            <div style={{
+              position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 200,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, boxShadow: 'var(--shadow-xl)',
+              minWidth: 200, padding: '4px 0', overflow: 'hidden',
+            }}>
+              <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--sans)' }}>
+                  {displayName ?? 'User'}
+                </div>
+                {user?.email && (
+                  <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2, wordBreak: 'break-all' }}>
+                    {user.email}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={handleSignOut}
+                style={{
+                  width: '100%', padding: '9px 14px', background: 'none', border: 'none',
+                  textAlign: 'left', cursor: 'pointer', color: 'var(--red)',
+                  fontFamily: 'var(--sans)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8,
+                  transition: 'background .12s',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+              >
+                <span style={{ fontSize: 14 }}>↪</span> Sign out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

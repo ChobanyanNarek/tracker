@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { apiGoogleLogin, apiLogin, apiRegister, setToken } from '../../utils/auth'
+import { apiGoogleLogin, apiLogin, apiRegister, fetchAndStoreUserInfo, setToken } from '../../utils/auth'
 
 declare global {
   interface Window {
@@ -57,6 +57,7 @@ export default function LoginPage({ onAuth }: Props) {
         try {
           const token = await apiGoogleLogin(response.credential)
           setToken(token)
+          await fetchAndStoreUserInfo()
           onAuth()
         } catch (err) {
           setError((err as Error).message)
@@ -118,6 +119,7 @@ export default function LoginPage({ onAuth }: Props) {
         token = await apiRegister(firstName.trim(), lastName.trim(), email.trim(), password)
       }
       setToken(token)
+      await fetchAndStoreUserInfo()
       onAuth()
     } catch (err) {
       setError((err as Error).message)

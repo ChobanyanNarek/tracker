@@ -1,5 +1,13 @@
 const TOKEN_KEY = 'pm_tracker_token'
+const USER_KEY = 'pm_tracker_user'
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+
+export interface StoredUser {
+  id: string
+  firstName: string | null
+  lastName: string | null
+  email: string | null
+}
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -9,8 +17,20 @@ export function setToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token)
 }
 
+export function getUserInfo(): StoredUser | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY)
+    return raw ? (JSON.parse(raw) as StoredUser) : null
+  } catch { return null }
+}
+
+function setUserInfo(info: StoredUser): void {
+  localStorage.setItem(USER_KEY, JSON.stringify(info))
+}
+
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(USER_KEY)
 }
 
 export function isAuthenticated(): boolean {
@@ -22,6 +42,16 @@ export function authHeaders(): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
   return headers
+}
+
+export async function fetchAndStoreUserInfo(): Promise<StoredUser | null> {
+  try {
+    const res = await fetch(`${API_URL}/auth/me`, { headers: authHeaders() })
+    if (!res.ok) return null
+    const data = await res.json() as StoredUser
+    setUserInfo(data)
+    return data
+  } catch { return null }
 }
 
 interface TokenPayload { token: string; expiresIn?: number }

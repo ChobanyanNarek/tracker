@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { isAuthenticated } from './utils/auth'
 import LoginPage from './components/auth/LoginPage'
-import { useStore, countUrgentDeadlines } from './store'
+import { useStore, countUrgentDeadlines, syncCloudToStore } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useAutoSync } from './hooks/useAutoSync'
 import TopBar from './components/layout/TopBar'
@@ -30,8 +30,13 @@ const VIEW_LABELS: Record<string, string> = {
 export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated)
 
+  const handleAuth = useCallback(async () => {
+    await syncCloudToStore()
+    setAuthed(true)
+  }, [])
+
   if (!authed) {
-    return <LoginPage onAuth={() => setAuthed(true)} />
+    return <LoginPage onAuth={() => { void handleAuth() }} />
   }
 
   return <AuthedApp />
