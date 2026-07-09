@@ -2,3 +2,5 @@ node_modules
 dist
 docs
 .vercel
+.DS_Store
+.env
