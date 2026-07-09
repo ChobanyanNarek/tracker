@@ -7,6 +7,7 @@ export interface StoredUser {
   firstName: string | null
   lastName: string | null
   email: string | null
+  role: 'ADMIN' | 'CREATOR' | null
 }
 
 export function getToken(): string | null {

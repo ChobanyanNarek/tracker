@@ -18,10 +18,11 @@ interface TopBarProps {
   onDevPanel: () => void
   devPanelOpen: boolean
   onProjPanel: () => void
+  onAdminOpen?: () => void
   projPanelOpen: boolean
 }
 
-export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGithubConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen }: TopBarProps) {
+export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGithubConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
   const { setNotifsEnabled, syncJira, syncGitlab, syncGithub, notifsEnabled, setView, setSelectedDate } = useStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
@@ -222,6 +223,21 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
                   </div>
                 )}
               </div>
+              {onAdminOpen && (
+                <button
+                  onClick={() => { setProfileOpen(false); onAdminOpen() }}
+                  style={{
+                    width: '100%', padding: '9px 14px', background: 'none', border: 'none',
+                    textAlign: 'left', cursor: 'pointer', color: 'var(--text)',
+                    fontFamily: 'var(--sans)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8,
+                    transition: 'background .12s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                >
+                  <span style={{ fontSize: 14 }}>⚙</span> Admin Panel
+                </button>
+              )}
               <button
                 onClick={handleSignOut}
                 style={{

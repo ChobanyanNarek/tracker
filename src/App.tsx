@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { isAuthenticated } from './utils/auth'
+import { isAuthenticated, getUserInfo } from './utils/auth'
 import LoginPage from './components/auth/LoginPage'
+import AdminPage from './components/admin/AdminPage'
 import { useStore, countUrgentDeadlines, syncCloudToStore } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useAutoSync } from './hooks/useAutoSync'
@@ -29,6 +30,7 @@ const VIEW_LABELS: Record<string, string> = {
 
 export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated)
+  const [adminOpen, setAdminOpen] = useState(false)
 
   const handleAuth = useCallback(async () => {
     await syncCloudToStore()
@@ -39,10 +41,17 @@ export default function App() {
     return <LoginPage onAuth={() => { void handleAuth() }} />
   }
 
-  return <AuthedApp />
+  if (adminOpen) {
+    return <AdminPage onBack={() => setAdminOpen(false)} />
+  }
+
+  const user = getUserInfo()
+  const isAdmin = user?.role === 'ADMIN'
+
+  return <AuthedApp onAdminOpen={isAdmin ? () => setAdminOpen(true) : undefined} />
 }
 
-function AuthedApp() {
+function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
   const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing } = useStore()
   const [toast, setToast] = useState<string | null>(null)
   const [standupOpen, setStandupOpen] = useState(false)
@@ -134,6 +143,7 @@ function AuthedApp() {
         devPanelOpen={openPanel === 'dev'}
         onProjPanel={() => togglePanel('proj')}
         projPanelOpen={openPanel === 'proj'}
+        onAdminOpen={onAdminOpen}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>

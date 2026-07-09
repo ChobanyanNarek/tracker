@@ -124,8 +124,13 @@ interface StoreActions {
 
 type Store = AppState & StoreActions
 
+// Guard: don't persist until the initial cloud sync has completed.
+// Without this, actions fired before cloud load (e.g. setNotifsEnabled in
+// AuthedApp's useEffect) would overwrite cloud with an empty freshState().
+let cloudSyncReady = false
+
 function withSave(state: AppState): AppState {
-  persistState(state)
+  if (cloudSyncReady) persistState(state)
   return state
 }
 
@@ -1328,6 +1333,7 @@ export const useStore = create<Store>((set, get) => {
 })
 
 function applyCloudState(cloud: Record<string, unknown> | null) {
+  cloudSyncReady = true
   useStore.setState((s) => ({
     ...s,
     cloudSyncing: false,

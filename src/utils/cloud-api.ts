@@ -18,6 +18,50 @@ export async function loadCloudState(): Promise<Record<string, unknown> | null> 
   }
 }
 
+export interface AdminUser {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  role: string
+  status: string
+  devCount: number
+  projectCount: number
+  jiraConnected: boolean
+  gitlabConnected: boolean
+  githubConnected: boolean
+}
+
+export async function adminGetUsers(): Promise<AdminUser[]> {
+  try {
+    const res = await fetch(`${API_URL}/admin/pm-tracker/users`, { headers: authHeaders() })
+    if (!res.ok) return []
+    const json = await res.json() as { users: AdminUser[] }
+    return json.users
+  } catch { return [] }
+}
+
+export async function adminDeleteUser(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/admin/pm-tracker/users/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    return res.ok || res.status === 204
+  } catch { return false }
+}
+
+export async function adminChangePassword(id: string, password: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/admin/pm-tracker/users/${id}/password`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ password }),
+    })
+    return res.ok || res.status === 204
+  } catch { return false }
+}
+
 export async function saveCloudState(data: Record<string, unknown>): Promise<boolean> {
   if (!getToken()) return false
   try {
