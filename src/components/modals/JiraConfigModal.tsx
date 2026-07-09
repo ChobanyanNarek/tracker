@@ -48,10 +48,13 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, [key]: value })
   }
 
-  function toggleDev(devId: string, selected: boolean) {
+  function addDev(devId: string) {
+    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: '' } })
+  }
+
+  function removeDev(devId: string) {
     const emails = { ...(conn.developerEmails ?? {}) }
-    if (selected) emails[devId] = emails[devId] ?? ''
-    else delete emails[devId]
+    delete emails[devId]
     onChange({ ...conn, developerEmails: emails })
   }
 
@@ -175,25 +178,33 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
           <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developers in this connection</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {developers.map((d) => {
-              const selected = d.id in (conn.developerEmails ?? {})
-              return (
-                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input type="checkbox" checked={selected} onChange={(e) => toggleDev(d.id, e.target.checked)} style={{ width: 13, height: 13, flexShrink: 0, cursor: 'pointer' }} />
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: selected ? 'var(--text)' : 'var(--text3)', width: 110, flexShrink: 0 }}>{d.name}</span>
-                  {selected && (
-                    <input
-                      style={{ ...inputStyle, flex: 1 }}
-                      placeholder="jira@company.com"
-                      value={conn.developerEmails?.[d.id] ?? ''}
-                      onChange={(e) => setDevEmail(d.id, e.target.value)}
-                      autoFocus={!conn.developerEmails?.[d.id]}
-                    />
-                  )}
-                </div>
-              )
-            })}
+            {developers.filter((d) => d.id in (conn.developerEmails ?? {})).map((d) => (
+              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: 'var(--text)', width: 110, flexShrink: 0 }}>{d.name}</span>
+                <input
+                  style={{ ...inputStyle, flex: 1 }}
+                  placeholder="jira@company.com"
+                  value={conn.developerEmails?.[d.id] ?? ''}
+                  onChange={(e) => setDevEmail(d.id, e.target.value)}
+                  // eslint-disable-next-line jsx-a11y/no-autofocus
+                  autoFocus={conn.developerEmails?.[d.id] === ''}
+                />
+                <button onClick={() => removeDev(d.id)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: '0 2px', flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+            {developers.some((d) => !(d.id in (conn.developerEmails ?? {}))) && (
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) addDev(e.target.value) }}
+                style={{ ...inputStyle, color: 'var(--text3)', cursor: 'pointer' }}
+              >
+                <option value="">+ Add developer…</option>
+                {developers.filter((d) => !(d.id in (conn.developerEmails ?? {}))).map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
       )}
