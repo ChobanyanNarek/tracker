@@ -117,7 +117,7 @@ interface StoreActions {
   setGithubConnections: (connections: GitHubConfig[]) => void
   syncGithub: () => Promise<{ linked: number; updated: number }>
   exportJSON: () => void
-  importJSON: (json: string) => void
+  importJSON: (json: string) => Promise<boolean>
   setHighlightedTaskId: (id: string | null) => void
   cloudSyncing: boolean
 }
@@ -1295,21 +1295,34 @@ export const useStore = create<Store>((set, get) => {
       a.click()
     },
 
-    importJSON: (json) => {
+    importJSON: async (json) => {
       const d = JSON.parse(json) as Partial<AppState> & { _v?: number; scheduleHours?: Record<string, Record<string, number>> }
       if (!d.developers || !d.tasks) throw new Error('Invalid backup file')
-      set((s) =>
-        withSave({
-          ...s,
-          developers: d.developers!.map((dev) => ({ periods: [], ...dev })),
-          projects: (d.projects ?? []).map((p) => ({ ...p, members: p.members ?? [] })),
-          tasks: d.tasks!.map(normalizeTask),
-          schedule: (d.schedule as Record<string, Record<string, string>>) ?? {},
-          scheduleHours: d.scheduleHours ?? {},
-          selectedDev: 'ALL',
-          selectedProject: 'ALL',
-        }),
-      )
+      const s = get()
+      const next: AppState = {
+        ...s,
+        developers: d.developers.map((dev) => ({ periods: [], ...dev })),
+        projects: (d.projects ?? []).map((p) => ({ ...p, members: p.members ?? [] })),
+        tasks: d.tasks.map(normalizeTask),
+        schedule: (d.schedule as Record<string, Record<string, string>>) ?? {},
+        scheduleHours: d.scheduleHours ?? {},
+        selectedDev: 'ALL',
+        selectedProject: 'ALL',
+      }
+      set(next)
+      return saveCloudState({
+        _v: 2,
+        developers: next.developers,
+        projects: next.projects,
+        tasks: next.tasks,
+        schedule: next.schedule,
+        scheduleHours: next.scheduleHours,
+        notifsEnabled: next.notifsEnabled,
+        jiraConnections: next.jiraConnections,
+        gitlabConnections: next.gitlabConnections,
+        githubConnections: next.githubConnections,
+        trackerTimezone: next.trackerTimezone,
+      })
     },
   }
 })

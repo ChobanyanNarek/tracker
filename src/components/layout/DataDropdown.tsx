@@ -28,15 +28,15 @@ export default function DataDropdown({ onFeedback }: Props) {
     e.target.value = ''
   }
 
-  const confirmImport = () => {
+  const confirmImport = async () => {
     if (!pendingImport) return
+    setPendingImport(null)
     try {
-      importJSON(pendingImport)
-      onFeedback('Data restored from backup')
+      const saved = await importJSON(pendingImport)
+      onFeedback(saved ? 'Data restored and saved to cloud ✓' : 'Restored locally but cloud save failed — check connection')
     } catch (err) {
       onFeedback('Could not read file: ' + (err as Error).message)
     }
-    setPendingImport(null)
   }
 
   const rowStyle: CSSProperties = {

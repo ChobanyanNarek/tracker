@@ -18,16 +18,17 @@ export async function loadCloudState(): Promise<Record<string, unknown> | null> 
   }
 }
 
-export async function saveCloudState(data: Record<string, unknown>): Promise<void> {
-  if (!getToken()) return
+export async function saveCloudState(data: Record<string, unknown>): Promise<boolean> {
+  if (!getToken()) return false
   try {
     const res = await fetch(`${API_URL}/pm-tracker/state`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify(data),
     })
-    if (res.status === 401) clearToken()
+    if (res.status === 401) { clearToken(); return false }
+    return res.ok
   } catch {
-    // silent
+    return false
   }
 }
