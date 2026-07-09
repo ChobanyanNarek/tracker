@@ -13,6 +13,8 @@ export interface GitLabConfig {
 }
 
 export interface JiraConfig {
+  id: string
+  name: string
   enabled: boolean
   baseUrl: string
   email: string
@@ -132,7 +134,7 @@ export interface AppState {
   selectedDate: string
   view: View
   notifsEnabled: boolean
-  jiraConfig: JiraConfig
+  jiraConnections: JiraConfig[]
   gitlabConfig: GitLabConfig
   highlightedTaskId: string | null
   trackerTimezone?: string  // single IANA zone for Performance calc; falls back to browser zone

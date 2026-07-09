@@ -6,7 +6,7 @@ import { useStore } from '../store'
  *  - interval polling for both providers (per their configured syncInterval)
  *  - GitLab sync on window focus, throttled to once per 5 minutes */
 export function useAutoSync(onToast: (msg: string) => void) {
-  const jiraConfig = useStore((s) => s.jiraConfig)
+  const jiraConnections = useStore((s) => s.jiraConnections)
   const gitlabConfig = useStore((s) => s.gitlabConfig)
 
   // Startup GitLab sync — ensures PR links appear after a browser refresh
@@ -24,10 +24,11 @@ export function useAutoSync(onToast: (msg: string) => void) {
     return () => clearTimeout(timer)
   }, [])
 
-  // Jira interval poll
+  // Jira interval poll — use the smallest configured interval across all enabled connections
   useEffect(() => {
-    if (!jiraConfig.enabled || !jiraConfig.syncInterval || !jiraConfig.token) return
-    const ms = jiraConfig.syncInterval * 60 * 1000
+    const active = jiraConnections.filter((c) => c.enabled && c.syncInterval && c.token)
+    if (!active.length) return
+    const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
       try {
         const { added, updated, removed } = await useStore.getState().syncJira()
@@ -37,7 +38,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
       } catch {}
     }, ms)
     return () => clearInterval(id)
-  }, [jiraConfig.enabled, jiraConfig.syncInterval, jiraConfig.token])
+  }, [JSON.stringify(jiraConnections.map((c) => [c.id, c.enabled, c.syncInterval, c.token]))])
 
   // GitLab interval poll
   useEffect(() => {

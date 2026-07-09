@@ -21,7 +21,8 @@ interface TopBarProps {
 
 export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen }: TopBarProps) {
   const { setNotifsEnabled, syncJira, syncGitlab, notifsEnabled, setView, setSelectedDate } = useStore()
-  const jiraConfig = useStore((s) => s.jiraConfig)
+  const jiraConnections = useStore((s) => s.jiraConnections)
+  const jiraEnabled = jiraConnections.some((c) => c.enabled && c.token)
   const gitlabConfig = useStore((s) => s.gitlabConfig)
   const [jiraSyncing, setJiraSyncing] = useState(false)
   const [glSyncing, setGlSyncing] = useState(false)
@@ -67,11 +68,11 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onFe
   }
 
   const handleJiraSync = useCallback(async () => {
-    if (!jiraConfig.enabled || !jiraConfig.token) { onJiraConfig(); return }
+    if (!jiraEnabled) { onJiraConfig(); return }
     setJiraSyncing(true)
     try { await syncJira() } catch {}
     setJiraSyncing(false)
-  }, [jiraConfig.enabled, jiraConfig.token, syncJira, onJiraConfig])
+  }, [jiraEnabled, syncJira, onJiraConfig])
 
   const handleGitlabSync = useCallback(async () => {
     if (!gitlabConfig.enabled || !gitlabConfig.token) { onGitlabConfig(); return }
@@ -133,7 +134,7 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onFe
         </button>
         <DataDropdown onFeedback={onFeedback} />
         <IntegrationsDropdown
-          jiraEnabled={jiraConfig.enabled}
+          jiraEnabled={jiraEnabled}
           gitlabEnabled={gitlabConfig.enabled}
           jiraSyncing={jiraSyncing}
           glSyncing={glSyncing}
