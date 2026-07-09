@@ -1,28 +1,22 @@
 import { create } from 'zustand'
-import type { AppState, Developer, Project, Task, JiraIssue, JiraConfig, GitLabConfig, View, EmploymentPeriod, PrEntry } from '../types'
+import type { AppState, Developer, Project, Task, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry } from '../types'
 import { loadCloudState, saveCloudState } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, rawToJiraItem, mergeStatusHistory } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
+import { fetchUserPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
 
 function makeId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 6)
 }
 
-// Match a jira by its stable issueId; fall back to URL only when the URL is
-// non-empty. Without the non-empty guard, a URL-less issue (issueId undefined,
-// url '') would match every other URL-less issue in the task, so a single
-// delete/hide/update would hit them all.
 function makeJiraMatcher(issueId: string | undefined, url: string) {
   return (j: JiraIssue) => (issueId ? j.issueId === issueId : !!url && j.url === url)
 }
 
-// Keeps a checkpoint's issue list tidy: active work on top, finished work
-// beneath it, hidden issues always last. A stable 3-way partition — relative
-// order within each tier (including manual drag order) is never disturbed.
 function sortJiraIssues(jiras: JiraIssue[]): JiraIssue[] {
   const active = jiras.filter((j) => !j.hidden && j.status !== 'done')
   const done = jiras.filter((j) => !j.hidden && j.status === 'done')
@@ -30,9 +24,6 @@ function sortJiraIssues(jiras: JiraIssue[]): JiraIssue[] {
   return [...active, ...done, ...hidden]
 }
 
-// Ensure a persisted/imported task has the array fields every consumer assumes.
-// Old-format tasks (jira string, no jiras[]) and pre-`prs` jiras otherwise force
-// defensive `?? []` everywhere and can crash code paths that don't guard.
 function normalizeTask(t: Task): Task {
   return {
     ...t,
@@ -53,12 +44,8 @@ function freshState(): AppState {
     scheduleHours: {},
     notifsEnabled: false,
     jiraConnections: [],
-    gitlabConfig: {
-      enabled: false,
-      token: '',
-      groupPath: '',
-      syncInterval: 10,
-    },
+    gitlabConnections: [],
+    githubConnections: [],
     developers: [],
     projects: [],
     tasks: [],
@@ -75,7 +62,8 @@ function persistState(state: AppState): void {
     scheduleHours: state.scheduleHours,
     notifsEnabled: state.notifsEnabled,
     jiraConnections: state.jiraConnections,
-    gitlabConfig: state.gitlabConfig,
+    gitlabConnections: state.gitlabConnections,
+    githubConnections: state.githubConnections,
     trackerTimezone: state.trackerTimezone,
   }
   void saveCloudState(payload as Record<string, unknown>)
@@ -124,9 +112,10 @@ interface StoreActions {
   setTrackerTimezone: (tz: string | undefined) => void
   setJiraConnections: (connections: JiraConfig[]) => void
   syncJira: () => Promise<{ added: number; updated: number; removed: number }>
-  setGitlabConfig: (cfg: GitLabConfig) => void
+  setGitlabConnections: (connections: GitLabConfig[]) => void
   syncGitlab: () => Promise<{ linked: number; updated: number; noKey: number; noIssue: number; noKeyList: string[]; noIssueList: string[] }>
-  debugGitlab: () => Promise<void>
+  setGithubConnections: (connections: GitHubConfig[]) => void
+  syncGithub: () => Promise<{ linked: number; updated: number }>
   exportJSON: () => void
   importJSON: (json: string) => void
   setHighlightedTaskId: (id: string | null) => void
@@ -268,8 +257,6 @@ export const useStore = create<Store>((set, get) => {
     deleteTask: (id) =>
       set((s) => {
         const task = s.tasks.find((t) => t.id === id)
-        // For carried tasks: mark their jiras as done on the source task so that
-        // autoCarryOverdue won't re-create this checkpoint on the next page load.
         if (task?.carriedOver && task.jiras?.length) {
           const sourceDate = task.carriedFrom ?? prevWorkDay(task.date)
           const issueIds = new Set(task.jiras.map((j) => j.issueId).filter((x): x is string => !!x))
@@ -332,9 +319,6 @@ export const useStore = create<Store>((set, get) => {
         (t) => t.devId === task.devId && t.title === task.title && t.date === nextDay && t.carriedOver,
       )
       if (existing) {
-        // De-dup by stable identity (issueId / dedupeKey), consistent with
-        // autoCarryOverdue. _srcIdx is positional and breaks when the source
-        // list changes order or length between two carry-overs.
         const existingIds = new Set<string>()
         ;(existing.jiras ?? []).forEach((j) => {
           if (j.issueId) existingIds.add(j.issueId)
@@ -387,9 +371,6 @@ export const useStore = create<Store>((set, get) => {
       const today = todayStr()
       const yesterday = prevWorkDay(today)
 
-      // Returns true if a jira (by issueId, falling back to dedupeKey) is done in any task
-      // for the same dev on any date after `afterDate`. Searches all tasks so that a user
-      // marking a carried issue as "done" is always treated as completion evidence.
       function isDoneInLaterTask(devId: string, issueId: string | undefined, url: string, name: string, afterDate: string): boolean {
         if (issueId) {
           return tasks.some(
@@ -409,7 +390,6 @@ export const useStore = create<Store>((set, get) => {
         )
       }
 
-      // Only look at yesterday's tasks.
       const unfinished = tasks.filter((t) => {
         if (t.date !== yesterday) return false
         if (t.jiras !== undefined) {
@@ -422,7 +402,6 @@ export const useStore = create<Store>((set, get) => {
 
       const newTasks: Task[] = []
 
-      // Build set of URLs explicitly deleted from today's tasks per dev — don't re-carry these
       const deletedTodayUrls = new Map<string, Set<string>>()
       tasks
         .filter((x) => x.date === today && x.deletedJiraUrls?.length)
@@ -431,7 +410,6 @@ export const useStore = create<Store>((set, get) => {
           x.deletedJiraUrls!.forEach((u) => deletedTodayUrls.get(x.devId)!.add(u))
         })
 
-      // Track issueIds (falling back to dedupeKey) already on today per dev
       const scheduledKeys = new Map<string, Set<string>>()
 
       function getScheduled(devId: string): Set<string> {
@@ -441,7 +419,6 @@ export const useStore = create<Store>((set, get) => {
             .filter((x) => x.devId === devId && x.date === today)
             .forEach((x) =>
               (x.jiras ?? []).forEach((j) => {
-                // Register both issueId and dedupeKey so mismatched ids don't slip through
                 if (j.issueId) existing.add(j.issueId)
                 const dk = jiraDedupeKey(j.url, j.name)
                 if (dk && dk !== 'name:') existing.add(dk)
@@ -461,11 +438,8 @@ export const useStore = create<Store>((set, get) => {
             .filter((j) => {
               if (j.status === 'done') return false
               if (isDoneInLaterTask(t.devId, j.issueId, j.url, j.name, t.date)) return false
-              // Don't re-carry issues the user explicitly deleted — either from
-              // today's tasks or from this source task itself (deleted on its own day).
               if (deletedTodayUrls.get(t.devId)?.has(j.url)) return false
               if (t.deletedJiraUrls?.includes(j.url)) return false
-              // Block if either issueId or dedupeKey is already scheduled
               if (j.issueId && scheduled.has(j.issueId)) return false
               const dk = jiraDedupeKey(j.url, j.name)
               if (dk && dk !== 'name:' && scheduled.has(dk)) return false
@@ -517,8 +491,6 @@ export const useStore = create<Store>((set, get) => {
       const { tasks } = get()
       if (!tasks.some((t) => t.jiras?.some((j) => !j.issueId))) return
 
-      // Build a stable mapping: devId + normalized key → issueId
-      // Jiras that are copies of the same ticket (same dev, same normalized key) share one issueId
       const idMap = new Map<string, string>()
       tasks.forEach((t) => {
         ;(t.jiras ?? []).forEach((j) => {
@@ -547,8 +519,6 @@ export const useStore = create<Store>((set, get) => {
     deduplicateJiras: () => {
       const { tasks } = get()
 
-      // For each (devId, date, issueId) only one jira should exist.
-      // Sort so non-carried tasks claim their issueIds first (originals win over copies).
       const sorted = [...tasks].sort((a, b) => {
         if (a.carriedOver !== b.carriedOver) return a.carriedOver ? 1 : -1
         return a.id < b.id ? -1 : 1
@@ -562,14 +532,11 @@ export const useStore = create<Store>((set, get) => {
         if (!Array.isArray(t.jiras) || !t.jiras.length) return
         const kept: JiraIssue[] = []
         t.jiras.forEach((j) => {
-          // Use dedupeKey (ticket key like NML-454747) as canonical identity.
-          // issueIds can differ across carry-over copies due to historical migration gaps.
           const dk = jiraDedupeKey(j.url, j.name)
           const identity = (dk && dk !== 'name:') ? dk : j.issueId
           if (!identity) { kept.push(j); return }
           const k = `${t.devId}:${t.date}:${identity}`
           if (!seen.has(k)) { seen.add(k); kept.push(j) }
-          // else: duplicate on same dev+date — drop it
         })
         if (kept.length !== t.jiras.length) {
           if (kept.length === 0) toDelete.add(t.id)
@@ -592,10 +559,6 @@ export const useStore = create<Store>((set, get) => {
     mergeSameDayTasks: () => {
       const { tasks } = get()
 
-      // A developer has ONE card per day. Multiple records for the same dev+date
-      // (e.g. a manual checkpoint plus a carried-over one) render seamlessly but
-      // keep issues in separate arrays, which breaks drag-reordering across them.
-      // Merge each group into a single record so all issues live in one list.
       const groups = new Map<string, Task[]>()
       tasks.forEach((t) => {
         const k = `${t.devId}|${t.date}`
@@ -611,12 +574,9 @@ export const useStore = create<Store>((set, get) => {
 
       groups.forEach((group) => {
         if (group.length === 1) { merged.push(group[0]); return }
-        // Only merge records that all use the jiras array — legacy string-format
-        // tasks (no jiras) are left untouched.
         if (group.some((t) => !Array.isArray(t.jiras))) { merged.push(...group); return }
 
         changed = true
-        // Originals first, carried copies after — same convention as deduplicateJiras.
         const ordered = [...group].sort((a, b) => {
           if (!!a.carriedOver !== !!b.carriedOver) return a.carriedOver ? 1 : -1
           return a.id < b.id ? -1 : 1
@@ -625,8 +585,6 @@ export const useStore = create<Store>((set, get) => {
         const jiras = sortJiraIssues(ordered.flatMap((t) => t.jiras!)).map((j, i) => ({ ...j, _srcIdx: i }))
         const comments = [...new Set(ordered.map((t) => t.comment?.trim()).filter(Boolean))]
         const deletedJiraUrls = [...new Set(ordered.flatMap((t) => t.deletedJiraUrls ?? []))]
-        // Keep carry provenance if any record was carried — deleteTask uses it to
-        // mark source-day issues done so they don't get re-carried.
         const carried = ordered.find((t) => t.carriedOver && t.carriedFrom)
         const allDone = jiras.length > 0 && jiras.every((j) => j.status === 'done')
         const hasBlocked = jiras.some((j) => j.status === 'blocked')
@@ -664,14 +622,11 @@ export const useStore = create<Store>((set, get) => {
                 const history = j.statusHistory ?? [{ status: j.status, at: now }]
                 return { ...j, status, manualStatus: status, statusHistory: [...history, { status, at: now }] }
               })
-              // Status just changed — re-tier so a freshly-done issue sinks below
-              // active work (and a re-opened one rejoins it) at the moment it flips.
               const jiras = sortJiraIssues(updated)
               const allDone = jiras.every((j) => j.status === 'done')
               const hasBlocked = jiras.some((j) => j.status === 'blocked')
               return { ...t, jiras, status: allDone ? 'done' : hasBlocked ? 'blocked' : jiras[0]?.status ?? 'todo' }
             }
-            // Propagate by issueId to every other task for the same dev
             if (issueId && targetTask && t.devId === targetTask.devId) {
               const now = new Date().toISOString()
               const updated = t.jiras.map((j) => {
@@ -713,8 +668,6 @@ export const useStore = create<Store>((set, get) => {
             const updated = t.jiras.map((j) => {
               if (!matchJira(j)) return j
               const next = { ...j, ...patch }
-              // A status change through direct edit is a manual override — record
-              // history and pin it so Jira sync doesn't silently revert it.
               if (patch.status && patch.status !== j.status) {
                 const history = j.statusHistory ?? [{ status: j.status, at: now }]
                 next.manualStatus = patch.status
@@ -722,8 +675,6 @@ export const useStore = create<Store>((set, get) => {
               }
               return next
             })
-            // Re-tier only when the edit actually touched status — otherwise a
-            // plain rename/comment edit shouldn't reshuffle the list.
             const jiras = patch.status ? sortJiraIssues(updated) : updated
             const allDone = jiras.length > 0 && jiras.every((j) => j.status === 'done')
             const hasBlocked = jiras.some((j) => j.status === 'blocked')
@@ -746,9 +697,6 @@ export const useStore = create<Store>((set, get) => {
           ...s,
           tasks: s.tasks.map((t) => {
             if (t.id !== taskId || !t.jiras) return t
-            // Reorder by stable identity, not display index — the displayed list
-            // can be a deduped subset of the stored jiras, so positional indices
-            // would move the wrong issue.
             const idOf = (j: JiraIssue) => j.issueId ?? j.url ?? ''
             const jiras = [...t.jiras]
             const fromIdx = jiras.findIndex((j) => idOf(j) === fromId)
@@ -859,14 +807,12 @@ export const useStore = create<Store>((set, get) => {
       let updated = 0
       let removed = 0
 
-      // Build a shared mutable task copy — all connections modify it in sequence.
       const tasksCopy = tasks.map((t) => ({
         ...t,
         jiras: [...(t.jiras ?? [])],
         jiraSync: t.jiraSync || t.title === 'Jira Issues' || undefined,
       }))
 
-      // Pre-merge: collapse all jiraSync tasks for the same dev+date into one card.
       const mergedIds = new Set<string>()
       const primarySyncTask = new Map<string, typeof tasksCopy[number]>()
       tasksCopy.forEach((t) => {
@@ -893,12 +839,10 @@ export const useStore = create<Store>((set, get) => {
       const dedupedTasks = tasksCopy.filter((t) => !mergedIds.has(t.id))
       const newTasks: Task[] = []
 
-      // Process each enabled connection in sequence, accumulating into dedupedTasks.
       const syncedConns: JiraConfig[] = []
 
       for (const conn of enabledConns) {
         const projList = conn.projectKeys.map((k) => `"${k.trim()}"`).join(',')
-        // Devs that have an email configured for this specific connection (fall back to legacy dev.jiraEmail)
         const connDevs = developers
           .map((d) => ({ dev: d, email: conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '' }))
           .filter((x) => x.email)
@@ -1036,7 +980,6 @@ export const useStore = create<Store>((set, get) => {
 
       const finalConns = get().jiraConnections.map((c) => syncedConns.find((s) => s.id === c.id) ?? c)
 
-      // Merge PR links from the LIVE state into dedupedTasks before saving.
       set((s) => {
         const livePrsByTask = new Map<string, Map<string, PrEntry[]>>()
         for (const t of s.tasks) {
@@ -1071,15 +1014,13 @@ export const useStore = create<Store>((set, get) => {
       return { added, updated, removed }
     },
 
-    setGitlabConfig: (gitlabConfig) => set((s) => withSave({ ...s, gitlabConfig })),
+    setGitlabConnections: (gitlabConnections) => set((s) => withSave({ ...s, gitlabConnections })),
 
     syncGitlab: async () => {
-      const { gitlabConfig, jiraConnections, tasks, trackerTimezone, developers } = get()
-      if (!gitlabConfig.enabled || !gitlabConfig.token || !gitlabConfig.groupPath) {
-        throw new Error('GitLab not configured — open GitLab settings and save')
-      }
+      const { gitlabConnections, jiraConnections, tasks, trackerTimezone, developers } = get()
+      const enabledConns = gitlabConnections.filter((c) => c.enabled && c.token && c.groupPath)
+      if (!enabledConns.length) throw new Error('No GitLab connections configured')
 
-      // Convert GitLab's UTC created_at to the tracker timezone.
       const tz = resolveTrackerTz(trackerTimezone)
       const toLocalParts = (d: Date) => {
         const parts = new Intl.DateTimeFormat('en-CA', {
@@ -1090,45 +1031,6 @@ export const useStore = create<Store>((set, get) => {
         return { date: `${g('year')}-${g('month')}-${g('day')}`, time: `${g('hour')}:${g('minute')}` }
       }
 
-      // Collect developer GitLab usernames for supplemental per-developer fetch.
-      const devUsernames = developers
-        .filter((d) => !d.archivedAt && d.gitlabUsername?.trim())
-        .map((d) => d.gitlabUsername!.trim())
-
-      // Fetch MRs in two passes and merge by id:
-      //   Pass 1: group/project endpoint (works for Reporter+ roles).
-      //   Pass 2: per-developer /users/:username/merge_requests (works at any role level).
-      // Both passes are always attempted when usernames are configured. This covers the
-      // common case where the token is Developer in some projects and Planner in others:
-      // the group endpoint silently omits Planner-role projects, so pass 2 fills the gap.
-      const mrById = new Map<number, Awaited<ReturnType<typeof fetchGroupMRs>>[number]>()
-
-      try {
-        const groupMrs = await fetchGroupMRs(gitlabConfig)
-        for (const m of groupMrs) mrById.set(m.id, m)
-      } catch (err) {
-        const msg = (err as Error).message
-        const isPermission = msg.includes('403') || msg.includes('Forbidden') || msg.includes('401')
-        // Re-throw non-permission errors (bad token, network, etc.)
-        // Permission errors with no usernames also re-throw — nothing we can do.
-        if (!isPermission || devUsernames.length === 0) throw err
-        // Otherwise fall through — pass 2 below will populate mrById.
-      }
-
-      if (devUsernames.length > 0) {
-        const userMrs = await fetchUserMRs(devUsernames, gitlabConfig.token)
-        for (const m of userMrs) mrById.set(m.id, m) // dedup by MR id
-      }
-
-      const mrs = [...mrById.values()]
-
-      let linked = 0
-      let updated = 0
-      const skippedNoKey: string[] = []
-      const skippedNoIssue: string[] = []
-
-      // Anchor MR→issue matching on project keys: the ones configured for Jira,
-      // PLUS prefixes derived from issues already tracked (e.g. MONE from MONE-957).
       const projectKeys = [
         ...new Set([
           ...jiraConnections.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
@@ -1139,14 +1041,40 @@ export const useStore = create<Store>((set, get) => {
         ]),
       ]
 
-      // Build PR patches: taskId → (jiraIdentity → new PrEntry[]).
-      // We never mutate a stale snapshot of tasks — instead we collect what needs
-      // to be added and apply it surgically inside the set() callback below. This
-      // avoids a race condition where a concurrent syncJira or autoCarryOverdue
-      // could have modified the store while we were waiting on the network fetch.
+      const mrById = new Map<number, Awaited<ReturnType<typeof fetchGroupMRs>>[number]>()
+      const syncedConns: GitLabConfig[] = []
+
+      for (const conn of enabledConns) {
+        const devUsernames = developers
+          .filter((d) => !d.archivedAt)
+          .map((d) => (conn.developerUsernames?.[d.id] ?? d.gitlabUsername ?? '').trim())
+          .filter(Boolean)
+
+        try {
+          const groupMrs = await fetchGroupMRs(conn)
+          for (const m of groupMrs) mrById.set(m.id, m)
+        } catch (err) {
+          const msg = (err as Error).message
+          const isPermission = msg.includes('403') || msg.includes('Forbidden') || msg.includes('401')
+          if (!isPermission || devUsernames.length === 0) throw err
+        }
+
+        if (devUsernames.length > 0) {
+          const userMrs = await fetchUserMRs(devUsernames, conn.token)
+          for (const m of userMrs) mrById.set(m.id, m)
+        }
+
+        syncedConns.push({ ...conn, lastSync: new Date().toISOString() })
+      }
+
+      const mrs = [...mrById.values()]
+
+      let linked = 0
+      let updated = 0
+      const skippedNoKey: string[] = []
+      const skippedNoIssue: string[] = []
+
       const prPatches = new Map<string, Map<string, PrEntry[]>>()
-      // Maps each MR web_url to the jira status it should set (merged→done, open→review).
-      // Stored separately because the set() callback runs after the loop ends.
       const mrUrlToStatus = new Map<string, JiraIssue['status']>()
 
       for (const mr of mrs) {
@@ -1157,24 +1085,14 @@ export const useStore = create<Store>((set, get) => {
         }
 
         const { date: pushDate, time: pushTime } = toLocalParts(new Date(mr.created_at))
-        // Any linked MR — whether open or merged — marks the issue done,
-        // mirroring the manual behaviour in IssueEditForm.
         mrUrlToStatus.set(mr.web_url, 'done')
 
-        // Link the PR to every tracked issue whose key appears in the MR title OR
-        // branch (covers stacked branches) — matched by dedupe key or by substring
-        // — and to EVERY copy across all dates (carry-over handling).
-        const keySet = new Set(keys) // already uppercase
+        const keySet = new Set(keys)
         const keyRes = keys.map((key) => new RegExp(`(^|[^A-Za-z0-9])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`, 'i'))
         const matchesIssue = (jira: JiraIssue) => {
-          // Most reliable: the stored Jira issue ID (e.g. MONE-123)
           if (jira.issueId && keySet.has(jira.issueId.toUpperCase())) return true
-          // Fallback: key extracted from the issue URL (covers manually-added issues)
           const k = jiraDedupeKey(jira.url, jira.name)
           if (k && k !== 'name:' && keySet.has(k.toUpperCase())) return true
-          // URL-only regex check — deliberately excludes jira.name: the issue summary
-          // may reference other ticket numbers (e.g. "Follow-up to MONE-1007") causing
-          // false-positive links to the wrong MR.
           return keyRes.some((re) => re.test(jira.url ?? ''))
         }
 
@@ -1185,15 +1103,12 @@ export const useStore = create<Store>((set, get) => {
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
-            // Already stored — count as "already tracked" but don't re-add
             if ((jira.prs ?? []).some((p) => p.url === mr.web_url)) continue
-            // Use issueId as the stable identity key, falling back to url
             const identity = jira.issueId ?? (jira.url || null)
             if (!identity) continue
             if (!prPatches.has(task.id)) prPatches.set(task.id, new Map())
             const taskPatch = prPatches.get(task.id)!
             const existing = taskPatch.get(identity) ?? []
-            // Guard against the same MR appearing twice in this sync run
             if (!existing.some((p) => p.url === mr.web_url)) {
               taskPatch.set(identity, [...existing, { url: mr.web_url, date: pushDate, time: pushTime }])
               addedSomewhere = true
@@ -1215,14 +1130,8 @@ export const useStore = create<Store>((set, get) => {
       const parts = [`+${linked} linked`, `${updated} already`]
       if (skippedNoKey.length) parts.push(`${skippedNoKey.length} no-key`)
       if (skippedNoIssue.length) parts.push(`${skippedNoIssue.length} untracked`)
-      const newGitlabConfig: GitLabConfig = {
-        ...gitlabConfig,
-        lastSync: new Date().toISOString(),
-        lastSyncResult: parts.join(', '),
-      }
+      const resultStr = parts.join(', ')
 
-      // Apply patches surgically to the CURRENT state — s.tasks reflects any
-      // concurrent mutations that happened during the network fetch.
       set((s) => withSave({
         ...s,
         tasks: s.tasks.map((t) => {
@@ -1238,26 +1147,43 @@ export const useStore = create<Store>((set, get) => {
             const toAdd = newPrs.filter((p) => !existingUrls.has(p.url))
             if (!toAdd.length) return j
             changed = true
-            // Pick the strongest status implied by the added PRs:
-            // merged MR → done; open MR → review (but don't demote from done/blocked)
             let newStatus = j.status
             for (const p of toAdd) {
-              const s = mrUrlToStatus.get(p.url)
-              if (s === 'done') { newStatus = 'done'; break }
-              if (s === 'review' && newStatus !== 'done' && newStatus !== 'blocked') newStatus = 'review'
+              const st = mrUrlToStatus.get(p.url)
+              if (st === 'done') { newStatus = 'done'; break }
+              if (st === 'review' && newStatus !== 'done' && newStatus !== 'blocked') newStatus = 'review'
             }
             return { ...j, prs: [...(j.prs ?? []), ...toAdd], status: newStatus }
           })
           return changed ? { ...t, jiras } : t
         }),
-        gitlabConfig: newGitlabConfig,
+        gitlabConnections: s.gitlabConnections.map((c) => {
+          const synced = syncedConns.find((sc) => sc.id === c.id)
+          if (!synced) return c
+          return { ...synced, lastSyncResult: resultStr }
+        }),
       }))
 
       return { linked, updated, noKey: skippedNoKey.length, noIssue: skippedNoIssue.length, noKeyList: skippedNoKey, noIssueList: skippedNoIssue }
     },
 
-    debugGitlab: async () => {
-      const { gitlabConfig, jiraConnections, tasks, developers } = get()
+    setGithubConnections: (githubConnections) => set((s) => withSave({ ...s, githubConnections })),
+
+    syncGithub: async () => {
+      const { githubConnections, jiraConnections, tasks, trackerTimezone, developers } = get()
+      const enabledConns = githubConnections.filter((c) => c.enabled && c.token)
+      if (!enabledConns.length) throw new Error('No GitHub connections configured')
+
+      const tz = resolveTrackerTz(trackerTimezone)
+      const toLocalParts = (d: Date) => {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', hour12: false,
+        }).formatToParts(d)
+        const g = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+        return { date: `${g('year')}-${g('month')}-${g('day')}`, time: `${g('hour')}:${g('minute')}` }
+      }
+
       const projectKeys = [
         ...new Set([
           ...jiraConnections.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
@@ -1267,50 +1193,94 @@ export const useStore = create<Store>((set, get) => {
             .filter(Boolean),
         ]),
       ]
-      // Every tracked issue key, with the tasks/dates it appears on.
-      const tracked = new Map<string, Array<{ date: string; url: string; name: string; prs: number }>>()
-      for (const t of tasks) {
-        for (const j of t.jiras ?? []) {
-          const k = jiraDedupeKey(j.url, j.name).toUpperCase()
-          if (!/-\d+$/.test(k)) continue
-          if (!tracked.has(k)) tracked.set(k, [])
-          tracked.get(k)!.push({ date: t.date, url: j.url, name: j.name, prs: (j.prs ?? []).length })
-        }
-      }
-      console.info('[debug] projectKeys:', projectKeys)
-      console.info(`[debug] tracked issue keys (${tracked.size}):`, [...tracked.keys()].sort())
 
-      const devUsernames = developers
-        .filter((d) => !d.archivedAt && d.gitlabUsername?.trim())
-        .map((d) => d.gitlabUsername!.trim())
-      const mrById = new Map<number, Awaited<ReturnType<typeof fetchGroupMRs>>[number]>()
-      try {
-        const groupMrs = await fetchGroupMRs(gitlabConfig)
-        for (const m of groupMrs) mrById.set(m.id, m)
-      } catch (err) {
-        const msg = (err as Error).message
-        const isPermission = msg.includes('403') || msg.includes('Forbidden') || msg.includes('401')
-        if (!isPermission || devUsernames.length === 0) throw err
-      }
-      if (devUsernames.length > 0) {
-        const userMrs = await fetchUserMRs(devUsernames, gitlabConfig.token)
-        for (const m of userMrs) mrById.set(m.id, m)
-      }
-      const rows = [...mrById.values()].map((mr) => {
-        const ks = extractJiraKeys(mr, projectKeys)
-        return {
-          iid: mr.iid,
-          key: ks.join(',') || '—',
-          tracked: ks.some((k) => tracked.has(k)),
-          title: mr.title.slice(0, 48),
-          branch: mr.source_branch.slice(0, 32),
+      const prPatches = new Map<string, Map<string, PrEntry[]>>()
+      const prUrlToStatus = new Map<string, JiraIssue['status']>()
+      let linked = 0
+      let updated = 0
+      const syncedConns: GitHubConfig[] = []
+
+      for (const conn of enabledConns) {
+        const connDevUsernames = developers
+          .filter((d) => !d.archivedAt)
+          .map((d) => (conn.developerUsernames?.[d.id] ?? '').trim())
+          .filter(Boolean)
+
+        for (const username of connDevUsernames) {
+          const prs = await fetchUserPRs(username, conn.token, conn.orgOrUser)
+          for (const pr of prs) {
+            const keys = extractGithubJiraKeys(pr, projectKeys)
+            if (!keys.length) continue
+            const { date: pushDate, time: pushTime } = toLocalParts(new Date(pr.created_at))
+            prUrlToStatus.set(pr.html_url, pr.pull_request?.merged_at ? 'done' : 'review')
+
+            const keySet = new Set(keys)
+            const keyRes = keys.map((key) => new RegExp(`(^|[^A-Za-z0-9])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`, 'i'))
+            const matchesIssue = (jira: JiraIssue) => {
+              if (jira.issueId && keySet.has(jira.issueId.toUpperCase())) return true
+              const k = jiraDedupeKey(jira.url, jira.name)
+              if (k && k !== 'name:' && keySet.has(k.toUpperCase())) return true
+              return keyRes.some((re) => re.test(jira.url ?? ''))
+            }
+
+            let matched = false
+            let addedSomewhere = false
+
+            for (const task of tasks) {
+              for (const jira of (task.jiras ?? [])) {
+                if (!matchesIssue(jira)) continue
+                matched = true
+                if ((jira.prs ?? []).some((p) => p.url === pr.html_url)) continue
+                const identity = jira.issueId ?? (jira.url || null)
+                if (!identity) continue
+                if (!prPatches.has(task.id)) prPatches.set(task.id, new Map())
+                const taskPatch = prPatches.get(task.id)!
+                const existing = taskPatch.get(identity) ?? []
+                if (!existing.some((p) => p.url === pr.html_url)) {
+                  taskPatch.set(identity, [...existing, { url: pr.html_url, date: pushDate, time: pushTime }])
+                  addedSomewhere = true
+                }
+              }
+            }
+
+            if (matched) {
+              if (addedSomewhere) linked++
+              else updated++
+            }
+          }
         }
-      })
-      console.info(`[debug] fetched ${rows.length} MRs:`)
-      console.table(rows)
-      const trackedMatches = rows.filter((r) => r.tracked)
-      console.info(`[debug] MRs whose key IS tracked (${trackedMatches.length}):`, trackedMatches.map((r) => `!${r.iid} ${r.key}`))
-      console.info('[debug] tracked-issue detail (key → where it lives):', Object.fromEntries(tracked))
+        syncedConns.push({ ...conn, lastSync: new Date().toISOString() })
+      }
+
+      set((s) => withSave({
+        ...s,
+        tasks: s.tasks.map((t) => {
+          const taskPatch = prPatches.get(t.id)
+          if (!taskPatch) return t
+          let changed = false
+          const jiras = (t.jiras ?? []).map((j) => {
+            const identity = j.issueId ?? (j.url || null)
+            if (!identity) return j
+            const newPrs = taskPatch.get(identity)
+            if (!newPrs?.length) return j
+            const existingUrls = new Set((j.prs ?? []).map((p) => p.url))
+            const toAdd = newPrs.filter((p) => !existingUrls.has(p.url))
+            if (!toAdd.length) return j
+            changed = true
+            let newStatus = j.status
+            for (const p of toAdd) {
+              const st = prUrlToStatus.get(p.url)
+              if (st === 'done') { newStatus = 'done'; break }
+              if (st === 'review' && newStatus !== 'done' && newStatus !== 'blocked') newStatus = 'review'
+            }
+            return { ...j, prs: [...(j.prs ?? []), ...toAdd], status: newStatus }
+          })
+          return changed ? { ...t, jiras } : t
+        }),
+        githubConnections: s.githubConnections.map((c) => syncedConns.find((sc) => sc.id === c.id) ?? c),
+      }))
+
+      return { linked, updated }
     },
 
     exportJSON: () => {
@@ -1344,7 +1314,6 @@ export const useStore = create<Store>((set, get) => {
   }
 })
 
-// Load cloud state once on startup, then flip cloudSyncing off so the UI knows
 loadCloudState().then((cloud) => {
   useStore.setState((s) => ({
     ...s,
@@ -1361,7 +1330,12 @@ loadCloudState().then((cloud) => {
             : cloud.jiraConfig
               ? { jiraConnections: [{ ...(cloud.jiraConfig as JiraConfig), id: 'j_legacy', name: 'Default' }] }
               : {}),
-          ...(cloud.gitlabConfig ? { gitlabConfig: cloud.gitlabConfig as AppState['gitlabConfig'] } : {}),
+          ...(cloud.gitlabConnections
+            ? { gitlabConnections: cloud.gitlabConnections as AppState['gitlabConnections'] }
+            : cloud.gitlabConfig
+              ? { gitlabConnections: [{ ...(cloud.gitlabConfig as GitLabConfig), id: 'gl_legacy', name: 'Default' }] }
+              : {}),
+          ...(cloud.githubConnections ? { githubConnections: cloud.githubConnections as AppState['githubConnections'] } : {}),
           ...(cloud.trackerTimezone !== undefined ? { trackerTimezone: cloud.trackerTimezone as string | undefined } : {}),
         }
       : {}),
@@ -1371,7 +1345,6 @@ loadCloudState().then((cloud) => {
 })
 
 export function getVisibleDevIds(state: AppState): string[] {
-  // An archived developer is only visible on dates up to and including their archive date.
   const activeOnDate = (d: AppState['developers'][number]) =>
     !d.archivedAt || state.selectedDate <= d.archivedAt
 
@@ -1391,18 +1364,11 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
     return dv && pj && t.date === state.selectedDate
   })
 
-  // Non-carried tasks claim their jira identities first so carry-over duplicates are hidden.
   const ordered = [...base].sort((a, b) => {
     if (a.carriedOver !== b.carriedOver) return a.carriedOver ? 1 : -1
     return a.id < b.id ? -1 : 1
   })
 
-  // Union of PRs per (devId, real Jira key) across ALL tasks/dates, so a PR
-  // linked to any copy of an issue shows on whichever copy is displayed.
-  // ONLY applies to issues with a real Jira key (PROJ-123 format) or a stable
-  // issueId. Name-only issues (dk = 'name:...') are intentionally excluded: a
-  // generic task like "Code Review" recurs daily and each day's PRs are
-  // independent — merging them across all dates would flood the task card.
   const isRealJiraKey = (dk: string | null | undefined): boolean =>
     !!dk && /^[A-Z][A-Z0-9]+-\d+$/.test(dk)
   const prUnion = new Map<string, PrEntry[]>()
@@ -1443,18 +1409,14 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
       if (freshJiras.length > 0) {
         result.push({ ...t, jiras: freshJiras })
       } else if (!t.carriedOver && (t.deadline || t.comment || t.pr || (t.prs?.length ?? 0) > 0)) {
-        // Non-carried task lost all its jiras to dedup but still has other content worth showing
         result.push({ ...t, jiras: [] })
       }
-      // Carried task with no remaining jiras: silently drop — the surviving card already shows everything
     } else {
-      // Task has no jiras array (old-format uses t.jira string)
       if (t.jira) {
         const dk = jiraDedupeKey(t.jira, '')
         if (dk && dk !== 'name:') {
           const k = `${t.devId}:${dk}`
           if (seenJira.has(k)) {
-            // Only keep if non-carried with independent content
             if (!t.carriedOver && (t.deadline || t.comment)) result.push(t)
           } else {
             seenJira.add(k)
@@ -1464,7 +1426,6 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
           result.push(t)
         }
       } else {
-        // No jiras at all — hide carried shells, show non-carried only if they have content
         const hasContent = !!(t.deadline || t.comment || t.pr || (t.prs?.length ?? 0) > 0)
         if (!t.carriedOver || hasContent) result.push(t)
       }
@@ -1484,7 +1445,6 @@ export function countUrgentDeadlines(
     .slice(0, 10)
   const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
 
-  // Mirror DeadlinesView exactly: today + yesterday window, deduped, exclude archived
   const jiraMap = new Map<string, { status: string; taskDate: string }>()
 
   tasks.forEach((t) => {

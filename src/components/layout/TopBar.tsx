@@ -12,6 +12,7 @@ interface TopBarProps {
   urgentCount: number
   onJiraConfig: () => void
   onGitlabConfig: () => void
+  onGithubConfig: () => void
   onFeedback: (msg: string) => void
   onDevPanel: () => void
   devPanelOpen: boolean
@@ -19,13 +20,17 @@ interface TopBarProps {
   projPanelOpen: boolean
 }
 
-export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen }: TopBarProps) {
-  const { setNotifsEnabled, syncJira, syncGitlab, notifsEnabled, setView, setSelectedDate } = useStore()
+export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGithubConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen }: TopBarProps) {
+  const { setNotifsEnabled, syncJira, syncGitlab, syncGithub, notifsEnabled, setView, setSelectedDate } = useStore()
   const jiraConnections = useStore((s) => s.jiraConnections)
   const jiraEnabled = jiraConnections.some((c) => c.enabled && c.token)
-  const gitlabConfig = useStore((s) => s.gitlabConfig)
+  const gitlabConnections = useStore((s) => s.gitlabConnections)
+  const gitlabEnabled = gitlabConnections.some((c) => c.enabled && c.token)
+  const githubConnections = useStore((s) => s.githubConnections)
+  const githubEnabled = githubConnections.some((c) => c.enabled && c.token)
   const [jiraSyncing, setJiraSyncing] = useState(false)
   const [glSyncing, setGlSyncing] = useState(false)
+  const [ghSyncing, setGhSyncing] = useState(false)
 
   const toggleNotifs = async () => {
     if (!('Notification' in window)) {
@@ -36,7 +41,6 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onFe
       onFeedback('Notifications blocked — open browser Site Settings → Notifications and allow this site.')
       return
     }
-    // Already enabled: clicking again fires a test notification so the user can verify visibility
     if (Notification.permission === 'granted' && notifsEnabled) {
       try {
         new Notification('🔔 ProgressOr — test', {
@@ -75,7 +79,7 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onFe
   }, [jiraEnabled, syncJira, onJiraConfig])
 
   const handleGitlabSync = useCallback(async () => {
-    if (!gitlabConfig.enabled || !gitlabConfig.token) { onGitlabConfig(); return }
+    if (!gitlabEnabled) { onGitlabConfig(); return }
     setGlSyncing(true)
     try {
       const { linked, updated } = await syncGitlab()
@@ -84,7 +88,19 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onFe
       onFeedback(`GitLab sync failed: ${(err as Error).message}`)
     }
     setGlSyncing(false)
-  }, [gitlabConfig.enabled, gitlabConfig.token, syncGitlab, onGitlabConfig, onFeedback])
+  }, [gitlabEnabled, syncGitlab, onGitlabConfig, onFeedback])
+
+  const handleGithubSync = useCallback(async () => {
+    if (!githubEnabled) { onGithubConfig(); return }
+    setGhSyncing(true)
+    try {
+      const { linked, updated } = await syncGithub()
+      onFeedback(`GitHub synced — ${linked} PR${linked !== 1 ? 's' : ''} linked, ${updated} already tracked`)
+    } catch (err) {
+      onFeedback(`GitHub sync failed: ${(err as Error).message}`)
+    }
+    setGhSyncing(false)
+  }, [githubEnabled, syncGithub, onGithubConfig, onFeedback])
 
   const notifPerm = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
   const notifOn = notifPerm === 'granted' && notifsEnabled
@@ -135,13 +151,17 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onFe
         <DataDropdown onFeedback={onFeedback} />
         <IntegrationsDropdown
           jiraEnabled={jiraEnabled}
-          gitlabEnabled={gitlabConfig.enabled}
+          gitlabEnabled={gitlabEnabled}
+          githubEnabled={githubEnabled}
           jiraSyncing={jiraSyncing}
           glSyncing={glSyncing}
+          ghSyncing={ghSyncing}
           onJiraConfig={onJiraConfig}
           onGitlabConfig={onGitlabConfig}
+          onGithubConfig={onGithubConfig}
           onJiraSync={handleJiraSync}
           onGitlabSync={handleGitlabSync}
+          onGithubSync={handleGithubSync}
         />
       </div>
     </div>

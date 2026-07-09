@@ -4,19 +4,23 @@ import { useClickOutside } from '../../hooks/useClickOutside'
 interface Props {
   jiraEnabled: boolean
   gitlabEnabled: boolean
+  githubEnabled: boolean
   jiraSyncing: boolean
   glSyncing: boolean
+  ghSyncing: boolean
   onJiraConfig: () => void
   onGitlabConfig: () => void
+  onGithubConfig: () => void
   onJiraSync: () => void
   onGitlabSync: () => void
+  onGithubSync: () => void
 }
 
-export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, jiraSyncing, glSyncing, onJiraConfig, onGitlabConfig, onJiraSync, onGitlabSync }: Props) {
+export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, githubEnabled, jiraSyncing, glSyncing, ghSyncing, onJiraConfig, onGitlabConfig, onGithubConfig, onJiraSync, onGitlabSync, onGithubSync }: Props) {
   const [open, setOpen] = useState(false)
   const ref = useClickOutside<HTMLDivElement>(() => setOpen(false))
 
-  const anyEnabled = jiraEnabled || gitlabEnabled
+  const anyEnabled = jiraEnabled || gitlabEnabled || githubEnabled
 
   const rowStyle: CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
@@ -32,7 +36,7 @@ export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, jiraS
     <div ref={ref} style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen((o) => !o)}
-        title="Integrations (Jira, GitLab)"
+        title="Integrations (Jira, GitLab, GitHub)"
         style={{
           display: 'flex', alignItems: 'center', gap: 5,
           border: `1px solid ${anyEnabled ? 'var(--accent)' : 'var(--border)'}`,
@@ -47,6 +51,7 @@ export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, jiraS
           <span style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
             {jiraEnabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#60a5fa' }} />}
             {gitlabEnabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#fb923c' }} />}
+            {githubEnabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#a78bfa' }} />}
           </span>
         )}
       </button>
@@ -72,7 +77,7 @@ export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, jiraS
           </div>
 
           {/* GitLab */}
-          <div style={{ ...rowStyle, borderBottom: 'none' }}>
+          <div style={rowStyle}>
             <span style={{ fontSize: 13 }}>🦊</span>
             <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: gitlabEnabled ? '#fb923c' : 'var(--text3)' }}>GitLab</span>
             {gitlabEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#fb923c', padding: '1px 5px', border: '1px solid #fb923c40', borderRadius: 8 }}>on</span>}
@@ -83,6 +88,20 @@ export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, jiraS
               disabled={glSyncing}
               onClick={() => { setOpen(false); onGitlabSync() }}
             >{glSyncing ? '⟳' : '↻'}</button>
+          </div>
+
+          {/* GitHub */}
+          <div style={{ ...rowStyle, borderBottom: 'none' }}>
+            <span style={{ fontSize: 13 }}>🐙</span>
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: githubEnabled ? '#a78bfa' : 'var(--text3)' }}>GitHub</span>
+            {githubEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#a78bfa', padding: '1px 5px', border: '1px solid #a78bfa40', borderRadius: 8 }}>on</span>}
+            <button style={iconBtnStyle} title="GitHub settings" onClick={() => { setOpen(false); onGithubConfig() }}>⚙</button>
+            <button
+              style={{ ...iconBtnStyle, opacity: ghSyncing ? 0.5 : 1, color: githubEnabled ? '#a78bfa' : 'var(--text3)', borderColor: githubEnabled ? '#a78bfa50' : 'var(--border)' }}
+              title="Sync PRs from GitHub"
+              disabled={ghSyncing}
+              onClick={() => { setOpen(false); onGithubSync() }}
+            >{ghSyncing ? '⟳' : '↻'}</button>
           </div>
         </div>
       )}

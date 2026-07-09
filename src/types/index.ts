@@ -4,10 +4,25 @@ export type ScheduleType = 'work' | 'vacation' | 'dayoff' | 'sick' | 'holiday'
 export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule'
 
 export interface GitLabConfig {
+  id: string
+  name: string
   enabled: boolean
   token: string
   groupPath: string       // e.g. 'mycompany' or 'mycompany/subgroup'
   syncInterval: number    // minutes; 0 = manual only
+  developerUsernames?: Record<string, string>  // devId → gitlab username for this connection
+  lastSync?: string
+  lastSyncResult?: string
+}
+
+export interface GitHubConfig {
+  id: string
+  name: string
+  enabled: boolean
+  token: string
+  orgOrUser: string  // GitHub org or user — used to scope PR search; leave empty to search globally
+  syncInterval: number  // minutes; 0 = manual only
+  developerUsernames?: Record<string, string>  // devId → github username
   lastSync?: string
   lastSyncResult?: string
 }
@@ -135,7 +150,8 @@ export interface AppState {
   view: View
   notifsEnabled: boolean
   jiraConnections: JiraConfig[]
-  gitlabConfig: GitLabConfig
+  gitlabConnections: GitLabConfig[]
+  githubConnections: GitHubConfig[]
   highlightedTaskId: string | null
   trackerTimezone?: string  // single IANA zone for Performance calc; falls back to browser zone
 }

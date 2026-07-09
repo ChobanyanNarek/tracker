@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
-import type { GitLabConfig } from '../../types'
-import { fetchGroupMRs, normalizeGroupPath } from '../../utils/gitlab-api'
-import { jiraDedupeKey } from '../../utils/format'
+import type { GitHubConfig } from '../../types'
 import Modal from '../ui/Modal'
 
 interface Props { onClose: () => void }
@@ -17,22 +15,22 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4, display: 'block',
 }
 
-function makeEmptyConn(): GitLabConfig {
+function makeEmptyConn(): GitHubConfig {
   return {
-    id: 'gl_' + Date.now().toString(36),
+    id: 'gh_' + Date.now().toString(36),
     name: '',
     enabled: true,
     token: '',
-    groupPath: '',
+    orgOrUser: '',
     syncInterval: 0,
     developerUsernames: {},
   }
 }
 
 interface ConnFormProps {
-  conn: GitLabConfig
+  conn: GitHubConfig
   developers: import('../../types').Developer[]
-  onChange: (c: GitLabConfig) => void
+  onChange: (c: GitHubConfig) => void
   onDelete: () => void
   isOnly: boolean
 }
@@ -42,7 +40,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
-  function patch<K extends keyof GitLabConfig>(key: K, value: GitLabConfig[K]) {
+  function patch<K extends keyof GitHubConfig>(key: K, value: GitHubConfig[K]) {
     onChange({ ...conn, [key]: value })
   }
 
@@ -53,27 +51,30 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, developerUsernames: usernames })
   }
 
-  function formatGitlabError(msg: string): string {
-    if (msg.includes('401')) return 'Token expired or invalid — create a new one at gitlab.com/-/user_settings/personal_access_tokens with read_api scope.'
-    if (msg.includes('403')) return 'Access denied (403) — your GitLab role cannot list group MRs. Sync will fall back to per-developer fetch if usernames are configured.'
-    if (msg.includes('404')) return 'Not found (404) — check the group/project path.'
-    return msg
-  }
-
   async function testConnection() {
     setTesting(true)
     setTestResult(null)
     try {
-      const testCfg: GitLabConfig = { ...conn, token: conn.token.trim(), groupPath: conn.groupPath.trim() }
-      const mrs = await fetchGroupMRs(testCfg)
-      setTestResult({ ok: true, msg: `Connection successful ✓ — ${mrs.length} MR${mrs.length !== 1 ? 's' : ''} found` })
+      const res = await fetch('https://api.github.com/user', {
+        headers: {
+          Authorization: `Bearer ${conn.token.trim()}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`GitHub ${res.status}: ${text.slice(0, 200) || res.statusText}`)
+      }
+      const data = (await res.json()) as { login: string }
+      setTestResult({ ok: true, msg: `Connection successful ✓ — authenticated as ${data.login}` })
     } catch (err) {
-      setTestResult({ ok: false, msg: formatGitlabError((err as Error).message) })
+      const msg = (err as Error).message
+      const friendly = msg.includes('401') ? 'Invalid token — create a PAT at github.com/settings/tokens with repo scope.' : msg
+      setTestResult({ ok: false, msg: friendly })
     }
     setTesting(false)
   }
-
-  const norm = normalizeGroupPath(conn.groupPath)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
@@ -81,7 +82,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <input
           style={{ ...inputStyle, flex: 1, fontWeight: 600 }}
-          placeholder="Connection name (e.g. Main Group, Team A)"
+          placeholder="Connection name (e.g. Main, Mobile Team)"
           value={conn.name}
           onChange={(e) => patch('name', e.target.value)}
         />
@@ -98,27 +99,17 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         )}
       </div>
 
-      {/* group path */}
-      <div>
-        <span style={labelStyle}>Group / Subgroup path</span>
-        <input style={inputStyle} placeholder="mycompany or mycompany/subgroup" value={conn.groupPath} onChange={(e) => patch('groupPath', e.target.value)} />
-        {conn.groupPath.trim()
-          ? <div style={{ fontSize: 10, marginTop: 3, fontFamily: 'var(--mono)', color: norm !== conn.groupPath.trim() ? '#f97316' : 'var(--text3)' }}>Will use: <b>{norm}</b></div>
-          : <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>The path in the GitLab URL: gitlab.com/<b>mycompany</b></div>
-        }
-      </div>
-
       {/* token */}
       <div>
         <span style={labelStyle}>
-          Personal Access Token
-          <a href="https://gitlab.com/-/user_settings/personal_access_tokens" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', marginLeft: 4 }}>↗ create</a>
+          Personal Access Token (PAT)
+          <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', marginLeft: 4 }}>↗ create</a>
         </span>
         <div style={{ position: 'relative' }}>
           <input
             style={{ ...inputStyle, paddingRight: 32 }}
             type={showToken ? 'text' : 'password'}
-            placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
             value={conn.token}
             onChange={(e) => patch('token', e.target.value)}
           />
@@ -126,20 +117,27 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
             {showToken ? '🙈' : '👁'}
           </button>
         </div>
-        <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Needs <code>read_api</code> scope · tokens expire after 1 year — if you get 401, create a new one</div>
+        <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Needs <code>repo</code> (or <code>public_repo</code>) scope for PR search</div>
       </div>
 
-      {/* sync interval */}
-      <div>
-        <span style={labelStyle}>Auto-sync</span>
-        <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer' }}>
-          <option value={0}>Manual only</option>
-          <option value={2}>Every 2 min</option>
-          <option value={5}>Every 5 min</option>
-          <option value={10}>Every 10 min</option>
-          <option value={15}>Every 15 min</option>
-          <option value={30}>Every 30 min</option>
-        </select>
+      {/* org or user + sync interval */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ flex: 2 }}>
+          <span style={labelStyle}>Org or user (optional, for scoping)</span>
+          <input style={inputStyle} placeholder="mycompany" value={conn.orgOrUser} onChange={(e) => patch('orgOrUser', e.target.value)} />
+          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Restricts PR search to this GitHub org</div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <span style={labelStyle}>Auto-sync</span>
+          <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer' }}>
+            <option value={0}>Manual only</option>
+            <option value={2}>Every 2 min</option>
+            <option value={5}>Every 5 min</option>
+            <option value={10}>Every 10 min</option>
+            <option value={15}>Every 15 min</option>
+            <option value={30}>Every 30 min</option>
+          </select>
+        </div>
       </div>
 
       {/* test result + button */}
@@ -150,8 +148,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       )}
       <button
         onClick={testConnection}
-        disabled={testing || !conn.token || !conn.groupPath}
-        style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.token || !conn.groupPath ? 0.5 : 1 }}
+        disabled={testing || !conn.token}
+        style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.token ? 0.5 : 1 }}
       >
         {testing ? '…testing' : 'Test connection'}
       </button>
@@ -165,7 +163,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {developers.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developer → GitLab username</div>
+          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developer → GitHub username</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {developers.map((d) => (
               <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -173,8 +171,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
                 <span style={{ fontSize: 12, color: 'var(--text)', width: 120, flexShrink: 0 }}>{d.name}</span>
                 <input
                   style={{ ...inputStyle, flex: 1 }}
-                  placeholder="gitlab-username"
-                  value={conn.developerUsernames?.[d.id] ?? d.gitlabUsername ?? ''}
+                  placeholder="github-username"
+                  value={conn.developerUsernames?.[d.id] ?? ''}
                   onChange={(e) => setDevUsername(d.id, e.target.value)}
                 />
               </div>
@@ -186,16 +184,16 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   )
 }
 
-export default function GitLabConfigModal({ onClose }: Props) {
-  const { gitlabConnections, developers, setGitlabConnections, syncGitlab } = useStore()
+export default function GitHubConfigModal({ onClose }: Props) {
+  const { githubConnections, developers, setGithubConnections, syncGithub } = useStore()
 
-  const [conns, setConns] = useState<GitLabConfig[]>(
-    gitlabConnections.length ? gitlabConnections : [makeEmptyConn()]
+  const [conns, setConns] = useState<GitHubConfig[]>(
+    githubConnections.length ? githubConnections : [makeEmptyConn()]
   )
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
 
-  function updateConn(idx: number, c: GitLabConfig) {
+  function updateConn(idx: number, c: GitHubConfig) {
     setConns((prev) => prev.map((x, i) => (i === idx ? c : x)))
   }
 
@@ -208,60 +206,29 @@ export default function GitLabConfigModal({ onClose }: Props) {
   }
 
   function save() {
-    setGitlabConnections(conns)
+    setGithubConnections(conns)
     onClose()
   }
 
   async function handleSyncNow() {
-    setGitlabConnections(conns)
+    setGithubConnections(conns)
     setSyncing(true)
     setSyncResult(null)
     try {
-      const r = await syncGitlab()
-
-      const untrackedKeys = new Set<string>()
-      r.noIssueList.forEach((entry) => {
-        const m = entry.match(/\[([^\]]+)\]/)
-        if (m) m[1].split(',').forEach((k) => untrackedKeys.add(k.trim()))
-      })
-
-      const trackedKeys = new Set<string>()
-      useStore.getState().tasks.flatMap((t) => t.jiras ?? []).forEach((j) => {
-        const k = jiraDedupeKey(j.url, j.name)
-        if (k && k !== 'name:' && /^[A-Z][A-Z0-9]+-\d+$/.test(k)) trackedKeys.add(k)
-      })
-
-      let msg = `✓ Synced — ${r.linked} linked, ${r.updated} already tracked`
-      if (r.noKey) msg += `\n${r.noKey} MR${r.noKey !== 1 ? 's' : ''} had no Jira key in branch/title`
-      if (r.noIssue > 0) {
-        const keyList = [...untrackedKeys].slice(0, 8).join(', ')
-        msg += `\n⚠ ${r.noIssue} MR${r.noIssue !== 1 ? 's' : ''} reference keys not in tracker: ${keyList}${untrackedKeys.size > 8 ? '…' : ''}`
-        if (trackedKeys.size > 0) {
-          const tracked = [...trackedKeys].slice(0, 6).join(', ')
-          msg += `\n   Tracker has: ${tracked}${trackedKeys.size > 6 ? '…' : ''}`
-          msg += `\n   → The two lists must overlap for auto-linking to work`
-        } else {
-          msg += `\n   No Jira keys found in tracker — add a Jira URL (e.g. https://…/browse/MONE-957) to each issue`
-        }
-      }
-      setSyncResult(msg)
-      setConns(useStore.getState().gitlabConnections)
+      const { linked, updated } = await syncGithub()
+      setSyncResult(`✓ Synced — ${linked} linked, ${updated} already tracked`)
+      setConns(useStore.getState().githubConnections)
     } catch (err) {
-      const msg = (err as Error).message
-      let friendly = msg
-      if (msg.includes('401')) friendly = 'Token expired or invalid — create a new one with read_api scope.'
-      else if (msg.includes('403')) friendly = 'Access denied (403) — configure developer usernames for per-developer fallback.'
-      else if (msg.includes('404')) friendly = 'Not found (404) — check the group/project path.'
-      setSyncResult(`✗ ${friendly}`)
+      setSyncResult(`✗ ${(err as Error).message}`)
     }
     setSyncing(false)
   }
 
-  const anyEnabled = conns.some((c) => c.enabled && c.token && c.groupPath)
+  const anyEnabled = conns.some((c) => c.enabled && c.token)
 
   return (
     <Modal
-      title="🦊 GitLab Connections"
+      title="🐙 GitHub Connections"
       zIndex={1000}
       onClose={onClose}
       bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 16 }}

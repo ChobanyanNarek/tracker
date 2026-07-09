@@ -15,6 +15,7 @@ import StandupModal from './components/modals/StandupModal'
 import GanttModal from './components/modals/GanttModal'
 import JiraConfigModal from './components/modals/JiraConfigModal'
 import GitLabConfigModal from './components/modals/GitLabConfigModal'
+import GitHubConfigModal from './components/modals/GitHubConfigModal'
 
 const VIEW_LABELS: Record<string, string> = {
   daily: '📅 Daily',
@@ -31,7 +32,7 @@ export default function App() {
   const [ganttOpen, setGanttOpen] = useState(false)
   const [jiraConfigOpen, setJiraConfigOpen] = useState(false)
   const [gitlabConfigOpen, setGitlabConfigOpen] = useState(false)
-  // Right-side drawers — only one open at a time
+  const [githubConfigOpen, setGithubConfigOpen] = useState(false)
   const [openPanel, setOpenPanel] = useState<'dev' | 'proj' | null>(null)
   const togglePanel = (which: 'dev' | 'proj') => setOpenPanel((p) => (p === which ? null : which))
 
@@ -55,7 +56,6 @@ export default function App() {
     isSyncingRef.current = cloudSyncing
   }, [cloudSyncing, showToast])
 
-  // Startup: sync notif permission, migrate legacy jira formats, dedupe, carry overdue
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'granted') {
       setNotifsEnabled(true)
@@ -66,7 +66,6 @@ export default function App() {
     mergeSameDayTasks()
   }, [])
 
-  // Service-worker → page bridge: notification clicks when the tab is backgrounded
   useEffect(() => {
     if (!navigator.serviceWorker) return
     const handler = (e: MessageEvent) => {
@@ -79,13 +78,10 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', handler)
   }, [setView, setSelectedDate, setHighlightedTaskId])
 
-  // Console helper: run __gitlabDebug() to see how MRs map to tracked issues.
   useEffect(() => {
-    ;(window as Window & { __gitlabDebug?: () => void }).__gitlabDebug = () => { void useStore.getState().debugGitlab() }
     console.info(`[progressor] build ${__BUILD_ID__}`)
   }, [])
 
-  // Auto carry every minute in case day rolls over; deduplicate and merge after each carry
   useEffect(() => {
     const id = setInterval(() => {
       deduplicateJiras()
@@ -115,6 +111,7 @@ export default function App() {
         urgentCount={urgentCount}
         onJiraConfig={() => setJiraConfigOpen(true)}
         onGitlabConfig={() => setGitlabConfigOpen(true)}
+        onGithubConfig={() => setGithubConfigOpen(true)}
         onFeedback={showToast}
         onDevPanel={() => togglePanel('dev')}
         devPanelOpen={openPanel === 'dev'}
@@ -123,9 +120,7 @@ export default function App() {
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-        {/* main area — full width */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* view tabs */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 14px 0', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
             {(Object.keys(VIEW_LABELS) as Array<keyof typeof VIEW_LABELS>).map((v) => (
               <button
@@ -140,7 +135,6 @@ export default function App() {
               </button>
             ))}
 
-            {/* project context chip + cloud sync indicator */}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6 }}>
               {cloudSyncing && (
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', opacity: 0.7 }}>
@@ -155,14 +149,12 @@ export default function App() {
             </div>
           </div>
 
-          {/* calendar strip (only on daily view) */}
           {view === 'daily' && (
             <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)' }}>
               <Calendar />
             </div>
           )}
 
-          {/* view content */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {view === 'daily' && <DailyView onToast={showToast} onStandup={() => setStandupOpen(true)} onGantt={() => setGanttOpen(true)} />}
             {view === 'deadlines' && <DeadlinesView />}
@@ -172,12 +164,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* right-side panels */}
         <DevPanel open={openPanel === 'dev'} onClose={() => setOpenPanel(null)} topOffset={54} />
         <ProjectPanel open={openPanel === 'proj'} onClose={() => setOpenPanel(null)} topOffset={54} />
       </div>
 
-      {/* toast */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--text)', color: 'var(--bg)', fontFamily: 'var(--mono)', fontSize: 12, padding: '9px 16px 9px 20px', borderRadius: 24, boxShadow: '0 4px 20px rgba(0,0,0,.3)', zIndex: 2000, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span>{toast}</span>
@@ -189,6 +179,7 @@ export default function App() {
       {ganttOpen && <GanttModal onClose={() => setGanttOpen(false)} />}
       {jiraConfigOpen && <JiraConfigModal onClose={() => setJiraConfigOpen(false)} />}
       {gitlabConfigOpen && <GitLabConfigModal onClose={() => setGitlabConfigOpen(false)} />}
+      {githubConfigOpen && <GitHubConfigModal onClose={() => setGithubConfigOpen(false)} />}
     </div>
   )
 }
