@@ -854,9 +854,6 @@ export const useStore = create<Store>((set, get) => {
       const enabledConns = jiraConnections.filter((c) => c.enabled && c.baseUrl && c.token)
       if (!enabledConns.length) throw new Error('No Jira connections configured')
 
-      const jiraDevs = developers.filter((d) => d.jiraEmail)
-      if (!jiraDevs.length) throw new Error('No developers have a Jira email set')
-
       const today = latestWorkday()
       let added = 0
       let updated = 0
@@ -901,13 +898,17 @@ export const useStore = create<Store>((set, get) => {
 
       for (const conn of enabledConns) {
         const projList = conn.projectKeys.map((k) => `"${k.trim()}"`).join(',')
+        // Devs that have an email configured for this specific connection (fall back to legacy dev.jiraEmail)
+        const connDevs = developers
+          .map((d) => ({ dev: d, email: conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '' }))
+          .filter((x) => x.email)
 
         const byDev = new Map<string, JiraIssueRaw[]>()
-        for (const dev of jiraDevs) {
+        for (const { dev, email } of connDevs) {
           const statusFilter = `(status in ("To Do", "In Progress", "Code Review", "Blocked", "Backlog") OR (status = "Closed" AND updated >= -7d))`
           const devJql = projList
-            ? `project in (${projList}) AND assignee = "${dev.jiraEmail}" AND ${statusFilter} ORDER BY updated DESC`
-            : `assignee = "${dev.jiraEmail}" AND ${statusFilter} ORDER BY updated DESC`
+            ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
+            : `assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
           const devIssues = await fetchJiraIssues(conn, devJql)
           if (devIssues.length) byDev.set(dev.id, devIssues)
         }

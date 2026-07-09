@@ -32,12 +32,13 @@ function makeEmptyConn(): JiraConfig {
 
 interface ConnFormProps {
   conn: JiraConfig
+  developers: import('../../types').Developer[]
   onChange: (c: JiraConfig) => void
   onDelete: () => void
   isOnly: boolean
 }
 
-function ConnForm({ conn, onChange, onDelete, isOnly }: ConnFormProps) {
+function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProps) {
   const [projectKeysRaw, setProjectKeysRaw] = useState(conn.projectKeys.join(', '))
   const [showToken, setShowToken] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -45,6 +46,13 @@ function ConnForm({ conn, onChange, onDelete, isOnly }: ConnFormProps) {
 
   function patch<K extends keyof JiraConfig>(key: K, value: JiraConfig[K]) {
     onChange({ ...conn, [key]: value })
+  }
+
+  function setDevEmail(devId: string, email: string) {
+    const emails = { ...(conn.developerEmails ?? {}) }
+    if (email) emails[devId] = email
+    else delete emails[devId]
+    onChange({ ...conn, developerEmails: emails })
   }
 
   function commitKeys(raw: string) {
@@ -158,6 +166,26 @@ function ConnForm({ conn, onChange, onDelete, isOnly }: ConnFormProps) {
           {conn.lastSyncResult ? ` — ${conn.lastSyncResult}` : ''}
         </div>
       )}
+
+      {developers.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developer → Jira email</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {developers.map((d) => (
+              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: 'var(--text)', width: 120, flexShrink: 0 }}>{d.name}</span>
+                <input
+                  style={{ ...inputStyle, flex: 1 }}
+                  placeholder="jira@company.com"
+                  value={conn.developerEmails?.[d.id] ?? d.jiraEmail ?? ''}
+                  onChange={(e) => setDevEmail(d.id, e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -167,9 +195,6 @@ export default function JiraConfigModal({ onClose }: Props) {
 
   const [conns, setConns] = useState<JiraConfig[]>(
     jiraConnections.length ? jiraConnections : [makeEmptyConn()]
-  )
-  const [jiraEmails, setJiraEmails] = useState<Record<string, string>>(
-    Object.fromEntries(developers.map((d) => [d.id, d.jiraEmail ?? ''])),
   )
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
@@ -188,12 +213,6 @@ export default function JiraConfigModal({ onClose }: Props) {
 
   function save() {
     setJiraConnections(conns)
-    useStore.setState((s) => ({
-      developers: s.developers.map((dev) => {
-        const email = jiraEmails[dev.id] ?? ''
-        return email !== (dev.jiraEmail ?? '') ? { ...dev, jiraEmail: email || undefined } : dev
-      }),
-    }))
     onClose()
   }
 
@@ -241,6 +260,7 @@ export default function JiraConfigModal({ onClose }: Props) {
             <ConnForm
               key={c.id}
               conn={c}
+              developers={developers}
               onChange={(updated) => updateConn(i, updated)}
               onDelete={() => removeConn(i)}
               isOnly={conns.length === 1}
@@ -254,27 +274,6 @@ export default function JiraConfigModal({ onClose }: Props) {
         >
           + Add connection
         </button>
-
-        {/* developer email mapping */}
-        {developers.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', marginBottom: 10, paddingBottom: 5, borderBottom: '1px solid var(--border)' }}>Developer → Jira email</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {developers.map((d) => (
-                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: 'var(--text)', width: 130, flexShrink: 0 }}>{d.name}</span>
-                  <input
-                    style={{ ...inputStyle, flex: 1 }}
-                    placeholder="jira-email@company.com"
-                    value={jiraEmails[d.id] ?? ''}
-                    onChange={(e) => setJiraEmails((m) => ({ ...m, [d.id]: e.target.value }))}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {syncResult && (
           <div style={{ fontSize: 11, padding: '7px 11px', borderRadius: 6, background: syncResult.startsWith('✓') ? '#dcfce7' : '#fee2e2', color: syncResult.startsWith('✓') ? '#15803d' : '#b91c1c', fontFamily: 'var(--mono)', whiteSpace: 'pre-wrap' }}>

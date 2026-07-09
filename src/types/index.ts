@@ -21,6 +21,7 @@ export interface JiraConfig {
   token: string
   projectKeys: string[]
   syncInterval: number  // minutes; 0 = manual only
+  developerEmails?: Record<string, string>  // devId → jira email for this connection
   lastSync?: string
   lastSyncResult?: string
 }
