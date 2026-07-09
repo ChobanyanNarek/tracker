@@ -212,6 +212,7 @@ interface StoreActions {
   exportJSON: () => void
   importJSON: (json: string) => void
   setHighlightedTaskId: (id: string | null) => void
+  cloudSyncing: boolean
 }
 
 type Store = AppState & StoreActions
@@ -221,27 +222,12 @@ function withSave(state: AppState): AppState {
   return state
 }
 
-// Load cloud state once on startup and merge into store
-loadCloudState().then((cloud) => {
-  if (!cloud) return
-  useStore.setState((s) => ({
-    ...s,
-    ...(cloud.developers ? { developers: (cloud.developers as AppState['developers']).map((d) => ({ periods: [], ...d })) } : {}),
-    ...(cloud.projects ? { projects: (cloud.projects as AppState['projects']).map((p) => ({ ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
-    ...(cloud.tasks ? { tasks: (cloud.tasks as AppState['tasks']).map(normalizeTask) } : {}),
-    ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
-    ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),
-    ...(cloud.jiraConfig ? { jiraConfig: cloud.jiraConfig as AppState['jiraConfig'] } : {}),
-    ...(cloud.gitlabConfig ? { gitlabConfig: cloud.gitlabConfig as AppState['gitlabConfig'] } : {}),
-    ...(cloud.trackerTimezone !== undefined ? { trackerTimezone: cloud.trackerTimezone as string | undefined } : {}),
-  }))
-}).catch(() => {})
-
 export const useStore = create<Store>((set, get) => {
   const base = { ...freshState(), ...loadState() }
 
   return {
     ...base,
+    cloudSyncing: true,
 
     setView: (view) => set({ view }),
     setSelectedDate: (selectedDate) => set({ selectedDate }),
@@ -1431,7 +1417,7 @@ export const useStore = create<Store>((set, get) => {
       )
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = `pm-tracker-${todayStr()}.json`
+      a.download = `progressor-${todayStr()}.json`
       a.click()
     },
 
@@ -1452,6 +1438,28 @@ export const useStore = create<Store>((set, get) => {
       )
     },
   }
+})
+
+// Load cloud state once on startup, then flip cloudSyncing off so the UI knows
+loadCloudState().then((cloud) => {
+  useStore.setState((s) => ({
+    ...s,
+    cloudSyncing: false,
+    ...(cloud
+      ? {
+          ...(cloud.developers ? { developers: (cloud.developers as AppState['developers']).map((d) => ({ periods: [], ...d })) } : {}),
+          ...(cloud.projects ? { projects: (cloud.projects as AppState['projects']).map((p) => ({ ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
+          ...(cloud.tasks ? { tasks: (cloud.tasks as AppState['tasks']).map(normalizeTask) } : {}),
+          ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
+          ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),
+          ...(cloud.jiraConfig ? { jiraConfig: cloud.jiraConfig as AppState['jiraConfig'] } : {}),
+          ...(cloud.gitlabConfig ? { gitlabConfig: cloud.gitlabConfig as AppState['gitlabConfig'] } : {}),
+          ...(cloud.trackerTimezone !== undefined ? { trackerTimezone: cloud.trackerTimezone as string | undefined } : {}),
+        }
+      : {}),
+  }))
+}).catch(() => {
+  useStore.setState({ cloudSyncing: false })
 })
 
 export function getVisibleDevIds(state: AppState): string[] {

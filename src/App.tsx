@@ -25,7 +25,7 @@ const VIEW_LABELS: Record<string, string> = {
 }
 
 export default function App() {
-  const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled } = useStore()
+  const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing } = useStore()
   const [toast, setToast] = useState<string | null>(null)
   const [standupOpen, setStandupOpen] = useState(false)
   const [ganttOpen, setGanttOpen] = useState(false)
@@ -46,6 +46,14 @@ export default function App() {
 
   useDeadlineNotifications()
   useAutoSync(showToast)
+
+  const isSyncingRef = useRef(cloudSyncing)
+  useEffect(() => {
+    if (isSyncingRef.current && !cloudSyncing) {
+      showToast('✓ Data loaded from cloud')
+    }
+    isSyncingRef.current = cloudSyncing
+  }, [cloudSyncing, showToast])
 
   // Startup: sync notif permission, migrate legacy jira formats, dedupe, carry overdue
   useEffect(() => {
@@ -74,7 +82,7 @@ export default function App() {
   // Console helper: run __gitlabDebug() to see how MRs map to tracked issues.
   useEffect(() => {
     ;(window as Window & { __gitlabDebug?: () => void }).__gitlabDebug = () => { void useStore.getState().debugGitlab() }
-    console.info(`[pm-tracker] build ${__BUILD_ID__}`)
+    console.info(`[progressor] build ${__BUILD_ID__}`)
   }, [])
 
   // Auto carry every minute in case day rolls over; deduplicate and merge after each carry
@@ -120,8 +128,13 @@ export default function App() {
               </button>
             ))}
 
-            {/* project context chip */}
+            {/* project context chip + cloud sync indicator */}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6 }}>
+              {cloudSyncing && (
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', opacity: 0.7 }}>
+                  ↻ syncing…
+                </span>
+              )}
               {proj && (
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '2px 8px', borderRadius: 8, background: proj.color + '18', color: proj.color, border: `1px solid ${proj.color}40` }}>
                   {proj.name}
