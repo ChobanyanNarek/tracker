@@ -48,11 +48,15 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, [key]: value })
   }
 
-  function setDevEmail(devId: string, email: string) {
+  function toggleDev(devId: string, selected: boolean) {
     const emails = { ...(conn.developerEmails ?? {}) }
-    if (email) emails[devId] = email
+    if (selected) emails[devId] = emails[devId] ?? ''
     else delete emails[devId]
     onChange({ ...conn, developerEmails: emails })
+  }
+
+  function setDevEmail(devId: string, email: string) {
+    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: email } })
   }
 
   function commitKeys(raw: string) {
@@ -169,20 +173,27 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {developers.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developer → Jira email</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {developers.map((d) => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: 'var(--text)', width: 120, flexShrink: 0 }}>{d.name}</span>
-                <input
-                  style={{ ...inputStyle, flex: 1 }}
-                  placeholder="jira@company.com"
-                  value={conn.developerEmails?.[d.id] ?? d.jiraEmail ?? ''}
-                  onChange={(e) => setDevEmail(d.id, e.target.value)}
-                />
-              </div>
-            ))}
+          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developers in this connection</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {developers.map((d) => {
+              const selected = d.id in (conn.developerEmails ?? {})
+              return (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={selected} onChange={(e) => toggleDev(d.id, e.target.checked)} style={{ width: 13, height: 13, flexShrink: 0, cursor: 'pointer' }} />
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: selected ? 'var(--text)' : 'var(--text3)', width: 110, flexShrink: 0 }}>{d.name}</span>
+                  {selected && (
+                    <input
+                      style={{ ...inputStyle, flex: 1 }}
+                      placeholder="jira@company.com"
+                      value={conn.developerEmails?.[d.id] ?? ''}
+                      onChange={(e) => setDevEmail(d.id, e.target.value)}
+                      autoFocus={!conn.developerEmails?.[d.id]}
+                    />
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

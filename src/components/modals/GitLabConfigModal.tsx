@@ -46,11 +46,15 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, [key]: value })
   }
 
-  function setDevUsername(devId: string, username: string) {
+  function toggleDev(devId: string, selected: boolean) {
     const usernames = { ...(conn.developerUsernames ?? {}) }
-    if (username) usernames[devId] = username
+    if (selected) usernames[devId] = usernames[devId] ?? ''
     else delete usernames[devId]
     onChange({ ...conn, developerUsernames: usernames })
+  }
+
+  function setDevUsername(devId: string, username: string) {
+    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: username } })
   }
 
   function formatGitlabError(msg: string): string {
@@ -165,20 +169,27 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {developers.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developer → GitLab username</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {developers.map((d) => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: 'var(--text)', width: 120, flexShrink: 0 }}>{d.name}</span>
-                <input
-                  style={{ ...inputStyle, flex: 1 }}
-                  placeholder="gitlab-username"
-                  value={conn.developerUsernames?.[d.id] ?? d.gitlabUsername ?? ''}
-                  onChange={(e) => setDevUsername(d.id, e.target.value)}
-                />
-              </div>
-            ))}
+          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developers in this connection</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {developers.map((d) => {
+              const selected = d.id in (conn.developerUsernames ?? {})
+              return (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={selected} onChange={(e) => toggleDev(d.id, e.target.checked)} style={{ width: 13, height: 13, flexShrink: 0, cursor: 'pointer' }} />
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: selected ? 'var(--text)' : 'var(--text3)', width: 110, flexShrink: 0 }}>{d.name}</span>
+                  {selected && (
+                    <input
+                      style={{ ...inputStyle, flex: 1 }}
+                      placeholder="gitlab-username"
+                      value={conn.developerUsernames?.[d.id] ?? ''}
+                      onChange={(e) => setDevUsername(d.id, e.target.value)}
+                      autoFocus={!conn.developerUsernames?.[d.id]}
+                    />
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
