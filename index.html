@@ -3,7 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PM Daily Tracker</title>
+    <!-- Never cache the HTML, so a new deploy's hashed JS is always picked up. -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>ProgressOr</title>
+    <meta name="theme-color" content="#171a2d" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icon-v3.png" />
+    <link rel="manifest" href="/manifest.json" />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -11,6 +19,48 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- PWA install button — visible only when Chrome fires beforeinstallprompt -->
+    <button id="pwa-install-btn" style="display:none;position:fixed;bottom:24px;right:24px;z-index:9999;background:#2563eb;color:#fff;border:none;border-radius:10px;padding:11px 18px;cursor:pointer;font-size:13px;font-family:'DM Sans',sans-serif;align-items:center;gap:7px;box-shadow:0 4px 16px rgba(37,99,235,0.5);white-space:nowrap;" aria-label="Install app">
+      &#8853; Add to Dock
+    </button>
+
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      (function () {
+        var deferredPrompt = null;
+
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', function () {
+            navigator.serviceWorker.register('./sw.js');
+          });
+        }
+
+        window.addEventListener('beforeinstallprompt', function (e) {
+          e.preventDefault();
+          deferredPrompt = e;
+          var btn = document.getElementById('pwa-install-btn');
+          if (btn) btn.style.display = 'flex';
+        });
+
+        window.addEventListener('appinstalled', function () {
+          var btn = document.getElementById('pwa-install-btn');
+          if (btn) btn.style.display = 'none';
+          deferredPrompt = null;
+        });
+
+        document.getElementById('pwa-install-btn').addEventListener('click', function () {
+          if (!deferredPrompt) return;
+          deferredPrompt.prompt();
+          deferredPrompt.userChoice.then(function (r) {
+            if (r.outcome === 'accepted') {
+              var btn = document.getElementById('pwa-install-btn');
+              if (btn) btn.style.display = 'none';
+            }
+            deferredPrompt = null;
+          });
+        });
+      })();
+    </script>
   </body>
 </html>

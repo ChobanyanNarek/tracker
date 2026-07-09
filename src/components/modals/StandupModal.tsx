@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react'
-import { useStore } from '../../store'
+import { useState } from 'react'
+import { useStore, getVisibleTasks, getVisibleDevIds } from '../../store'
 import { STATUS_EMOJI, STATUS_LABEL } from '../../constants'
 import { getJiras, jiraLabel } from '../../utils/format'
-import { dlInfo } from '../../utils/dates'
+import { dlInfo, todayStr } from '../../utils/dates'
+import Modal from '../ui/Modal'
 
 const OFF_LABEL: Record<string, string> = {
   vacation: '🏖 On vacation',
@@ -15,22 +16,20 @@ interface Props { onClose: () => void }
 
 export default function StandupModal({ onClose }: Props) {
   const [copied, setCopied] = useState(false)
-  const { developers, projects, tasks, schedule, selectedDev, selectedProject, selectedDate } = useStore()
+  const state = useStore()
+  const { developers, projects, schedule, selectedDev, selectedProject } = state
 
-  const dateTasks = tasks.filter(
-    (t) =>
-      t.date === selectedDate &&
-      (selectedProject === 'ALL' || t.projectId === selectedProject) &&
-      (selectedDev === 'ALL' || t.devId === selectedDev),
-  )
+  const today = todayStr()
+  // Override selectedDate so getVisibleTasks always operates on today
+  const stateForToday = { ...state, selectedDate: today }
 
   const proj = projects.find((p) => p.id === selectedProject)
 
-  const dateLabel = new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', {
+  const dateLabel = new Date(today + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
   })
 
-  // Devs relevant to the current filter
+  // Devs relevant to the current filter — use today's state so archived check is correct
   const relevantDevs = developers.filter((d) => {
     if (d.archivedAt) return false
     if (selectedDev !== 'ALL' && d.id !== selectedDev) return false
@@ -41,6 +40,11 @@ export default function StandupModal({ onClose }: Props) {
     return true
   })
 
+  // Use the exact same visibility logic as the daily view, but for today
+  const visibleDevIds = getVisibleDevIds(stateForToday)
+    .filter((id) => selectedDev === 'ALL' || id === selectedDev)
+  const dateTasks = visibleDevIds.flatMap((devId) => getVisibleTasks(stateForToday, devId))
+
   const isFiltered = selectedProject !== 'ALL'
   const projIds = [...new Set(dateTasks.map((t) => t.projectId || 'none'))]
   const multiProj = !isFiltered && projIds.length > 1
@@ -50,16 +54,15 @@ export default function StandupModal({ onClose }: Props) {
     groupTasks: dateTasks.filter((t) => (t.projectId || 'none') === pid),
   }))
 
-  const buildSlack = useCallback(() => {
+  const buildSlack = () => {
     const lines: string[] = []
 
     lines.push(`📋 Daily Standup — ${dateLabel}${proj ? `  |  ${proj.name}` : ''}`)
     lines.push('')
 
     if (dateTasks.length === 0) {
-      // Only off devs, no task data
       relevantDevs.forEach((dev) => {
-        const offType = schedule[dev.id]?.[selectedDate]
+        const offType = schedule[dev.id]?.[today]
         if (offType && offType !== 'work') {
           lines.push(`${dev.name} (${dev.role}) — ${OFF_LABEL[offType] ?? offType}`)
         }
@@ -79,37 +82,39 @@ export default function StandupModal({ onClose }: Props) {
       const devsInGroup = developers.filter((d) => groupTasks.some((t) => t.devId === d.id))
 
       devsInGroup.forEach((dev) => {
+        // getVisibleTasks already deduplicated jiras — collect only visible (non-hidden) ones
         const dt = groupTasks.filter((t) => t.devId === dev.id)
-        const offType = schedule[dev.id]?.[selectedDate]
+        const offType = schedule[dev.id]?.[today]
         const offSuffix = offType && offType !== 'work' ? `  —  ${OFF_LABEL[offType] ?? offType}` : ''
+
+        const taskItems = dt.map((t) => ({
+          jiras: getJiras(t).filter((j) => !j.hidden && (j.name?.trim() || j.url?.trim())),
+          comment: t.comment?.trim() ?? '',
+        })).filter((tc) => tc.jiras.length > 0 || tc.comment)
+
+        if (!taskItems.length) return
 
         lines.push(`${indent}${dev.name} (${dev.role})${offSuffix}`)
 
-        dt.forEach((t) => {
-          const jiras = getJiras(t).filter((j) => !j.hidden)
-          if (jiras.length) {
-            if (t.comment?.trim()) lines.push(`${indent}  📌 ${t.comment.trim()}`)
-            jiras.forEach((j) => {
-              const name = j.name || jiraLabel(j.url) || 'Issue'
-              const status = STATUS_LABEL[j.status ?? 'todo'] ?? j.status
-              const emoji = STATUS_EMOJI[j.status ?? 'todo'] ?? '📋'
-              const dl = j.deadline ? dlInfo(j.deadline, j.deadlineTime).text : ''
-              const cmt = j.comment?.trim() ?? ''
-              lines.push(`${indent}  ${emoji} ${name} — ${status}${dl ? `  (${dl})` : ''}${cmt ? `  • ${cmt}` : ''}`)
-            })
-          } else {
-            const status = STATUS_LABEL[t.status ?? 'todo'] ?? t.status
-            const cmt = t.comment?.trim() ?? ''
-            lines.push(`${indent}  ${STATUS_EMOJI[t.status ?? 'todo'] ?? '📋'} ${status}${cmt ? `  — ${cmt}` : ''}`)
-          }
+        taskItems.forEach(({ jiras, comment }) => {
+          jiras.forEach((j) => {
+            const name = j.name || jiraLabel(j.url) || 'Issue'
+            const status = STATUS_LABEL[j.status ?? 'todo'] ?? j.status
+            const emoji = STATUS_EMOJI[j.status ?? 'todo'] ?? '📋'
+            const dl = j.deadline ? dlInfo(j.deadline, j.deadlineTime).text : ''
+            const cmt = j.comment?.trim() ?? ''
+            lines.push(`${indent}  ${emoji} ${name} — ${status}${dl ? `  (${dl})` : ''}${cmt ? `  • ${cmt}` : ''}`)
+          })
+          if (comment) lines.push(`${indent}  💬 ${comment}`)
         })
+
         lines.push('')
       })
     })
 
-    // Devs who are off but had no tasks at all — shown once, after all project sections
+    // Devs who are off but had no tasks at all
     relevantDevs.filter((d) => !devsWithTasks.has(d.id)).forEach((dev) => {
-      const offType = schedule[dev.id]?.[selectedDate]
+      const offType = schedule[dev.id]?.[today]
       if (offType && offType !== 'work') {
         lines.push(`${dev.name} (${dev.role}) — ${OFF_LABEL[offType] ?? offType}`)
         lines.push('')
@@ -117,10 +122,10 @@ export default function StandupModal({ onClose }: Props) {
     })
 
     return lines.join('\n').trimEnd()
-  }, [dateTasks, developers, projects, dateLabel, proj, projGroups, multiProj, relevantDevs, schedule, selectedDate])
+  }
 
   const body = buildSlack()
-  const hasContent = dateTasks.length > 0 || relevantDevs.some((d) => schedule[d.id]?.[selectedDate] && schedule[d.id]?.[selectedDate] !== 'work')
+  const hasContent = dateTasks.length > 0 || relevantDevs.some((d) => schedule[d.id]?.[today] && schedule[d.id]?.[today] !== 'work')
 
   const copy = async () => {
     await navigator.clipboard.writeText(body)
@@ -129,46 +134,37 @@ export default function StandupModal({ onClose }: Props) {
   }
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', width: '100%', maxWidth: 620, minHeight: 420, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
-
-        {/* header */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', flex: 1 }}>📢 Standup — {dateLabel}</span>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', marginRight: 12, padding: '3px 8px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6 }}>Slack</span>
-          <button onClick={onClose} className="icon-btn" style={{ fontSize: 16 }}>✕</button>
-        </div>
-
-        {/* body */}
-        {!hasContent ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>
-            No data for this date.
-          </div>
-        ) : (
-          <textarea
-            readOnly
-            value={body}
-            style={{ flex: 1, border: 'none', outline: 'none', padding: '14px 18px', fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.7, color: 'var(--text2)', background: 'var(--surface2)', resize: 'none', overflowY: 'auto' }}
-          />
-        )}
-
-        {/* footer */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 18px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-          <button onClick={onClose} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 12, padding: '6px 16px', borderRadius: 7, cursor: 'pointer' }}>
-            Close
-          </button>
+    <Modal
+      title={`📢 Standup — ${dateLabel}`}
+      width={620}
+      zIndex={1000}
+      onClose={onClose}
+      headerExtra={<span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', marginRight: 12, padding: '3px 8px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6 }}>Slack</span>}
+      bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column', minHeight: 320 }}
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose}>Close</button>
           <button
             onClick={copy}
             disabled={!hasContent}
-            style={{ background: copied ? '#dcfce7' : 'var(--accent)', border: `1px solid ${copied ? '#86efac' : 'var(--accent)'}`, color: copied ? '#16a34a' : '#fff', fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, padding: '6px 18px', borderRadius: 7, cursor: 'pointer', transition: 'all .2s' }}
+            style={{ background: copied ? '#dcfce7' : 'var(--accent)', border: `1px solid ${copied ? '#86efac' : 'var(--accent)'}`, color: copied ? '#16a34a' : '#fff', fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, padding: '7px 18px', borderRadius: 8, cursor: 'pointer', transition: 'all .2s' }}
           >
             {copied ? '✓ Copied!' : '⎘ Copy for Slack'}
           </button>
+        </>
+      }
+    >
+      {!hasContent ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>
+          No data for this date.
         </div>
-      </div>
-    </div>
+      ) : (
+        <textarea
+          readOnly
+          value={body}
+          style={{ flex: 1, border: 'none', outline: 'none', padding: '14px 18px', fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.7, color: 'var(--text2)', background: 'var(--surface2)', resize: 'none', overflowY: 'auto' }}
+        />
+      )}
+    </Modal>
   )
 }

@@ -9,7 +9,7 @@ export function fetchViaBridge(url: string, headers: Record<string, string>): Pr
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler)
       resolve(null)
-    }, 5000)
+    }, 3000)
 
     function handler(ev: MessageEvent) {
       if (!ev.data || ev.data.__bridge !== BRIDGE || ev.data.type !== 'res' || ev.data.id !== id) return

@@ -1,14 +1,6 @@
 import type { Status } from '../../types'
 import { STATUS_LABEL } from '../../constants'
 
-const CLASS: Record<Status, string> = {
-  todo:       'bg-surface3 border-border2 text-text3',
-  inprogress: 'bg-amber-dim border-amber text-amber',
-  review:     'bg-purple-dim border-purple text-purple',
-  done:       'bg-green-dim border-green text-green',
-  blocked:    'bg-red-dim border-red text-red',
-}
-
 const INLINE: Record<Status, React.CSSProperties> = {
   todo:       { background: 'var(--surface3)', borderColor: 'var(--border2)', color: 'var(--text3)' },
   inprogress: { background: 'var(--amber-dim)', borderColor: 'var(--amber)', color: 'var(--amber)' },
@@ -55,6 +47,3 @@ export default function StatusSelect({ value, onChange, style }: Props) {
     </select>
   )
 }
-
-// Alias used in class names only — not needed with inline styles
-export { CLASS as STATUS_CLASS }

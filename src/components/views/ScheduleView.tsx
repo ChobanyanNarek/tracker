@@ -310,7 +310,7 @@ export default function ScheduleView() {
           <button onClick={() => { if (month === 0) { setYear((y) => y - 1); setMonth(11) } else setMonth((m) => m - 1) }} className="icon-btn">‹</button>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600, minWidth: 130, textAlign: 'center' }}>{MONTHS[month]} {year}</span>
           <button onClick={() => { if (month === 11) { setYear((y) => y + 1); setMonth(0) } else setMonth((m) => m + 1) }} className="icon-btn">›</button>
-          <button onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()) }} style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '4px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer' }}>This month</button>
+          <button onClick={() => { const n = new Date(); setYear(n.getFullYear()); setMonth(n.getMonth()) }} style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '4px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer' }}>This month</button>
         </div>
 
         {rangeStart && (
@@ -334,10 +334,10 @@ export default function ScheduleView() {
 
       {/* grid */}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', minWidth: 900, tableLayout: 'fixed' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 900 }}>
           <colgroup>
             <col style={{ width: 160 }} />
-            {daysList.map((d) => <col key={d} style={{ width: 32 }} />)}
+            {daysList.map((d) => <col key={d} />)}
           </colgroup>
           <thead>
             <tr style={{ background: 'var(--surface2)', position: 'sticky', top: 0, zIndex: 2 }}>

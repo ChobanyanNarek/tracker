@@ -3,13 +3,75 @@ import { useStore } from '../../store'
 import { dlInfo, todayStr } from '../../utils/dates'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
 import { STATUS_LABEL, STATUS_COLOR } from '../../constants'
-import type { DeadlineItem } from '../../types'
+import type { DeadlineItem, Developer, Project } from '../../types'
+import EmptyState from '../ui/EmptyState'
 
 type SortKey = 'urgency' | 'date-asc' | 'date-desc' | 'assignee' | 'project' | 'status'
 
+// Module-level so it isn't recreated on every DeadlinesView render (which would
+// remount every card instead of updating it).
+function DeadlineCard({ item, developers, projects, yesterday, onJump }: {
+  item: DeadlineItem
+  developers: Developer[]
+  projects: Project[]
+  yesterday: string
+  onJump: (item: DeadlineItem) => void
+}) {
+  const { task, deadline, deadlineTime, title, status, jiraUrl, _sinceDate } = item
+  const dev = developers.find((d) => d.id === task.devId)
+  const proj = projects.find((p) => p.id === task.projectId)
+  const d = deadline ? dlInfo(deadline, deadlineTime) : null
+  const rgb = dev ? hexRgb(dev.color) : '37,99,235'
+  const devColor = dev?.color ?? '#2563eb'
+  const cardCls = !d ? 'none' : d.diff < 0 ? 'over' : d.diff === 0 ? 'today' : d.diff <= 7 ? 'soon' : 'ok'
+  const borderColor = { over: 'var(--red)', today: 'var(--amber)', soon: '#f59e0b', ok: 'var(--green)', none: 'var(--border)' }[cardCls]
+  const dlColor = { over: STATUS_COLOR.blocked, today: STATUS_COLOR.inprogress, soon: '#f59e0b', ok: STATUS_COLOR.done, none: 'var(--text3)' }[cardCls]
+
+  return (
+    <div onClick={() => onJump(item)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `4px solid ${borderColor}`, borderRadius: 'var(--rl)', padding: '12px 14px', marginBottom: 7, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', transition: 'box-shadow .15s' }}
+      onMouseEnter={(e) => (e.currentTarget.style.boxShadow = 'var(--shadow)')}
+      onMouseLeave={(e) => (e.currentTarget.style.boxShadow = '')}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>
+          {title}
+          {jiraUrl && (
+            <a className="elink jira" href={jiraUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 10, marginLeft: 4 }}>{jiraLabel(jiraUrl) ?? jiraUrl.split('/').pop()}</a>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {dev && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div className="av" style={{ background: `rgba(${rgb},.15)`, color: devColor, width: 18, height: 18, fontSize: 8, flexShrink: 0 }}>{initials(dev.name)}</div>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{dev.name}</span>
+            </div>
+          )}
+          {proj && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '1px 6px', borderRadius: 3, background: proj.color + '18', color: proj.color }}>{proj.name}</span>}
+          <span className={`spill s-${status}`} style={{ marginTop: 0 }}>{STATUS_LABEL[status]}</span>
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        {d ? (
+          <>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, color: dlColor }}>{d.text}</div>
+            {deadlineTime && <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{deadlineTime}</div>}
+          </>
+        ) : task.date === yesterday ? (
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, color: 'var(--amber)' }}>
+            {`Since ${new Date(_sinceDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+          </div>
+        ) : (
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>No deadline</div>
+        )}
+        <button onClick={(e) => { e.stopPropagation(); onJump(item) }} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>→ Go to task</button>
+      </div>
+    </div>
+  )
+}
+
 export default function DeadlinesView() {
   const [sortKey, setSortKey] = useState<SortKey>('urgency')
-  const { tasks, developers, projects, selectedDev, selectedProject, setSelectedDate, setView } = useStore()
+  const { tasks, developers, projects, selectedDev, selectedProject, setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView } = useStore()
 
   const today = todayStr()
   const yesterday = new Date(new Date(today + 'T12:00:00').getTime() - 86_400_000).toISOString().slice(0, 10)
@@ -105,65 +167,13 @@ export default function DeadlinesView() {
   else if (sortKey === 'project') sorted.sort((a, b) => (projects.find((p) => p.id === a.task.projectId)?.name ?? '').localeCompare(projects.find((p) => p.id === b.task.projectId)?.name ?? '') || dlDate(a) - dlDate(b))
   else if (sortKey === 'status') { const o: Record<string, number> = { blocked: 0, inprogress: 1, review: 2, todo: 3 }; sorted.sort((a, b) => (o[a.status] ?? 3) - (o[b.status] ?? 3) || dlDate(a) - dlDate(b)) }
 
-  const jumpTo = (item: DeadlineItem) => { setSelectedDate(item.task.date); setView('daily') }
-
-  const Card = ({ item }: { item: DeadlineItem }) => {
-    const { task, deadline, deadlineTime, title, status, jiraUrl, _daysStuck, _sinceDate } = item
-    const dev = developers.find((d) => d.id === task.devId)
-    const proj = projects.find((p) => p.id === task.projectId)
-    const d = deadline ? dlInfo(deadline, deadlineTime) : null
-    const rgb = dev ? hexRgb(dev.color) : '37,99,235'
-    const devColor = dev?.color ?? '#2563eb'
-    const cardCls = !d ? 'none' : d.diff < 0 ? 'over' : d.diff === 0 ? 'today' : d.diff <= 7 ? 'soon' : 'ok'
-    const borderColor = { over: 'var(--red)', today: 'var(--amber)', soon: '#f59e0b', ok: 'var(--green)', none: 'var(--border)' }[cardCls]
-    const dlColor = { over: STATUS_COLOR.blocked, today: STATUS_COLOR.inprogress, soon: '#f59e0b', ok: STATUS_COLOR.done, none: 'var(--text3)' }[cardCls]
-
-    return (
-      <div onClick={() => jumpTo(item)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `4px solid ${borderColor}`, borderRadius: 'var(--rl)', padding: '12px 14px', marginBottom: 7, display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', transition: 'box-shadow .15s' }}
-        onMouseEnter={(e) => (e.currentTarget.style.boxShadow = 'var(--shadow)')}
-        onMouseLeave={(e) => (e.currentTarget.style.boxShadow = '')}
-      >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>
-            {title}
-            {jiraUrl && (
-              <a className="elink jira" href={jiraUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 10, marginLeft: 4 }}>{jiraLabel(jiraUrl) ?? jiraUrl.split('/').pop()}</a>
-            )}
-            {_daysStuck >= 0 && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 8, background: 'var(--red-dim)', color: 'var(--red)', border: '1px solid #fca5a5', marginLeft: 6 }}>
-                {`since ${new Date(_sinceDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
-                {_daysStuck > 0 ? ` · ${_daysStuck}d` : ''}
-              </span>
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {dev && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div className="av" style={{ background: `rgba(${rgb},.15)`, color: devColor, width: 18, height: 18, fontSize: 8, flexShrink: 0 }}>{initials(dev.name)}</div>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{dev.name}</span>
-              </div>
-            )}
-            {proj && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '1px 6px', borderRadius: 3, background: proj.color + '18', color: proj.color }}>{proj.name}</span>}
-            <span className={`spill s-${status}`} style={{ marginTop: 0 }}>{STATUS_LABEL[status]}</span>
-          </div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          {d ? (
-            <>
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, color: dlColor }}>{d.text}</div>
-              {deadlineTime && <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{deadlineTime}</div>}
-            </>
-          ) : task.date === yesterday ? (
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, color: 'var(--amber)' }}>
-              {`Since ${new Date(_sinceDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
-            </div>
-          ) : (
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>No deadline</div>
-          )}
-          <button onClick={(e) => { e.stopPropagation(); jumpTo(item) }} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>→ Go to task</button>
-        </div>
-      </div>
-    )
+  const jumpTo = (item: DeadlineItem) => {
+    // Reset filters so the task is always visible regardless of active dev/project filters
+    setSelectedDev('ALL')
+    setSelectedProject('ALL')
+    setSelectedDate(item.task.date)
+    setHighlightedTaskId(item.task.id)
+    setView('daily')
   }
 
   const SORTS: [SortKey, string][] = [['urgency', '🔴 By urgency'], ['date-asc', '↑ Soonest'], ['date-desc', '↓ Latest'], ['assignee', '👤 Assignee'], ['project', '📁 Project'], ['status', '● Status']]
@@ -174,17 +184,13 @@ export default function DeadlinesView() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', flexShrink: 0 }}>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginRight: 2 }}>Sort:</span>
         {SORTS.map(([key, lbl]) => (
-          <button key={key} onClick={() => setSortKey(key)} style={{ background: sortKey === key ? 'var(--accent-dim)' : 'var(--surface2)', border: `1px solid ${sortKey === key ? 'var(--accent)' : 'var(--border)'}`, color: sortKey === key ? 'var(--accent)' : 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '4px 11px', borderRadius: 16, cursor: 'pointer', fontWeight: sortKey === key ? 600 : 400, transition: 'all .15s', whiteSpace: 'nowrap' }}>{lbl}</button>
+          <button key={key} className={`chip${sortKey === key ? ' active' : ''}`} onClick={() => setSortKey(key)}>{lbl}</button>
         ))}
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
         {sorted.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
-            <div style={{ fontSize: 28, marginBottom: 9 }}>🎉</div>
-            <div style={{ fontSize: 14, color: 'var(--text2)', marginBottom: 3 }}>All clear</div>
-            <div style={{ fontSize: 12, fontFamily: 'var(--mono)' }}>No open issues</div>
-          </div>
+          <EmptyState icon="🎉" title="All clear" hint="No open issues" />
         ) : sortKey === 'urgency' ? (
           (() => {
             const groups: Record<string, DeadlineItem[]> = { '🔴 Overdue': [], '🟠 Today': [], '🟡 This week': [], '🔵 This month': [], '🟢 Later': [], '⚪ No deadline': [] }
@@ -202,12 +208,12 @@ export default function DeadlinesView() {
                 <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 7, padding: '4px 0' }}>
                   {label} <span style={{ background: 'var(--surface3)', color: 'var(--text3)', padding: '1px 7px', borderRadius: 8, fontSize: 10 }}>{items.length}</span>
                 </div>
-                {items.map((item) => <Card key={item._key} item={item} />)}
+                {items.map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} onJump={jumpTo} />)}
               </div>
             ))
           })()
         ) : (
-          sorted.map((item) => <Card key={item._key} item={item} />)
+          sorted.map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} onJump={jumpTo} />)
         )}
       </div>
     </div>

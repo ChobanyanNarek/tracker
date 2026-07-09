@@ -1,6 +1,6 @@
 {
-  "name": "PM Daily Tracker",
-  "short_name": "pm/tracker",
+  "name": "ProgressOr",
+  "short_name": "ProgressOr",
   "description": "Daily checkpoint tracker for developer teams",
   "id": "/",
   "start_url": "/",

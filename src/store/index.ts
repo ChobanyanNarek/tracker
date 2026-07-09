@@ -1,14 +1,12 @@
 import { create } from 'zustand'
 import type { AppState, Developer, Project, Task, JiraIssue, JiraConfig, GitLabConfig, View, EmploymentPeriod, PrEntry } from '../types'
 import { loadCloudState, saveCloudState } from '../utils/cloud-api'
-import { todayStr, offsetDate, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
+import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, rawToJiraItem, mergeStatusHistory } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { resolveTrackerTz } from '../utils/working-hours'
-
-const LS_KEY = 'pmtracker_v4'
 
 function makeId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 6)
@@ -69,46 +67,9 @@ function freshState(): AppState {
       groupPath: '',
       syncInterval: 10,
     },
-    developers: [
-      { id: 'd1', name: 'Alex Morgan', role: 'Frontend', color: '#2563eb', periods: [] },
-      { id: 'd2', name: 'Sam Rivera', role: 'Backend', color: '#16a34a', periods: [] },
-      { id: 'd3', name: 'Jordan Lee', role: 'Full Stack', color: '#7c3aed', periods: [] },
-    ],
-    projects: [
-      { id: 'p1', name: 'Auth Redesign', color: '#2563eb', desc: 'Login & permissions', members: ['d1', 'd2'] },
-      { id: 'p2', name: 'Dashboard v2', color: '#16a34a', desc: 'Analytics dashboard', members: ['d1', 'd3'] },
-      { id: 'p3', name: 'Mobile App', color: '#d97706', desc: 'React Native client', members: ['d2', 'd3'] },
-    ],
-    tasks: [
-      {
-        id: 't1', devId: 'd1', projectId: 'p1', title: 'Implement auth flow UI',
-        status: 'inprogress', jira: '', jiras: [
-          { url: 'https://jira.co/browse/AUTH-12', name: 'Implement auth flow UI', status: 'inprogress', priority: 'high', deadline: offsetDate(2), deadlineTime: '18:00', prs: [], comment: 'Pending design review' },
-        ],
-        pr: '', prs: [], deadline: offsetDate(2), deadlineTime: '18:00', reviewDate: '', reviewTime: '', comment: 'Pending design review', date: today,
-      },
-      {
-        id: 't2', devId: 'd1', projectId: 'p2', title: 'Fix mobile nav overflow',
-        status: 'done', jira: '', jiras: [
-          { url: '', name: 'Fix mobile nav overflow', status: 'done', priority: 'medium', deadline: today, deadlineTime: '12:00', prs: [{ url: 'https://github.com/org/repo/pull/43', date: today, time: '11:00' }], comment: 'Merged ✓' },
-        ],
-        pr: '', prs: [], deadline: today, deadlineTime: '12:00', reviewDate: '', reviewTime: '', comment: 'Merged ✓', date: today,
-      },
-      {
-        id: 't3', devId: 'd2', projectId: 'p1', title: 'Refactor permissions API',
-        status: 'review', jira: '', jiras: [
-          { url: 'https://jira.co/browse/AUTH-9', name: 'Refactor permissions API', status: 'review', priority: 'high', deadline: offsetDate(1), deadlineTime: '17:00', prs: [], comment: 'Waiting for QA sign-off' },
-        ],
-        pr: '', prs: [], deadline: offsetDate(1), deadlineTime: '17:00', reviewDate: '', reviewTime: '', comment: 'Waiting for QA sign-off', date: today,
-      },
-      {
-        id: 't4', devId: 'd3', projectId: 'p2', title: 'Dashboard chart integration',
-        status: 'blocked', jira: '', jiras: [
-          { url: 'https://jira.co/browse/DASH-7', name: 'Dashboard chart integration', status: 'blocked', priority: 'critical', deadline: offsetDate(3), deadlineTime: '23:59', prs: [], comment: 'Blocked: API not ready' },
-        ],
-        pr: '', prs: [], deadline: offsetDate(3), deadlineTime: '23:59', reviewDate: '', reviewTime: '', comment: 'Blocked: API not ready', date: today,
-      },
-    ],
+    developers: [],
+    projects: [],
+    tasks: [],
   }
 }
 
@@ -125,42 +86,7 @@ function persistState(state: AppState): void {
     gitlabConfig: state.gitlabConfig,
     trackerTimezone: state.trackerTimezone,
   }
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(payload))
-  } catch {}
   void saveCloudState(payload as Record<string, unknown>)
-}
-
-function loadState(): Partial<AppState> {
-  try {
-    const raw = localStorage.getItem(LS_KEY)
-    if (!raw) return {}
-    const d = JSON.parse(raw) as Partial<AppState>
-    // Migrate old schedule format (ScheduleEntry objects → plain strings)
-    const sched: Record<string, Record<string, string>> = {}
-    if (d.schedule) {
-      Object.entries(d.schedule).forEach(([devId, days]) => {
-        sched[devId] = {}
-        Object.entries(days).forEach(([date, val]) => {
-          if (typeof val === 'string') sched[devId][date] = val
-          else if (val && typeof val === 'object' && 'type' in val) sched[devId][date] = (val as { type: string }).type
-        })
-      })
-    }
-    return {
-      developers: d.developers?.map((dev) => ({ periods: [], ...dev })),
-      projects: d.projects?.map((p) => ({ ...p, members: p.members ?? [] })),
-      tasks: d.tasks?.map(normalizeTask),
-      schedule: sched,
-      scheduleHours: (d as AppState & { scheduleHours?: Record<string, Record<string, number>> }).scheduleHours ?? {},
-      notifsEnabled: (d as AppState).notifsEnabled ?? false,
-      ...((d as AppState).jiraConfig ? { jiraConfig: (d as AppState).jiraConfig } : {}),
-      ...((d as AppState).gitlabConfig ? { gitlabConfig: (d as AppState).gitlabConfig } : {}),
-      ...((d as AppState).trackerTimezone ? { trackerTimezone: (d as AppState).trackerTimezone } : {}),
-    }
-  } catch {
-    return {}
-  }
 }
 
 interface StoreActions {
@@ -223,7 +149,7 @@ function withSave(state: AppState): AppState {
 }
 
 export const useStore = create<Store>((set, get) => {
-  const base = { ...freshState(), ...loadState() }
+  const base = { ...freshState() }
 
   return {
     ...base,

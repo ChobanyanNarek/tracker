@@ -30,6 +30,11 @@ export interface PrEntry {
   time: string
 }
 
+export interface StatusHistoryEntry {
+  status: Status
+  at: string  // ISO timestamp
+}
+
 export interface JiraIssue {
   issueId?: string   // stable identity — same across all days this issue appears on
   url: string
@@ -41,7 +46,17 @@ export interface JiraIssue {
   prs: PrEntry[]
   comment: string
   hidden?: boolean
+  manualStatus?: Status  // set when user manually changes status; overrides Jira sync
+  statusHistory?: StatusHistoryEntry[]
   _srcIdx?: number
+}
+
+export interface WorkSchedule {
+  workDays: number[]   // 0=Sun 1=Mon … 6=Sat
+  startTime: string    // "HH:MM"
+  endTime: string      // "HH:MM"
+  dailyHours: number   // actual productive hours/day (≤ window length)
+  timezone?: string    // IANA e.g. "Asia/Yerevan"; falls back to browser timezone if not set
 }
 
 export interface Task {
@@ -63,6 +78,7 @@ export interface Task {
   carriedOver?: boolean
   carriedFrom?: string
   jiraSync?: boolean
+  deletedJiraUrls?: string[]
 }
 
 export interface EmploymentPeriod {
@@ -81,6 +97,7 @@ export interface Developer {
   jiraEmail?: string
   gitlabUsername?: string
   archivedAt?: string
+  workSchedule?: WorkSchedule
 }
 
 export interface Project {
@@ -117,4 +134,6 @@ export interface AppState {
   notifsEnabled: boolean
   jiraConfig: JiraConfig
   gitlabConfig: GitLabConfig
+  highlightedTaskId: string | null
+  trackerTimezone?: string  // single IANA zone for Performance calc; falls back to browser zone
 }

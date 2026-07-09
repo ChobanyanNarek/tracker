@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PM Tracker – Jira Bridge",
+  "name": "ProgressOr – Jira Bridge",
   "version": "1.1.0",
-  "description": "Routes PM Tracker's Jira requests through the extension background worker, bypassing CORS entirely.",
+  "description": "Routes ProgressOr's Jira requests through the extension background worker, bypassing CORS entirely.",
   "permissions": ["declarativeNetRequest"],
   "host_permissions": [
     "https://*.atlassian.net/*",
@@ -30,6 +30,6 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "PM Tracker – Jira Bridge"
+    "default_title": "ProgressOr – Jira Bridge"
   }
 }

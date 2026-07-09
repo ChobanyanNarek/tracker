@@ -1,5 +1,5 @@
 {
-  "name": "pm-tracker",
+  "name": "progressor",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && gh-pages -d dist"
+    "deploy": "npm run build && gh-pages -d dist --repo https://github.com/narchobanyan/tracker.git"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

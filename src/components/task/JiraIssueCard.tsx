@@ -12,11 +12,12 @@ interface Props {
   index: number
   onStatusChange: (issueId: string | undefined, url: string, status: JiraIssue['status']) => void
   onPriorityChange: (issueId: string | undefined, url: string, priority: JiraIssue['priority']) => void
+  onEdit: (issueId: string | undefined, url: string) => void
   onDelete: (issueId: string | undefined, url: string) => void
   onHide: (issueId: string | undefined, url: string) => void
 }
 
-export default function JiraIssueCard({ issue, taskId, index, onStatusChange, onPriorityChange, onDelete, onHide }: Props) {
+export default function JiraIssueCard({ issue, taskId, index, onStatusChange, onPriorityChange, onEdit, onDelete, onHide }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `${taskId}-${index}`,
   })
@@ -64,7 +65,7 @@ export default function JiraIssueCard({ issue, taskId, index, onStatusChange, on
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
-    transition,
+    transition: transition ?? 'box-shadow var(--t)',
     opacity: isDragging ? 0.4 : 1,
     border: isDragging ? '2px dashed var(--accent)' : '1px solid var(--border)',
     background: 'var(--surface2)',
@@ -73,10 +74,16 @@ export default function JiraIssueCard({ issue, taskId, index, onStatusChange, on
     display: 'flex',
     flexDirection: 'column',
     gap: 5,
+    boxShadow: isDragging ? 'var(--shadow)' : 'var(--shadow-xs)',
   }
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      onMouseEnter={(e) => { if (!isDragging) (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--shadow-sm)' }}
+      onMouseLeave={(e) => { if (!isDragging) (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--shadow-xs)' }}
+    >
       {/* header row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         <span {...attributes} {...listeners} style={{ cursor: 'grab', color: 'var(--text3)', fontSize: 14, lineHeight: 1, padding: '2px 3px', borderRadius: 3, userSelect: 'none' }} title="Drag to reorder">⠿</span>
@@ -93,6 +100,15 @@ export default function JiraIssueCard({ issue, taskId, index, onStatusChange, on
             <option key={k} value={k}>{v.label}</option>
           ))}
         </select>
+        <button
+          onClick={() => onEdit(issue.issueId, issue.url ?? '')}
+          title="Edit issue"
+          style={iconBtn}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.opacity = '1' }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.opacity = '0.5' }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
         <button
           onClick={() => onHide(issue.issueId, issue.url ?? '')}
           title="Hide issue (keeps syncing)"
@@ -144,7 +160,7 @@ export default function JiraIssueCard({ issue, taskId, index, onStatusChange, on
                   <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
                   {lbl}
                 </a>
-                {prDateLabel && <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }} className={dl?.cls ?? 'dl-none'}>{prDateLabel}</span>}
+                {prDateLabel && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{prDateLabel}</span>}
               </span>
             ) : null
           })}

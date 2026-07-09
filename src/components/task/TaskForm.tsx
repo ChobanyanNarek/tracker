@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { JiraIssue, PrEntry, Status, Priority } from '../../types'
+import type { JiraIssue, PrEntry, Status, Priority, StatusHistoryEntry } from '../../types'
 import { useStore } from '../../store'
 import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
 import { todayStr } from '../../utils/dates'
@@ -14,6 +14,11 @@ interface JiraFormRow {
   deadlineTime: string
   prs: PrEntry[]
   comment: string
+  // Carried through unchanged on edit so issue identity and history survive a save.
+  issueId?: string
+  statusHistory?: StatusHistoryEntry[]
+  manualStatus?: Status
+  hidden?: boolean
 }
 
 function PrRow({ value, onChange, onRemove }: { value: PrEntry; onChange: (v: PrEntry) => void; onRemove: () => void }) {
@@ -32,10 +37,10 @@ function PrRow({ value, onChange, onRemove }: { value: PrEntry; onChange: (v: Pr
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 6, alignItems: 'center', marginBottom: 4 }}>
-      <input type="url" placeholder="https://github.com/..." value={value.url} onChange={(e) => autoFill(e.target.value)} style={{ background: '#fff', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 9px', borderRadius: 6, outline: 'none', width: '100%', fontSize: 12 }} />
-      <input type="date" value={value.date} onChange={(e) => onChange({ ...value, date: e.target.value })} style={{ background: '#fff', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 6, outline: 'none', fontSize: 12 }} />
-      <input type="time" value={value.time} onChange={(e) => onChange({ ...value, time: e.target.value })} style={{ background: '#fff', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', borderRadius: 6, outline: 'none', fontSize: 12 }} />
-      <button onClick={onRemove} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: 11, width: 22, height: 22, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--red)'; e.currentTarget.style.color = 'var(--red)' }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text3)' }}>✕</button>
+      <input className="field" type="url" placeholder="https://github.com/..." value={value.url} onChange={(e) => autoFill(e.target.value)} />
+      <input className="field" type="date" value={value.date} onChange={(e) => onChange({ ...value, date: e.target.value })} style={{ width: 'auto' }} />
+      <input className="field" type="time" value={value.time} onChange={(e) => onChange({ ...value, time: e.target.value })} style={{ width: 'auto' }} />
+      <button className="icon-btn del" onClick={onRemove} title="Remove PR">✕</button>
     </div>
   )
 }
@@ -61,14 +66,12 @@ function JiraRow({ value, onChange, onRemove }: { value: JiraFormRow; onChange: 
   }
   const delJiraPreset = (u: string) => { const next = jiraPresets.filter((x) => x !== u); saveJiraPresets(next); setJiraPresets(next) }
 
-  const inp: React.CSSProperties = { background: '#fff', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 9px', borderRadius: 6, outline: 'none', width: '100%', fontSize: 12 }
-
   return (
     <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 4 }}>
       {/* name */}
-      <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
-          <input placeholder="Issue name" value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} style={inp} />
+          <input className="field" placeholder="Issue name" value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6, alignItems: 'center' }}>
             {presets.map((p) => (
               <span key={p} style={{ display: 'inline-flex', borderRadius: 5, overflow: 'hidden', border: '1px solid var(--border2)' }}>
@@ -82,13 +85,13 @@ function JiraRow({ value, onChange, onRemove }: { value: JiraFormRow; onChange: 
             </span>
           </div>
         </div>
-        <button onClick={onRemove} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: 11, width: 22, height: 22, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
+        <button className="icon-btn del" onClick={onRemove} title="Remove issue">✕</button>
       </div>
 
       {/* detail row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto 130px 80px', gap: 7, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <input type="url" placeholder="https://jira.company.com/browse/PROJ-1" value={value.url} onChange={(e) => onChange({ ...value, url: e.target.value })} style={inp} />
+          <input className="field" type="url" placeholder="https://jira.company.com/browse/PROJ-1" value={value.url} onChange={(e) => onChange({ ...value, url: e.target.value })} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
             {jiraPresets.map((u) => (
               <span key={u} style={{ display: 'inline-flex', borderRadius: 5, overflow: 'hidden', border: '1px solid var(--border2)' }}>
@@ -103,27 +106,27 @@ function JiraRow({ value, onChange, onRemove }: { value: JiraFormRow; onChange: 
           </div>
         </div>
 
-        <select value={value.status} onChange={(e) => onChange({ ...value, status: e.target.value as Status })} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '4px 8px', borderRadius: 6, outline: 'none', cursor: 'pointer' }}>
+        <select className="field" style={{ width: 'auto', fontFamily: 'var(--mono)', fontSize: 11, cursor: 'pointer' }} value={value.status} onChange={(e) => onChange({ ...value, status: e.target.value as Status })}>
           {(['todo', 'inprogress', 'review', 'done', 'blocked'] as Status[]).map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
         </select>
 
-        <select value={value.priority} onChange={(e) => onChange({ ...value, priority: e.target.value as Priority })} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '4px 8px', borderRadius: 6, outline: 'none', cursor: 'pointer' }}>
+        <select className="field" style={{ width: 'auto', fontFamily: 'var(--mono)', fontSize: 11, cursor: 'pointer' }} value={value.priority} onChange={(e) => onChange({ ...value, priority: e.target.value as Priority })}>
           {Object.entries(PRIORITY_CONF).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <input type="date" value={value.deadline} onChange={(e) => onChange({ ...value, deadline: e.target.value })} title="Deadline" style={{ ...inp, padding: '5px 8px' }} />
+          <input className="field" type="date" value={value.deadline} onChange={(e) => onChange({ ...value, deadline: e.target.value })} title="Deadline" />
           <button type="button" onClick={() => onChange({ ...value, deadline: todayStr() })} style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 9, padding: '2px 7px', borderRadius: 4, cursor: 'pointer', lineHeight: 1.4, whiteSpace: 'nowrap' }}>Today</button>
         </div>
 
-        <input type="time" value={value.deadlineTime} onChange={(e) => onChange({ ...value, deadlineTime: e.target.value })} style={{ ...inp, padding: '5px 8px' }} />
+        <input className="field" type="time" value={value.deadlineTime} onChange={(e) => onChange({ ...value, deadlineTime: e.target.value })} />
       </div>
 
       {/* comment + PRs */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <input type="text" placeholder="Comment / blocker note (optional)" value={value.comment} onChange={(e) => onChange({ ...value, comment: e.target.value })} style={{ ...inp }} />
+        <input className="field" type="text" placeholder="Comment / blocker note (optional)" value={value.comment} onChange={(e) => onChange({ ...value, comment: e.target.value })} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px' }}>PR / MR</span>
+          <span className="field-label" style={{ marginBottom: 0 }}>PR / MR</span>
           <button type="button" onClick={() => onChange({ ...value, prs: [...value.prs, { url: '', date: '', time: '' }] })} style={{ background: 'none', border: '1px dashed var(--border2)', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 9, padding: '1px 7px', borderRadius: 4, cursor: 'pointer' }}>+ Add PR/MR</button>
         </div>
         {value.prs.map((pr, i) => (
@@ -173,14 +176,10 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
   const [comment, setComment] = useState(existing?.comment ?? '')
   const [jiraRows, setJiraRows] = useState<JiraFormRow[]>(() => {
     if (existing?.jiras?.length) {
-      return existing.jiras.map((j) => ({ url: j.url, name: j.name, status: j.status, priority: j.priority ?? 'low', deadline: j.deadline, deadlineTime: j.deadlineTime, prs: j.prs ?? [], comment: j.comment ?? '' }))
+      return existing.jiras.map((j) => ({ url: j.url, name: j.name, status: j.status, priority: j.priority ?? 'low', deadline: j.deadline, deadlineTime: j.deadlineTime, prs: j.prs ?? [], comment: j.comment ?? '', issueId: j.issueId, statusHistory: j.statusHistory, manualStatus: j.manualStatus, hidden: j.hidden }))
     }
     return [makeBlankJira()]
   })
-
-  const labelStyle: React.CSSProperties = { fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px', display: 'block', marginBottom: 3 }
-  const inputStyle: React.CSSProperties = { width: '100%', background: '#fff', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 9px', borderRadius: 6, outline: 'none', fontSize: 13, transition: 'border-color .15s' }
-  const selectStyle = inputStyle
 
   const handleSave = () => {
     if (!devId) return
@@ -198,6 +197,10 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
           deadlineTime: r.deadlineTime,
           prs: r.prs,
           comment: r.comment,
+          ...(r.issueId ? { issueId: r.issueId } : {}),
+          ...(r.statusHistory ? { statusHistory: r.statusHistory } : {}),
+          ...(r.manualStatus ? { manualStatus: r.manualStatus } : {}),
+          ...(r.hidden ? { hidden: r.hidden } : {}),
           _srcIdx: i,
         }
       })
@@ -208,11 +211,35 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
 
     if (taskId) {
       updateTask(taskId, { devId, projectId, title, status, jiras: finalJiras, deadline: finalJiras[0]?.deadline ?? '', deadlineTime: finalJiras[0]?.deadlineTime ?? '', jira: finalJiras[0]?.url ?? '', comment })
-    } else {
-      addTask({ devId, projectId, title, status, jiras: finalJiras, jira: finalJiras[0]?.url ?? '', pr: '', prs: [], deadline: finalJiras[0]?.deadline ?? '', deadlineTime: finalJiras[0]?.deadlineTime ?? '', reviewDate: '', reviewTime: '', comment, date: selectedDate })
+      onCancel()
+      return
     }
+
+    // A developer has one card per day — if one already exists for this date,
+    // append the new issues to it instead of creating a parallel checkpoint.
+    const existingCard = tasks.find((t) => t.devId === devId && t.date === selectedDate)
+    if (existingCard) {
+      const merged: JiraIssue[] = [...(existingCard.jiras ?? []), ...finalJiras].map((j, i) => ({ ...j, _srcIdx: i }))
+      const mergedAllDone = merged.length > 0 && merged.every((j) => j.status === 'done')
+      updateTask(existingCard.id, {
+        projectId: existingCard.projectId || projectId,
+        title: merged[0]?.name || merged[0]?.url || 'Checkpoint',
+        status: mergedAllDone ? 'done' : (merged[0]?.status ?? 'todo'),
+        jiras: merged,
+        deadline: merged[0]?.deadline ?? '',
+        deadlineTime: merged[0]?.deadlineTime ?? '',
+        jira: merged[0]?.url ?? '',
+        comment: comment ? (existingCard.comment ? existingCard.comment + '\n' + comment : comment) : existingCard.comment,
+      })
+      onCancel()
+      return
+    }
+
+    addTask({ devId, projectId, title, status, jiras: finalJiras, jira: finalJiras[0]?.url ?? '', pr: '', prs: [], deadline: finalJiras[0]?.deadline ?? '', deadlineTime: finalJiras[0]?.deadlineTime ?? '', reviewDate: '', reviewTime: '', comment, date: selectedDate })
     onCancel()
   }
+
+  const willMergeInto = !taskId && tasks.some((t) => t.devId === devId && t.date === selectedDate)
 
   return (
     <div style={{ background: 'var(--surface2)', border: '1px solid var(--accent)', borderRadius: 'var(--rl)', padding: 14, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 8 }}>
@@ -220,14 +247,19 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <div>
-          <label style={labelStyle}>Developer</label>
-          <select value={devId} onChange={(e) => handleDevChange(e.target.value)} style={selectStyle}>
+          <label className="field-label">Developer</label>
+          <select className="field" style={{ cursor: 'pointer' }} value={devId} onChange={(e) => handleDevChange(e.target.value)}>
             {developers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
+          {willMergeInto && (
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--accent)', marginTop: 4 }}>
+              ↳ issues will be added to {developers.find((d) => d.id === devId)?.name ?? 'this developer'}'s card for this day
+            </div>
+          )}
         </div>
         <div>
-          <label style={labelStyle}>Project</label>
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={selectStyle}>
+          <label className="field-label">Project</label>
+          <select className="field" style={{ cursor: 'pointer' }} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             <option value="">— No project —</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -235,9 +267,9 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
       </div>
 
       <div>
-        <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <label className="field-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           Jira links
-          <button type="button" onClick={() => setJiraRows((r) => [...r, makeBlankJira()])} style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 10, padding: '2px 9px', borderRadius: 5, cursor: 'pointer' }}>+ Add Jira</button>
+          <button type="button" className="btn-soft" style={{ fontSize: 10, padding: '2px 9px' }} onClick={() => setJiraRows((r) => [...r, makeBlankJira()])}>+ Add Jira</button>
         </label>
         {jiraRows.map((row, i) => (
           <JiraRow
@@ -250,13 +282,13 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
       </div>
 
       <div>
-        <label style={labelStyle}>Comment</label>
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Blockers, context…" style={{ ...inputStyle, resize: 'vertical' }} />
+        <label className="field-label">Comment</label>
+        <textarea className="field" value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Blockers, context…" style={{ resize: 'vertical' }} />
       </div>
 
       <div style={{ display: 'flex', gap: 7, justifyContent: 'flex-end' }}>
-        <button onClick={onCancel} style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '6px 13px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface3)', color: 'var(--text3)', cursor: 'pointer' }}>Cancel</button>
-        <button onClick={handleSave} style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '6px 13px', borderRadius: 6, border: '1px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', cursor: 'pointer' }}>{taskId ? 'Save changes' : 'Add checkpoint'}</button>
+        <button className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button className="btn-primary" onClick={handleSave}>{taskId ? 'Save changes' : 'Add checkpoint'}</button>
       </div>
     </div>
   )

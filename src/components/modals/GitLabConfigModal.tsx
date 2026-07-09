@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useStore } from '../../store'
 import type { GitLabConfig } from '../../types'
 import { fetchGroupMRs, normalizeGroupPath } from '../../utils/gitlab-api'
+import { jiraDedupeKey } from '../../utils/format'
+import Modal from '../ui/Modal'
 
 interface Props { onClose: () => void }
 
@@ -17,7 +19,6 @@ const labelStyle: React.CSSProperties = {
 
 export default function GitLabConfigModal({ onClose }: Props) {
   const { gitlabConfig, developers, setGitlabConfig, syncGitlab } = useStore()
-  const devList = useStore((s) => s.developers)
 
   const [cfg, setCfg] = useState<GitLabConfig>({ ...gitlabConfig })
   const [showToken, setShowToken] = useState(false)
@@ -33,38 +34,80 @@ export default function GitLabConfigModal({ onClose }: Props) {
     setCfg((c) => ({ ...c, [key]: value }))
   }
 
+  function formatGitlabError(msg: string): string {
+    if (msg.includes('401')) return 'Token expired or invalid — create a new one at gitlab.com/-/user_settings/personal_access_tokens with read_api scope, then paste it here and save.'
+    if (msg.includes('403')) return 'Access denied (403) — your GitLab role (e.g. Planner) cannot list group MRs. Sync will automatically fall back to per-developer fetch if GitLab usernames are configured in settings.'
+    if (msg.includes('404')) return 'Not found (404) — check the group/project path.'
+    return msg
+  }
+
   async function testConnection() {
     setTesting(true)
     setTestResult(null)
     try {
-      const mrs = await fetchGroupMRs(cfg)
-      setTestResult({ ok: true, msg: `Connection successful ✓ — ${mrs.length} open MR${mrs.length !== 1 ? 's' : ''} found` })
+      const testCfg: GitLabConfig = { ...cfg, token: cfg.token.trim(), groupPath: cfg.groupPath.trim() }
+      const mrs = await fetchGroupMRs(testCfg)
+      setTestResult({ ok: true, msg: `Connection successful ✓ — ${mrs.length} MR${mrs.length !== 1 ? 's' : ''} found` })
     } catch (err) {
-      setTestResult({ ok: false, msg: (err as Error).message })
+      setTestResult({ ok: false, msg: formatGitlabError((err as Error).message) })
     }
     setTesting(false)
   }
 
-  function save() {
-    setGitlabConfig(cfg)
+  function persist() {
+    setGitlabConfig({ ...cfg, token: cfg.token.trim(), groupPath: cfg.groupPath.trim() })
     useStore.setState((s) => ({
       developers: s.developers.map((d) => ({
         ...d,
         gitlabUsername: gitlabUsernames[d.id]?.trim() || undefined,
       })),
     }))
+  }
+
+  function save() {
+    persist()
     onClose()
   }
 
   async function handleSyncNow() {
-    save()
+    // Persist (so the sync uses the freshly entered config) but keep the modal
+    // open so the result message is visible.
+    persist()
     setSyncing(true)
     setSyncResult(null)
     try {
-      const { linked, updated } = await syncGitlab()
-      setSyncResult(`✓ Synced — ${linked} MR${linked !== 1 ? 's' : ''} linked, ${updated} already tracked`)
+      const r = await syncGitlab()
+
+      // Extract individual Jira keys from the "!iid [KEY1,KEY2]" format in noIssueList
+      const untrackedKeys = new Set<string>()
+      r.noIssueList.forEach((entry) => {
+        const m = entry.match(/\[([^\]]+)\]/)
+        if (m) m[1].split(',').forEach((k) => untrackedKeys.add(k.trim()))
+      })
+
+      // Collect which keys are currently in the tracker (have a Jira-formatted URL or name)
+      const trackedKeys = new Set<string>()
+      useStore.getState().tasks.flatMap((t) => t.jiras ?? []).forEach((j) => {
+        const k = jiraDedupeKey(j.url, j.name)
+        if (k && k !== 'name:' && /^[A-Z][A-Z0-9]+-\d+$/.test(k)) trackedKeys.add(k)
+      })
+
+      let msg = `✓ Synced — ${r.linked} linked, ${r.updated} already tracked`
+      if (r.noKey) msg += `\n${r.noKey} MR${r.noKey !== 1 ? 's' : ''} had no Jira key in branch/title`
+      if (r.noIssue > 0) {
+        const keyList = [...untrackedKeys].slice(0, 8).join(', ')
+        msg += `\n⚠ ${r.noIssue} MR${r.noIssue !== 1 ? 's' : ''} reference keys not in tracker: ${keyList}${untrackedKeys.size > 8 ? '…' : ''}`
+        if (trackedKeys.size > 0) {
+          const tracked = [...trackedKeys].slice(0, 6).join(', ')
+          msg += `\n   Tracker has: ${tracked}${trackedKeys.size > 6 ? '…' : ''}`
+          msg += `\n   → The two lists must overlap for auto-linking to work`
+        } else {
+          msg += `\n   No Jira keys found in tracker — add a Jira URL (e.g. https://…/browse/MONE-957) to each issue`
+        }
+      }
+      setSyncResult(msg)
     } catch (err) {
-      setSyncResult(`✗ ${(err as Error).message}`)
+      setSyncResult(`✗ ${formatGitlabError((err as Error).message)}`)
     }
     setSyncing(false)
   }
@@ -74,17 +117,20 @@ export default function GitLabConfigModal({ onClose }: Props) {
     : 'Never'
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    <Modal
+      title="🦊 GitLab Integration"
+      width={520}
+      zIndex={1000}
+      onClose={onClose}
+      bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 18 }}
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={save}>Save</button>
+        </>
+      }
     >
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.35)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', flex: 1 }}>🦊 GitLab Integration</span>
-          <button onClick={onClose} className="icon-btn" style={{ fontSize: 16 }}>✕</button>
-        </div>
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <>
 
           {/* enable */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: cfg.enabled ? 'var(--accent-dim)' : 'var(--surface2)', borderRadius: 8, border: `1px solid ${cfg.enabled ? 'var(--accent)' : 'var(--border)'}` }}>
@@ -125,7 +171,7 @@ export default function GitLabConfigModal({ onClose }: Props) {
                     {showToken ? '🙈' : '👁'}
                   </button>
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Needs <code>read_api</code> scope</div>
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Needs <code>read_api</code> scope · tokens expire after 1 year — if you get 401, create a new one</div>
               </div>
 
               {/* test result */}
@@ -153,6 +199,7 @@ export default function GitLabConfigModal({ onClose }: Props) {
                 <span style={labelStyle}>Auto-sync interval</span>
                 <select value={cfg.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer' }}>
                   <option value={0}>Manual only</option>
+                  <option value={2}>Every 2 minutes</option>
                   <option value={5}>Every 5 minutes</option>
                   <option value={10}>Every 10 minutes</option>
                   <option value={15}>Every 15 minutes</option>
@@ -167,7 +214,7 @@ export default function GitLabConfigModal({ onClose }: Props) {
                 >
                   {syncing ? 'Syncing…' : 'Sync now'}
                 </button>
-                {syncResult && <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: syncResult.startsWith('✓') ? 'var(--green)' : 'var(--red)' }}>{syncResult}</span>}
+                {syncResult && <span style={{ fontSize: 11, fontFamily: 'var(--mono)', whiteSpace: 'pre-line', color: syncResult.startsWith('✓') ? 'var(--green)' : 'var(--red)' }}>{syncResult}</span>}
               </div>
               {cfg.lastSyncResult && !syncResult && (
                 <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>Last result: {cfg.lastSyncResult}</div>
@@ -181,7 +228,7 @@ export default function GitLabConfigModal({ onClose }: Props) {
               Developer → GitLab username
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {devList.filter((d) => !d.archivedAt).map((d) => (
+              {developers.filter((d) => !d.archivedAt).map((d) => (
                 <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, color: 'var(--text2)', width: 130, flexShrink: 0 }}>{d.name}</span>
@@ -195,13 +242,7 @@ export default function GitLabConfigModal({ onClose }: Props) {
               ))}
             </div>
           </div>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 18px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-          <button onClick={onClose} style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--mono)' }}>Cancel</button>
-          <button onClick={save} style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--mono)', fontWeight: 600 }}>Save</button>
-        </div>
-      </div>
-    </div>
+      </>
+    </Modal>
   )
 }

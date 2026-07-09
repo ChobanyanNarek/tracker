@@ -1,4 +1,4 @@
-import type { JiraConfig, JiraIssue, Priority, Status } from '../types'
+import type { JiraConfig, JiraIssue, Priority, Status, StatusHistoryEntry } from '../types'
 import { fetchViaBridge } from './bridge'
 
 export interface JiraIssueRaw {
@@ -9,6 +9,17 @@ export interface JiraIssueRaw {
     priority?: { name: string } | null
     duedate?: string | null
     assignee?: { emailAddress: string; displayName: string } | null
+    created?: string | null
+  }
+  changelog?: {
+    histories: Array<{
+      created: string
+      items: Array<{
+        field: string
+        fromString: string
+        toString: string
+      }>
+    }>
   }
 }
 
@@ -23,6 +34,16 @@ function mapStatus(categoryKey: string, statusName: string): Status {
   return 'todo'
 }
 
+function mapStatusName(name: string): Status {
+  const n = name.toLowerCase()
+  if (n === 'done' || n === 'closed' || n === 'resolved' || n === 'released') return 'done'
+  if (n.includes('code review') || n === 'code_review') return 'done'
+  if (n.includes('block') || n.includes('impediment')) return 'blocked'
+  if (n.includes('review') || n.includes('testing') || n.includes('qa')) return 'review'
+  if (n.includes('progress') || n.includes('develop') || n.includes('active')) return 'inprogress'
+  return 'todo'
+}
+
 function mapPriority(name?: string | null): Priority {
   if (!name) return 'medium'
   const n = name.toLowerCase()
@@ -32,13 +53,59 @@ function mapPriority(name?: string | null): Priority {
   return 'medium'
 }
 
+function buildStatusHistory(raw: JiraIssueRaw): StatusHistoryEntry[] | undefined {
+  const histories = raw.changelog?.histories
+  if (!histories?.length) return undefined
+
+  // Collect all status-field transitions, sorted chronologically (oldest first)
+  const transitions = histories
+    .flatMap((h) =>
+      h.items
+        .filter((item) => item.field === 'status')
+        .map((item) => ({ at: h.created, from: item.fromString, to: item.toString })),
+    )
+    .sort((a, b) => a.at.localeCompare(b.at))
+
+  if (!transitions.length) return undefined
+
+  const history: StatusHistoryEntry[] = []
+  // Seed with the initial status (before the first transition)
+  // using issue creation date as the "entered at" time
+  const createdAt = raw.fields.created ?? transitions[0]!.at
+  history.push({ status: mapStatusName(transitions[0]!.from), at: createdAt })
+  // Each transition marks when the issue entered the new status
+  for (const t of transitions) {
+    history.push({ status: mapStatusName(t.to), at: t.at })
+  }
+  return history
+}
+
+/**
+ * Merge Jira changelog history (fresh) with locally tracked history (existing).
+ * Fresh is authoritative for the past; any local entries recorded after the
+ * last fresh entry are appended so manual changes aren't lost.
+ */
+export function mergeStatusHistory(
+  existing: StatusHistoryEntry[] | undefined,
+  fresh: StatusHistoryEntry[] | undefined,
+): StatusHistoryEntry[] | undefined {
+  if (!fresh?.length) return existing
+  if (!existing?.length) return fresh
+  // Compare chronologically, not lexicographically: Jira changelog timestamps
+  // may carry numeric offsets (+0300) while local entries are always UTC (…Z),
+  // so a raw string `>` can mis-order genuinely newer local entries.
+  const lastFreshMs = new Date(fresh[fresh.length - 1]!.at).getTime()
+  const localTail = existing.filter((e) => new Date(e.at).getTime() > lastFreshMs)
+  return localTail.length ? [...fresh, ...localTail] : fresh
+}
 
 export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<JiraIssueRaw[]> {
   const auth = btoa(`${config.email}:${config.token}`)
   const params = new URLSearchParams({
     jql,
-    fields: 'summary,status,priority,duedate,assignee',
+    fields: 'summary,status,priority,duedate,assignee,created',
     maxResults: '100',
+    expand: 'changelog',
   })
 
   const directUrl = `${config.baseUrl.replace(/\/$/, '')}/rest/api/3/search/jql?${params}`
@@ -81,5 +148,6 @@ export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string): JiraIssue {
     deadlineTime: '',
     prs: [],
     comment: '',
+    statusHistory: buildStatusHistory(issue),
   }
 }

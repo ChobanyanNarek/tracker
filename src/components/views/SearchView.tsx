@@ -3,6 +3,7 @@ import { useStore } from '../../store'
 import { STATUS_LABEL } from '../../constants'
 import { getJiras, hexRgb, initials } from '../../utils/format'
 import type { Status } from '../../types'
+import EmptyState from '../ui/EmptyState'
 
 type StatusFilter = 'ALL' | Status
 
@@ -10,7 +11,7 @@ export default function SearchView() {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
 
-  const { tasks, developers, projects, selectedProject, setSelectedDate, setView } = useStore()
+  const { tasks, developers, projects, selectedProject, setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView } = useStore()
 
   const q = query.trim().toLowerCase()
 
@@ -39,9 +40,15 @@ export default function SearchView() {
   }
   filtered = [...filtered].sort((a, b) => b.date.localeCompare(a.date))
 
+  const escapeHtml = (s: string) =>
+    s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+
   const highlight = (str: string) => {
-    if (!q) return str
-    return str.replace(
+    // Escape first — the result is injected via dangerouslySetInnerHTML, so raw
+    // user text (task titles/comments) must never reach the DOM as markup.
+    const safe = escapeHtml(str)
+    if (!q) return safe
+    return safe.replace(
       new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'),
       '<mark style="background:#fef9c3;color:var(--text);border-radius:2px;padding:0 2px">$1</mark>',
     )
@@ -55,6 +62,7 @@ export default function SearchView() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--surface)', border: `1px solid ${q ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 'var(--rl)', padding: '8px 14px', boxShadow: 'var(--shadow)', transition: 'border-color .15s' }}>
         <span style={{ color: 'var(--text3)', fontSize: 16, flexShrink: 0 }}>🔍</span>
         <input
+          autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search checkpoints, Jira issues, developers, projects…"
@@ -70,8 +78,8 @@ export default function SearchView() {
         {statuses.map((s) => (
           <button
             key={s}
+            className={`chip${statusFilter === s ? ' active' : ''}`}
             onClick={() => setStatusFilter(s)}
-            style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '4px 10px', borderRadius: 20, border: `1px solid ${statusFilter === s ? 'var(--accent)' : 'var(--border)'}`, background: statusFilter === s ? 'var(--accent-dim)' : 'var(--surface)', color: statusFilter === s ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', transition: 'all .15s' }}
           >
             {s === 'ALL' ? 'All statuses' : STATUS_LABEL[s]}
           </button>
@@ -85,11 +93,7 @@ export default function SearchView() {
 
       {/* results */}
       {filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text3)' }}>
-          <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.35 }}>🔍</div>
-          <div style={{ fontSize: 14, color: 'var(--text2)', marginBottom: 4 }}>No results</div>
-          <div style={{ fontSize: 12, fontFamily: 'var(--mono)' }}>Try different keywords or filters</div>
-        </div>
+        <EmptyState icon="🔍" title="No results" hint="Try different keywords or filters" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {filtered.map((t) => {
@@ -101,7 +105,7 @@ export default function SearchView() {
             return (
               <div
                 key={t.id}
-                onClick={() => { setSelectedDate(t.date); setView('daily') }}
+                onClick={() => { setSelectedDev('ALL'); setSelectedProject('ALL'); setSelectedDate(t.date); setHighlightedTaskId(t.id); setView('daily') }}
                 style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', padding: '11px 13px', cursor: 'pointer', transition: 'all .15s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = 'var(--shadow)' }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = '' }}

@@ -30,9 +30,14 @@ export default function Calendar() {
   })
 
   const goMonth = (delta: number) => {
-    const d = new Date(selectedDate + 'T12:00:00')
-    d.setMonth(d.getMonth() + delta)
-    setSelectedDate(d.toISOString().split('T')[0])
+    // Compute target year/month arithmetically and clamp the day, so e.g.
+    // Jan 31 → next never overflows into March.
+    const [y, m, dd] = selectedDate.split('-').map(Number)
+    const idx = (m - 1) + delta
+    const targetY = y + Math.floor(idx / 12)
+    const targetM = ((idx % 12) + 12) % 12
+    const day = Math.min(dd, daysInMonth(targetY, targetM))
+    setSelectedDate(padDate(targetY, targetM, day))
   }
 
   const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -74,7 +79,7 @@ export default function Calendar() {
               title={holiday ?? ''}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, padding: '4px 7px', borderRadius: 'var(--r)', border, cursor: 'pointer', background: bg, transition: 'all .15s', minWidth: 38, flexShrink: 0, position: 'relative', opacity }}
             >
-              {alertType && isToday && (
+              {alertType && (
                 <div style={{ position: 'absolute', top: 3, right: 3, width: 5, height: 5, borderRadius: '50%', background: alertType === 'over' ? 'var(--red)' : 'var(--amber)', border: '1px solid var(--surface)' }} />
               )}
               <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: textColor, textTransform: 'uppercase', letterSpacing: '.4px' }}>{dow}</div>
