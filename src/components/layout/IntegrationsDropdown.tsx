@@ -26,22 +26,44 @@ interface Props {
   onJiraSync: () => void
   onGitlabSync: () => void
   onGithubSync: () => void
+  compact?: boolean
 }
 
-export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, githubEnabled, jiraSyncing, glSyncing, ghSyncing, onJiraConfig, onGitlabConfig, onGithubConfig, onJiraSync, onGitlabSync, onGithubSync }: Props) {
+export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, githubEnabled, jiraSyncing, glSyncing, ghSyncing, onJiraConfig, onGitlabConfig, onGithubConfig, onJiraSync, onGitlabSync, onGithubSync, compact }: Props) {
   const [open, setOpen] = useState(false)
   const ref = useClickOutside<HTMLDivElement>(() => setOpen(false))
 
   const anyEnabled = jiraEnabled || gitlabEnabled || githubEnabled
 
+  const GearIcon = () => (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14M12 2v2m0 16v2M2 12h2m16 0h2"/>
+    </svg>
+  )
+
+  const SyncIcon = ({ spinning }: { spinning: boolean }) => (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: spinning ? 'spin .7s linear infinite' : 'none' }}>
+      <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+    </svg>
+  )
+
+  const JiraLinkIcon = () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+    </svg>
+  )
+
   const rowStyle: CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px',
     borderBottom: '1px solid var(--border)',
   }
   const iconBtnStyle: CSSProperties = {
-    background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-    color: 'var(--text3)', fontSize: 11, padding: '3px 7px', cursor: 'pointer',
-    fontFamily: 'var(--mono)', transition: 'all .15s',
+    background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+    color: 'var(--text3)', width: 26, height: 26,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', transition: 'all .15s', flexShrink: 0,
   }
 
   return (
@@ -51,69 +73,67 @@ export default function IntegrationsDropdown({ jiraEnabled, gitlabEnabled, githu
         title="Integrations (Jira, GitLab, GitHub)"
         style={{
           display: 'flex', alignItems: 'center', gap: 5,
-          border: `1px solid ${anyEnabled ? 'var(--accent)' : 'var(--border)'}`,
-          background: 'var(--surface)', color: anyEnabled ? 'var(--accent)' : 'var(--text3)',
-          fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 11px',
-          borderRadius: 6, cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap',
+          border: `1.5px solid ${anyEnabled ? 'var(--accent-border)' : 'var(--border)'}`,
+          background: anyEnabled ? 'var(--accent-dim)' : 'var(--surface)',
+          color: anyEnabled ? 'var(--accent)' : 'var(--text3)',
+          fontFamily: 'var(--sans)', fontSize: 12, fontWeight: anyEnabled ? 600 : 500,
+          padding: '5px 11px', borderRadius: 8, cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap',
         }}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-        Services
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+        {!compact && 'Services'}
         {anyEnabled && (
-          <span style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-            {jiraEnabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#60a5fa' }} />}
-            {gitlabEnabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#fc6d26' }} />}
-            {githubEnabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#6e40c9' }} />}
+          <span style={{ display: 'flex', gap: 2, alignItems: 'center', marginLeft: 1 }}>
+            {jiraEnabled && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#60a5fa' }} />}
+            {gitlabEnabled && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fc6d26' }} />}
+            {githubEnabled && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6e40c9' }} />}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="menu" style={{ top: 'calc(100% + 6px)', right: 0, width: 220, zIndex: 500 }}>
-          <div style={{ padding: '8px 12px 6px', borderBottom: '1px solid var(--border)' }}>
-            <span className="section-label">Integrations</span>
+        <div className="menu" style={{ top: 'calc(100% + 6px)', right: 0, width: 230, zIndex: 500 }}>
+          <div style={{ padding: '9px 13px 7px', borderBottom: '1px solid var(--border)' }}>
+            <span className="section-label">Services</span>
           </div>
 
           {/* Jira */}
           <div style={rowStyle}>
-            <span style={{ fontSize: 13 }}>🔗</span>
-            <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: jiraEnabled ? '#60a5fa' : 'var(--text3)' }}>Jira</span>
-            {jiraEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#60a5fa', padding: '1px 5px', border: '1px solid #60a5fa40', borderRadius: 8 }}>on</span>}
-            <button style={iconBtnStyle} title="Jira settings" onClick={() => { setOpen(false); onJiraConfig() }}>⚙</button>
+            <JiraLinkIcon />
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: jiraEnabled ? '#60a5fa' : 'var(--text2)' }}>Jira</span>
+            {jiraEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#60a5fa', padding: '2px 6px', border: '1px solid #60a5fa40', borderRadius: 8, background: '#eff6ff' }}>on</span>}
+            <button style={iconBtnStyle} title="Jira settings" onClick={() => { setOpen(false); onJiraConfig() }}><GearIcon /></button>
             <button
-              style={{ ...iconBtnStyle, opacity: jiraSyncing ? 0.5 : 1, color: jiraEnabled ? '#60a5fa' : 'var(--text3)', borderColor: jiraEnabled ? '#60a5fa50' : 'var(--border)' }}
-              title="Sync from Jira"
-              disabled={jiraSyncing}
+              style={{ ...iconBtnStyle, color: jiraEnabled ? '#60a5fa' : 'var(--text3)', borderColor: jiraEnabled ? '#60a5fa50' : 'var(--border)', opacity: jiraSyncing ? 0.5 : 1 }}
+              title="Sync from Jira" disabled={jiraSyncing}
               onClick={() => { setOpen(false); onJiraSync() }}
-            >{jiraSyncing ? '⟳' : '↻'}</button>
+            ><SyncIcon spinning={jiraSyncing} /></button>
           </div>
 
           {/* GitLab */}
           <div style={rowStyle}>
             <GitLabIcon size={14} color={gitlabEnabled ? '#fc6d26' : 'var(--text3)'} />
-            <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: gitlabEnabled ? '#fc6d26' : 'var(--text3)' }}>GitLab</span>
-            {gitlabEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#fc6d26', padding: '1px 5px', border: '1px solid #fc6d2640', borderRadius: 8 }}>on</span>}
-            <button style={iconBtnStyle} title="GitLab settings" onClick={() => { setOpen(false); onGitlabConfig() }}>⚙</button>
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: gitlabEnabled ? '#fc6d26' : 'var(--text2)' }}>GitLab</span>
+            {gitlabEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#fc6d26', padding: '2px 6px', border: '1px solid #fc6d2640', borderRadius: 8, background: '#fff7ed' }}>on</span>}
+            <button style={iconBtnStyle} title="GitLab settings" onClick={() => { setOpen(false); onGitlabConfig() }}><GearIcon /></button>
             <button
-              style={{ ...iconBtnStyle, opacity: glSyncing ? 0.5 : 1, color: gitlabEnabled ? '#fc6d26' : 'var(--text3)', borderColor: gitlabEnabled ? '#fc6d2650' : 'var(--border)' }}
-              title="Sync MRs from GitLab"
-              disabled={glSyncing}
+              style={{ ...iconBtnStyle, color: gitlabEnabled ? '#fc6d26' : 'var(--text3)', borderColor: gitlabEnabled ? '#fc6d2650' : 'var(--border)', opacity: glSyncing ? 0.5 : 1 }}
+              title="Sync MRs from GitLab" disabled={glSyncing}
               onClick={() => { setOpen(false); onGitlabSync() }}
-            >{glSyncing ? '⟳' : '↻'}</button>
+            ><SyncIcon spinning={glSyncing} /></button>
           </div>
 
           {/* GitHub */}
           <div style={{ ...rowStyle, borderBottom: 'none' }}>
             <GitHubIcon size={14} color={githubEnabled ? '#6e40c9' : 'var(--text3)'} />
-            <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: githubEnabled ? '#6e40c9' : 'var(--text3)' }}>GitHub</span>
-            {githubEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#6e40c9', padding: '1px 5px', border: '1px solid #6e40c940', borderRadius: 8 }}>on</span>}
-            <button style={iconBtnStyle} title="GitHub settings" onClick={() => { setOpen(false); onGithubConfig() }}>⚙</button>
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: githubEnabled ? '#6e40c9' : 'var(--text2)' }}>GitHub</span>
+            {githubEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#6e40c9', padding: '2px 6px', border: '1px solid #6e40c940', borderRadius: 8, background: '#f5f3ff' }}>on</span>}
+            <button style={iconBtnStyle} title="GitHub settings" onClick={() => { setOpen(false); onGithubConfig() }}><GearIcon /></button>
             <button
-              style={{ ...iconBtnStyle, opacity: ghSyncing ? 0.5 : 1, color: githubEnabled ? '#6e40c9' : 'var(--text3)', borderColor: githubEnabled ? '#6e40c950' : 'var(--border)' }}
-              title="Sync PRs from GitHub"
-              disabled={ghSyncing}
+              style={{ ...iconBtnStyle, color: githubEnabled ? '#6e40c9' : 'var(--text3)', borderColor: githubEnabled ? '#6e40c950' : 'var(--border)', opacity: ghSyncing ? 0.5 : 1 }}
+              title="Sync PRs from GitHub" disabled={ghSyncing}
               onClick={() => { setOpen(false); onGithubSync() }}
-            >{ghSyncing ? '⟳' : '↻'}</button>
+            ><SyncIcon spinning={ghSyncing} /></button>
           </div>
         </div>
       )}

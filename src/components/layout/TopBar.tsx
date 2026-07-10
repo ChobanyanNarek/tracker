@@ -22,11 +22,49 @@ interface TopBarProps {
   projPanelOpen: boolean
 }
 
+const GearLogo = ({ size = 26 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 48 48" style={{ flexShrink: 0, animation: 'spin 2s linear infinite' }}>
+    <path fillRule="evenodd" fill="#171a2d" d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z"/>
+    <g stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round">
+      <line x1="21" y1="7" x2="27" y2="5"/>
+      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(60 24 24)"/>
+      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(120 24 24)"/>
+      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(180 24 24)"/>
+      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(240 24 24)"/>
+      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(300 24 24)"/>
+    </g>
+  </svg>
+)
+
+const BellOn = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+  </svg>
+)
+
+const BellOff = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+    <path d="M18.63 13A17.89 17.89 0 0 1 18 8"/>
+    <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/>
+    <path d="M18 8a6 6 0 0 0-9.33-5"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+)
+
 export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGithubConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
   const { setNotifsEnabled, syncJira, syncGitlab, syncGithub, notifsEnabled, setView, setSelectedDate } = useStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
   const user = getUserInfo()
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   useEffect(() => {
     if (!profileOpen) return
@@ -131,50 +169,154 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
   const notifPerm = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
   const notifOn = notifPerm === 'granted' && notifsEnabled
 
+  const iconBtn: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 30, height: 30, borderRadius: 8, cursor: 'pointer',
+    transition: 'all .15s', flexShrink: 0,
+  }
+
+  const profileDropdown = profileOpen ? (
+    <div style={{
+      position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 400,
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 14, boxShadow: 'var(--shadow-xl)',
+      minWidth: 210, overflow: 'hidden',
+    }}>
+      <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 700, letterSpacing: '-.2px', flexShrink: 0 }}>
+            {initials}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--sans)', letterSpacing: '-.1px' }}>
+              {displayName ?? 'User'}
+            </div>
+            {user?.email && (
+              <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user.email}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <div style={{ padding: '4px 0' }}>
+        {onAdminOpen && (
+          <button
+            onClick={() => { setProfileOpen(false); onAdminOpen() }}
+            style={{ width: '100%', padding: '9px 16px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 10, transition: 'background .12s' }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+          >
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--surface3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--text2)' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/></svg>
+            </div>
+            Admin Panel
+          </button>
+        )}
+        <div style={{ height: 1, background: 'var(--border)', margin: '3px 0' }} />
+        <button
+          onClick={handleSignOut}
+          style={{ width: '100%', padding: '9px 16px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'var(--red)', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 10, transition: 'background .12s' }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--red-dim)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+        >
+          <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--red-dim)', border: '1px solid var(--red-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--red)' }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </div>
+          Sign out
+        </button>
+      </div>
+    </div>
+  ) : null
+
+  const boxShadow = '0 1px 0 var(--border), 0 2px 12px rgba(25,35,90,.06)'
+
+  /* ── Mobile: 2-row layout ── */
+  if (isMobile) {
+    return (
+      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 300, boxShadow }}>
+        {/* Row 1: Logo + app name + bell + profile */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px', height: 50, gap: 10 }}>
+          <button
+            onClick={() => { setView('daily'); setSelectedDate(todayStr()) }}
+            title="Go to today's Daily dashboard"
+            style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, padding: 0, flexShrink: 0 }}
+          >
+            <GearLogo size={24} />
+          </button>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.4px', fontFamily: 'var(--sans)', flexShrink: 0 }}>
+            ProgressOr
+          </span>
+          <div style={{ flex: 1 }} />
+          {urgentCount > 0 && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'var(--red)', color: '#fff', fontFamily: 'var(--sans)', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, animation: 'pulse 2s infinite', flexShrink: 0 }}>
+              {urgentCount}!
+            </span>
+          )}
+          <button
+            onClick={toggleNotifs}
+            title={notifOn ? 'Notifications ON' : 'Enable notifications'}
+            style={{ ...iconBtn, border: `1.5px solid ${notifOn ? 'var(--accent)' : 'var(--border)'}`, background: notifOn ? 'var(--accent-dim)' : 'var(--surface)', color: notifOn ? 'var(--accent)' : 'var(--text4)' }}
+          >
+            {notifOn ? <BellOn /> : <BellOff />}
+          </button>
+          <div ref={profileRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setProfileOpen((o) => !o)}
+              title={displayName ?? 'Profile'}
+              style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--accent-border)', background: 'var(--accent)', color: '#fff', fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s', flexShrink: 0, letterSpacing: '-.2px', boxShadow: '0 2px 8px rgba(59,91,219,.25)' }}
+            >
+              {initials}
+            </button>
+            {profileDropdown}
+          </div>
+        </div>
+        {/* Row 2: Project + Dev selectors */}
+        <div style={{ display: 'flex', alignItems: 'stretch', borderTop: '1px solid var(--border)', height: 40 }}>
+          <ProjectSelector open={projPanelOpen} onToggle={onProjPanel} fill />
+          <DevSelector open={devPanelOpen} onToggle={onDevPanel} fill />
+        </div>
+      </div>
+    )
+  }
+
+  /* ── Desktop: single-row layout ── */
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 300, height: 54, boxShadow: '0 1px 0 var(--border), 0 2px 12px rgba(25,35,90,.06)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 300, height: 54, boxShadow }}>
       <div style={{ display: 'flex', alignItems: 'center', height: '100%', gap: 0 }}>
         <button
           onClick={() => { setView('daily'); setSelectedDate(todayStr()) }}
           title="Go to today's Daily dashboard"
-          style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', marginRight: 6, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, transition: 'background .15s' }}
+          style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', marginRight: 8, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, transition: 'background .15s' }}
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
         >
-          <svg width="26" height="26" viewBox="0 0 48 48" style={{ flexShrink: 0, animation: 'spin 2s linear infinite' }}>
-            <path fillRule="evenodd" fill="#171a2d" d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z"/>
-            <g stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round">
-              <line x1="21" y1="7" x2="27" y2="5"/>
-              <line x1="21" y1="7" x2="27" y2="5" transform="rotate(60 24 24)"/>
-              <line x1="21" y1="7" x2="27" y2="5" transform="rotate(120 24 24)"/>
-              <line x1="21" y1="7" x2="27" y2="5" transform="rotate(180 24 24)"/>
-              <line x1="21" y1="7" x2="27" y2="5" transform="rotate(240 24 24)"/>
-              <line x1="21" y1="7" x2="27" y2="5" transform="rotate(300 24 24)"/>
-            </g>
-          </svg>
+          <GearLogo size={26} />
         </button>
         <ProjectSelector open={projPanelOpen} onToggle={onProjPanel} />
         <DevSelector open={devPanelOpen} onToggle={onDevPanel} />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Clock />
 
-        {/* deadline alert badge */}
         {urgentCount > 0 && (
-          <span style={{ background: 'var(--red)', color: '#fff', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, animation: 'pulse 2s infinite' }}>
-            ⏰ {urgentCount} urgent
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--red)', color: '#fff', fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 10, animation: 'pulse 2s infinite' }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            {urgentCount} urgent
           </span>
         )}
 
         <button
           onClick={toggleNotifs}
           title={notifOn ? 'Notifications ON — click to send a test notification' : 'Click to enable notifications'}
-          style={{ display: 'flex', alignItems: 'center', border: `1px solid ${notifOn ? 'var(--accent)' : 'var(--border)'}`, background: 'var(--surface)', opacity: notifOn ? 1 : 0.45, fontSize: 12, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', transition: 'all .15s' }}
+          style={{ ...iconBtn, border: `1.5px solid ${notifOn ? 'var(--accent)' : 'var(--border)'}`, background: notifOn ? 'var(--accent-dim)' : 'var(--surface)', color: notifOn ? 'var(--accent)' : 'var(--text4)' }}
         >
-          {notifOn ? '🔔' : '🔕'}
+          {notifOn ? <BellOn /> : <BellOff />}
         </button>
+
         <DataDropdown onFeedback={onFeedback} />
+
         <IntegrationsDropdown
           jiraEnabled={jiraEnabled}
           gitlabEnabled={gitlabEnabled}
@@ -190,71 +332,17 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
           onGithubSync={handleGithubSync}
         />
 
-        {/* Profile avatar + dropdown */}
         <div ref={profileRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setProfileOpen((o) => !o)}
             title={displayName ?? 'Profile'}
-            style={{
-              width: 30, height: 30, borderRadius: '50%', border: '1.5px solid var(--border)',
-              background: 'var(--accent)', color: '#fff',
-              fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 700,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              transition: 'opacity .15s', flexShrink: 0,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.8')}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+            style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--accent-border)', background: 'var(--accent)', color: '#fff', fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s', flexShrink: 0, letterSpacing: '-.2px', boxShadow: '0 2px 8px rgba(59,91,219,.25)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 14px rgba(59,91,219,.4)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 8px rgba(59,91,219,.25)' }}
           >
             {initials}
           </button>
-
-          {profileOpen && (
-            <div style={{
-              position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 200,
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 10, boxShadow: 'var(--shadow-xl)',
-              minWidth: 200, padding: '4px 0', overflow: 'hidden',
-            }}>
-              <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--sans)' }}>
-                  {displayName ?? 'User'}
-                </div>
-                {user?.email && (
-                  <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2, wordBreak: 'break-all' }}>
-                    {user.email}
-                  </div>
-                )}
-              </div>
-              {onAdminOpen && (
-                <button
-                  onClick={() => { setProfileOpen(false); onAdminOpen() }}
-                  style={{
-                    width: '100%', padding: '9px 14px', background: 'none', border: 'none',
-                    textAlign: 'left', cursor: 'pointer', color: 'var(--text)',
-                    fontFamily: 'var(--sans)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8,
-                    transition: 'background .12s',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                >
-                  <span style={{ fontSize: 14 }}>⚙</span> Admin Panel
-                </button>
-              )}
-              <button
-                onClick={handleSignOut}
-                style={{
-                  width: '100%', padding: '9px 14px', background: 'none', border: 'none',
-                  textAlign: 'left', cursor: 'pointer', color: 'var(--red)',
-                  fontFamily: 'var(--sans)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8,
-                  transition: 'background .12s',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-              >
-                <span style={{ fontSize: 14 }}>↪</span> Sign out
-              </button>
-            </div>
-          )}
+          {profileDropdown}
         </div>
       </div>
     </div>

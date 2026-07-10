@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import { isAuthenticated, getUserInfo } from './utils/auth'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
@@ -21,11 +21,19 @@ import GitLabConfigModal from './components/modals/GitLabConfigModal'
 import GitHubConfigModal from './components/modals/GitHubConfigModal'
 
 const VIEW_LABELS: Record<string, string> = {
-  daily: '📅 Daily',
-  deadlines: '⏰ Deadlines',
-  search: '🔍 Search',
-  performance: '📊 Performance',
-  schedule: '🗓 Schedule',
+  daily: 'Daily',
+  deadlines: 'Deadlines',
+  search: 'Search',
+  performance: 'Performance',
+  schedule: 'Schedule',
+}
+
+const VIEW_ICONS: Record<string, ReactNode> = {
+  daily: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  deadlines: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+  search: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  performance: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
+  schedule: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="8" y2="18"/><line x1="12" y1="18" x2="12" y2="18"/></svg>,
 }
 
 export default function App() {
@@ -53,6 +61,12 @@ export default function App() {
 
 function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
   const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing } = useStore()
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   const [toast, setToast] = useState<string | null>(null)
   const [standupOpen, setStandupOpen] = useState(false)
   const [ganttOpen, setGanttOpen] = useState(false)
@@ -148,13 +162,15 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 14px 0', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <div className="tabs-bar" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 14px 0', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
             {(Object.keys(VIEW_LABELS) as Array<keyof typeof VIEW_LABELS>).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v as Parameters<typeof setView>[0])}
                 className={`view-tab${view === v ? ' active' : ''}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
               >
+                {VIEW_ICONS[v]}
                 {VIEW_LABELS[v]}
                 {v === 'deadlines' && urgentCount > 0 && (
                   <span style={{ position: 'absolute', top: 2, right: 2, background: 'var(--red)', color: '#fff', borderRadius: 8, fontSize: 8, fontWeight: 700, padding: '1px 4px', lineHeight: 1.4 }}>{urgentCount}</span>
@@ -191,8 +207,8 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
           </div>
         </div>
 
-        <DevPanel open={openPanel === 'dev'} onClose={() => setOpenPanel(null)} topOffset={54} />
-        <ProjectPanel open={openPanel === 'proj'} onClose={() => setOpenPanel(null)} topOffset={54} />
+        <DevPanel open={openPanel === 'dev'} onClose={() => setOpenPanel(null)} topOffset={isMobile ? 90 : 54} />
+        <ProjectPanel open={openPanel === 'proj'} onClose={() => setOpenPanel(null)} topOffset={isMobile ? 90 : 54} />
       </div>
 
       {toast && (

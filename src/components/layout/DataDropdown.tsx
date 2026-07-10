@@ -5,10 +5,11 @@ import ConfirmDialog from '../ui/ConfirmDialog'
 
 interface Props {
   onFeedback: (msg: string) => void
+  compact?: boolean
 }
 
 /** Backup / Restore consolidated into one dropdown — same pattern as the Services menu. */
-export default function DataDropdown({ onFeedback }: Props) {
+export default function DataDropdown({ onFeedback, compact }: Props) {
   const [open, setOpen] = useState(false)
   const [pendingImport, setPendingImport] = useState<string | null>(null)
   const ref = useClickOutside<HTMLDivElement>(() => setOpen(false))
@@ -66,7 +67,7 @@ export default function DataDropdown({ onFeedback }: Props) {
         }}
       >
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-        Data
+        {!compact && 'Data'}
       </button>
 
       {open && (

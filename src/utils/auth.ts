@@ -67,11 +67,11 @@ async function handleAuthResponse(res: Response): Promise<string> {
   return data.accessToken.token
 }
 
-export async function apiLogin(email: string, password: string): Promise<string> {
+export async function apiLogin(credential: string, password: string): Promise<string> {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ credential, password }),
   })
   return handleAuthResponse(res)
 }
@@ -81,11 +81,12 @@ export async function apiRegister(
   lastName: string,
   email: string,
   password: string,
+  phone?: string,
 ): Promise<string> {
   const res = await fetch(`${API_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ firstName, lastName, email, password }),
+    body: JSON.stringify({ firstName, lastName, email, password, ...(phone ? { phone } : {}) }),
   })
   return handleAuthResponse(res)
 }
