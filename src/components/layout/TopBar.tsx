@@ -67,7 +67,8 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
     }
     if (Notification.permission === 'granted' && notifsEnabled) {
       try {
-        new Notification('🔔 ProgressOr — test', {
+        const reg = await navigator.serviceWorker.ready
+        await reg.showNotification('🔔 ProgressOr — test', {
           body: 'Notifications are working! You will see this 15 min before any deadline.',
           icon: NOTIFICATION_ICON,
           requireInteraction: true,
@@ -82,7 +83,8 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
     if (r === 'granted') {
       setNotifsEnabled(true)
       try {
-        new Notification('🔔 ProgressOr notifications ON', {
+        const reg = await navigator.serviceWorker.ready
+        await reg.showNotification('🔔 ProgressOr notifications ON', {
           body: 'You will be notified 15 min before any deadline. Click the bell again to test.',
           icon: NOTIFICATION_ICON,
           requireInteraction: true,

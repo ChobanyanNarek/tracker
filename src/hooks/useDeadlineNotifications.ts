@@ -60,22 +60,15 @@ export function useDeadlineNotifications() {
         if (diffMin > 0 && diffMin <= 15) {
           const dev = developersRef.current.find((dv) => dv.id === task.devId)
           const label = j.name || j.url || 'Issue'
-          try {
-            const notif = new Notification('⏰ 15 min until deadline!', {
+          navigator.serviceWorker.ready.then((reg) =>
+            reg.showNotification('⏰ 15 min until deadline!', {
               body: `${label} · ${dev?.name ?? ''}${j.deadlineTime ? ` · due at ${j.deadlineTime}` : ''}`,
               icon: NOTIFICATION_ICON,
               tag: nk,
               requireInteraction: true,
               data: { taskId: task.id, date: task.date },
             })
-            notif.onclick = () => {
-              window.focus()
-              const store = useStore.getState()
-              store.setView('daily')
-              store.setSelectedDate(task.date)
-              store.setHighlightedTaskId(task.id)
-            }
-          } catch {}
+          ).catch(() => {})
           notified[nk] = nowMs
           changed = true
         }
@@ -93,22 +86,15 @@ export function useDeadlineNotifications() {
             const diffMin = (new Date(y, mo - 1, d, hh, mm).getTime() - nowMs) / 60000
             if (diffMin > 0 && diffMin <= 15) {
               const dev = developersRef.current.find((dv) => dv.id === task.devId)
-              try {
-                const notif = new Notification('⏰ 15 min until deadline!', {
+              navigator.serviceWorker.ready.then((reg) =>
+                reg.showNotification('⏰ 15 min until deadline!', {
                   body: `${task.title || 'Checkpoint'} · ${dev?.name ?? ''}${task.deadlineTime ? ` · due at ${task.deadlineTime}` : ''}`,
                   icon: NOTIFICATION_ICON,
                   tag: nk,
                   requireInteraction: true,
                   data: { taskId: task.id, date: task.date },
                 })
-                notif.onclick = () => {
-                  window.focus()
-                  const store = useStore.getState()
-                  store.setView('daily')
-                  store.setSelectedDate(task.date)
-                  store.setHighlightedTaskId(task.id)
-                }
-              } catch {}
+              ).catch(() => {})
               notified[nk] = nowMs
               changed = true
             }
