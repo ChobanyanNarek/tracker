@@ -1,22 +1,22 @@
 {
-  "name": "PM Daily Tracker",
-  "short_name": "pm/tracker",
+  "name": "ProgressOr",
+  "short_name": "ProgressOr",
   "description": "Daily checkpoint tracker for developer teams",
-  "id": "/tracker/",
-  "start_url": "./",
-  "scope": "/tracker/",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#171a2d",
   "icons": [
     {
-      "src": "icon-v3-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icon-v3.png",
+      "src": "icon-app.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
