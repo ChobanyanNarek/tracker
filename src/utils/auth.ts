@@ -65,6 +65,7 @@ const ERROR_CODES: Record<string, string> = {
   'error.userExists': 'An account with this email already exists.',
   'error.invalidVerificationCode': 'Incorrect verification code.',
   'error.verificationCodeExpired': 'Verification code expired. Please request a new one.',
+  'error.emailSendFailed': 'Failed to send verification email. Please try again.',
 }
 
 function parseErrorMessage(data: unknown): string {
