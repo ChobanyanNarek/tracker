@@ -43,20 +43,6 @@ const COUNTRIES: Country[] = [
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
-const Logo = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width={44} height={44} style={{ animation: 'spin 2s linear infinite' }}>
-    <path fillRule="evenodd" fill="#171a2d"
-      d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z" />
-    <g stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round">
-      <line x1="21" y1="7" x2="27" y2="5" />
-      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(60 24 24)" />
-      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(120 24 24)" />
-      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(180 24 24)" />
-      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(240 24 24)" />
-      <line x1="21" y1="7" x2="27" y2="5" transform="rotate(300 24 24)" />
-    </g>
-  </svg>
-)
 
 const EyeIcon = ({ open }: { open: boolean }) => open ? (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -212,16 +198,9 @@ export default function LoginPage({ onAuth }: Props) {
 
         {/* Logo + Title */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, marginBottom: 32 }}>
-          <div style={{ background: 'var(--surface2)', borderRadius: 18, padding: 14, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Logo />
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.5px', fontFamily: 'var(--sans)' }}>
-              ProgressOr
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4, fontFamily: 'var(--sans)', fontWeight: 500 }}>
-              {tab === 'login' ? 'Sign in to your workspace' : 'Create a new workspace'}
-            </div>
+          <img src="/logo-wordmark.gif" alt="ProgressOr" width={186} height={36} style={{ display: 'block' }} />
+          <div style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--sans)', fontWeight: 500 }}>
+            {tab === 'login' ? 'Sign in to your workspace' : 'Create a new workspace'}
           </div>
         </div>
 
