@@ -5,703 +5,106 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ProgressOr Admin</title>
   <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #eef0f8;
-      --surface: #ffffff;
-      --surface2: #f5f6fb;
-      --border: #dde0ed;
-      --text: #111827;
-      --text2: #374151;
-      --text3: #6b7280;
-      --accent: #4f46e5;
-      --accent-bg: rgba(79,70,229,0.09);
-      --accent-hover: #4338ca;
-      --danger: #dc2626;
-      --danger-bg: rgba(220,38,38,0.09);
-      --danger-hover: #b91c1c;
-      --success: #16a34a;
-      --success-bg: rgba(22,163,74,0.09);
-      --shadow: 0 1px 3px rgba(0,0,0,0.08),0 1px 2px rgba(0,0,0,0.04);
-      --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
-      --shadow-lg: 0 10px 40px rgba(0,0,0,0.14);
-      --radius: 10px;
-      --mono: 'SF Mono','Cascadia Code','Fira Code',ui-monospace,monospace;
-      --sans: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      --bg: #f0f2f9; --surface: #ffffff; --border: #e2e5f0;
+      --text: #111827; --text3: #6b7280; --accent: #3b5bdb;
+      --accent-l: #eef1ff; --accent-b: #c7d0f8;
+      --sans: -apple-system, 'Inter', sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, monospace;
     }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+    button { cursor: pointer; font-family: inherit; }
 
-    *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: var(--sans);
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      line-height: 1.5;
-      font-size: 14px;
-      -webkit-font-smoothing: antialiased;
+    #gate {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
     }
-
-    /* ── Login ── */
-    #login-view {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
+    .box {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+      padding: 48px 40px; width: 100%; max-width: 420px;
+      box-shadow: 0 20px 60px rgba(59,91,219,.10), 0 4px 16px rgba(0,0,0,.06);
     }
-    .login-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-lg);
-      padding: 40px;
-      width: 100%;
-      max-width: 400px;
+    .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }
+    .logo-mark {
+      width: 44px; height: 44px; background: #171a2d; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,.25);
     }
-    .login-brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 32px;
+    .logo-text { display: flex; flex-direction: column; gap: 4px; }
+    .logo-name { font-size: 16px; font-weight: 700; letter-spacing: -.3px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: var(--accent-l); color: var(--accent); border: 1px solid var(--accent-b);
+      font-size: 10px; font-family: var(--mono); font-weight: 600; letter-spacing: .06em;
+      padding: 2px 8px; border-radius: 6px; width: fit-content;
     }
-    .brand-icon {
-      width: 38px;
-      height: 38px;
-      background: var(--accent);
-      border-radius: 9px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      color: #fff;
-      flex-shrink: 0;
-    }
-    .brand-name { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
-    .brand-sub {
-      font-size: 11px;
-      font-family: var(--mono);
-      color: var(--text3);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      margin-top: 1px;
-    }
-    .login-heading { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 5px; }
-    .login-hint { font-size: 13px; color: var(--text3); margin-bottom: 28px; }
-    .field { display: flex; flex-direction: column; gap: 5px; }
-    .field + .field { margin-top: 14px; }
-    .field-label {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text2);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .field-input {
-      width: 100%;
-      padding: 9px 12px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      font-family: var(--sans);
-      font-size: 14px;
-      color: var(--text);
-      outline: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    .field-input:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-bg);
-    }
-    .field-input::placeholder { color: var(--text3); }
-    .error-banner {
-      font-size: 13px;
-      color: var(--danger);
-      background: var(--danger-bg);
-      border-radius: 7px;
-      padding: 10px 12px;
-      margin-top: 16px;
-      margin-bottom: 0;
-      display: none;
-    }
-
-    /* ── Buttons ── */
+    .chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+    h1 { font-size: 22px; font-weight: 700; letter-spacing: -.4px; margin-bottom: 10px; }
+    p  { font-size: 14px; color: var(--text3); line-height: 1.6; margin-bottom: 32px; }
     .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 9px 16px;
-      border-radius: 7px;
-      border: none;
-      font-family: var(--sans);
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s, opacity 0.15s;
-      white-space: nowrap;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 12px 20px; background: var(--accent); color: #fff;
+      border: none; border-radius: 10px; font-size: 14px; font-weight: 600;
+      text-decoration: none; transition: all .15s;
+      box-shadow: 0 2px 8px rgba(59,91,219,.3);
     }
-    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-    .btn-primary { background: var(--accent); color: #fff; width: 100%; margin-top: 20px; }
-    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
-    .btn-outline {
-      background: transparent;
-      color: var(--text2);
-      border: 1px solid var(--border);
-    }
-    .btn-outline:hover:not(:disabled) { background: var(--surface2); }
-    .btn-danger { background: var(--danger); color: #fff; }
-    .btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
-    .btn-sm { padding: 6px 12px; font-size: 13px; }
-    .btn-icon {
-      background: transparent;
-      border: none;
-      padding: 5px 6px;
-      border-radius: 6px;
-      cursor: pointer;
-      color: var(--text3);
-      font-size: 15px;
-      line-height: 1;
-      transition: background 0.12s, color 0.12s;
-    }
-    .btn-icon:hover { background: var(--surface2); color: var(--text); }
-    .btn-icon.del:hover { background: var(--danger-bg); color: var(--danger); }
+    .btn:hover { background: #2f4ec7; box-shadow: 0 4px 12px rgba(59,91,219,.4); }
 
-    /* ── Admin layout ── */
-    #admin-view { display: flex; flex-direction: column; min-height: 100vh; }
-    .app-header {
-      position: sticky;
-      top: 0;
-      z-index: 10;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      height: 56px;
-      padding: 0 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-    .header-brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .header-icon {
-      width: 28px;
-      height: 28px;
-      background: var(--accent);
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      color: #fff;
-      flex-shrink: 0;
-    }
-    .header-title { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
-    .header-pill {
-      font-size: 10px;
-      font-family: var(--mono);
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      background: var(--accent-bg);
-      color: var(--accent);
-      padding: 2px 8px;
-      border-radius: 999px;
-    }
-    .header-actions { display: flex; align-items: center; gap: 6px; }
-    .app-main { flex: 1; padding: 24px; }
-    .main-header {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      margin-bottom: 16px;
-      gap: 12px;
-    }
-    .main-title { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
-    .main-meta { font-size: 13px; color: var(--text3); font-family: var(--mono); }
-
-    /* ── Table ── */
-    .table-wrap {
-      overflow-x: auto;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      border: 1px solid var(--border);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--surface);
-      min-width: 780px;
-    }
-    thead th {
-      text-align: left;
-      padding: 10px 14px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--text3);
-      background: var(--surface2);
-      border-bottom: 1px solid var(--border);
-    }
-    tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: var(--surface2); }
-    tbody td { padding: 12px 14px; vertical-align: middle; }
-    .user-name { font-weight: 600; font-size: 14px; }
-    .user-email {
-      font-size: 11px;
-      font-family: var(--mono);
-      color: var(--text3);
-      margin-top: 2px;
-      word-break: break-all;
-    }
-    .num {
-      font-family: var(--mono);
-      font-size: 14px;
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
-      color: var(--text2);
-    }
-    .conns { display: flex; align-items: center; gap: 10px; }
-    .conn {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 10px;
-      font-family: var(--mono);
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      border: 1.5px solid currentColor;
-      flex-shrink: 0;
-    }
-    .dot.on { background: currentColor; }
-    .jira  { color: #0052cc; }
-    .gl    { color: #e24329; }
-    .gh    { color: var(--text3); }
-    .row-actions { display: flex; gap: 2px; }
-
-    /* ── Badges ── */
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 7px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
+    #spinner {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 12px; color: var(--text3); font-size: 13px;
       font-family: var(--mono);
     }
-    .badge-admin  { background: var(--accent-bg); color: var(--accent); }
-    .badge-creator { background: var(--surface2); color: var(--text3); border: 1px solid var(--border); }
-    .badge-active   { background: var(--success-bg); color: var(--success); }
-    .badge-inactive { background: var(--danger-bg);  color: var(--danger);  }
-    .badge-active { color: #15803d; }
-
-    /* ── Empty state ── */
-    .empty {
-      text-align: center;
-      padding: 64px 24px;
-      color: var(--text3);
-      background: var(--surface);
-      border-radius: var(--radius);
-    }
-    .empty-icon { font-size: 36px; margin-bottom: 12px; }
-    .empty-title { font-size: 16px; font-weight: 600; color: var(--text2); margin-bottom: 4px; }
-    .empty-desc { font-size: 13px; }
-
-    /* ── Modal ── */
-    .overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.45);
-      backdrop-filter: blur(2px);
-      -webkit-backdrop-filter: blur(2px);
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-    }
-    .modal {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-lg);
-      width: 100%;
-      max-width: 420px;
-      padding: 28px;
-    }
-    .modal-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 8px; }
-    .modal-desc { font-size: 14px; color: var(--text3); line-height: 1.6; margin-bottom: 20px; }
-    .modal-desc strong { color: var(--text); font-weight: 600; }
-    .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
-
-    /* ── Toast ── */
-    #toasts {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      z-index: 200;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      pointer-events: none;
-    }
-    .toast {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      box-shadow: var(--shadow-md);
-      padding: 11px 15px;
-      font-size: 14px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      animation: toast-in 0.2s ease;
-      pointer-events: auto;
-      max-width: 320px;
-    }
-    .toast.ok   { border-left: 3px solid var(--success); }
-    .toast.err  { border-left: 3px solid var(--danger);  }
-    @keyframes toast-in {
-      from { opacity: 0; transform: translateY(8px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    /* ── Spinner ── */
     .spin {
-      display: inline-block;
-      width: 14px; height: 14px;
-      border: 2px solid currentColor;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: rotate 0.65s linear infinite;
-      flex-shrink: 0;
+      width: 18px; height: 18px; border: 2px solid currentColor; border-top-color: transparent;
+      border-radius: 50%; animation: rot .65s linear infinite;
     }
-    @keyframes rotate { to { transform: rotate(360deg); } }
-
+    @keyframes rot { to { transform: rotate(360deg) } }
     .hidden { display: none !important; }
   </style>
 </head>
 <body>
 
-<!-- ══ Not-authenticated view ══ -->
-<div id="login-view">
-  <div class="login-card">
-    <div class="login-brand">
-      <div class="brand-icon">⚙</div>
-      <div>
-        <div class="brand-name">ProgressOr</div>
-        <div class="brand-sub">Admin Panel</div>
+<div id="spinner">
+  <div class="spin"></div>
+  <span>Opening admin…</span>
+</div>
+
+<div id="gate" class="hidden">
+  <div class="box">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>
+          <line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/>
+          <line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/>
+          <line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/>
+        </svg>
+      </div>
+      <div class="logo-text">
+        <div class="logo-name">ProgressOr</div>
+        <span class="chip">Admin Panel</span>
       </div>
     </div>
-    <h1 class="login-heading" id="gate-title">Not signed in</h1>
-    <p class="login-hint" id="gate-hint">You need to be logged in to the main app first. Open the tracker, sign in with your account, then come back here.</p>
-    <a class="btn btn-primary" href="/" style="text-decoration:none;margin-top:20px" id="gate-btn">Go to ProgressOr →</a>
+    <h1 id="gate-title">Sign in required</h1>
+    <p id="gate-hint">Sign in to your admin account in the main app first, then return here.</p>
+    <a class="btn" href="./">
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3l5 5-5 5"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
+      Open ProgressOr
+    </a>
   </div>
 </div>
-
-<!-- ══ Admin view ══ -->
-<div id="admin-view" class="hidden">
-  <header class="app-header">
-    <div class="header-brand">
-      <div class="header-icon">⚙</div>
-      <span class="header-title">ProgressOr</span>
-      <span class="header-pill">Admin</span>
-    </div>
-    <div class="header-actions">
-      <button class="btn btn-outline btn-sm" id="refresh-btn">↻ Refresh</button>
-      <button class="btn btn-outline btn-sm" id="logout-btn">Sign out</button>
-    </div>
-  </header>
-
-  <main class="app-main">
-    <div class="main-header">
-      <span class="main-title">Users</span>
-      <span class="main-meta" id="count-label">—</span>
-    </div>
-    <div id="table-section">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>User</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Devs</th>
-              <th>Projects</th>
-              <th>Connections</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="user-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-    <div id="empty-state" class="empty hidden">
-      <div class="empty-icon">👤</div>
-      <div class="empty-title">No users found</div>
-      <div class="empty-desc">There are no registered users yet.</div>
-    </div>
-  </main>
-</div>
-
-<!-- ══ Delete modal ══ -->
-<div id="del-overlay" class="overlay hidden">
-  <div class="modal">
-    <h2 class="modal-title">Delete account</h2>
-    <p class="modal-desc">
-      This will permanently delete <strong id="del-name"></strong>'s account
-      and all their data. This cannot be undone.
-    </p>
-    <div class="modal-footer">
-      <button class="btn btn-outline" id="del-cancel">Cancel</button>
-      <button class="btn btn-danger" id="del-confirm">Delete account</button>
-    </div>
-  </div>
-</div>
-
-<!-- ══ Change password modal ══ -->
-<div id="pw-overlay" class="overlay hidden">
-  <div class="modal">
-    <h2 class="modal-title">Change password</h2>
-    <p class="modal-desc">Set a new password for <strong id="pw-name"></strong>.</p>
-    <div class="field">
-      <label class="field-label" for="pw-input">New password</label>
-      <input class="field-input" type="password" id="pw-input"
-             placeholder="Min. 6 characters" autocomplete="new-password" />
-    </div>
-    <div id="pw-err" class="error-banner"></div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" id="pw-cancel">Cancel</button>
-      <button class="btn btn-primary" id="pw-confirm" style="width:auto">Update password</button>
-    </div>
-  </div>
-</div>
-
-<!-- ══ Toast container ══ -->
-<div id="toasts"></div>
 
 <script>
-  /* ─── Config ─── */
-  const API = 'https://progressor-backend.onrender.com';
-  /* Read the same token the pm-tracker SPA stores — same origin, same localStorage */
-  const TOKEN_KEY = 'pm_tracker_token';
-
-  /* ─── Token ─── */
-  const getToken  = ()  => localStorage.getItem(TOKEN_KEY);
-  const saveToken = (t) => localStorage.setItem(TOKEN_KEY, t);
-  const dropToken = ()  => localStorage.removeItem(TOKEN_KEY);
-  const authHdr   = ()  => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${getToken()}`,
-  });
-
-  /* ─── State ─── */
-  let users = [];
-  let pendingDelId = null;
-  let pendingPwId  = null;
-
-  /* ─── DOM helpers ─── */
-  const el = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-
-  /* ─── Toast ─── */
-  function toast(msg, type = 'ok') {
-    const div = document.createElement('div');
-    div.className = `toast ${type}`;
-    div.textContent = msg;
-    el('toasts').appendChild(div);
-    setTimeout(() => div.remove(), 3500);
+  const token = localStorage.getItem('pm_tracker_token');
+  if (token) {
+    localStorage.setItem('pm_open_admin', '1');
+    window.location.replace('./');
+  } else {
+    document.getElementById('spinner').classList.add('hidden');
+    document.getElementById('gate').classList.remove('hidden');
   }
-
-  /* ─── Views ─── */
-  function showLogin(hint, title) {
-    el('gate-title').textContent = title || 'Not signed in';
-    el('gate-hint').textContent  = hint  || 'You need to be logged in to the main app first. Open the tracker, sign in with your account, then come back here.';
-    el('login-view').classList.remove('hidden');
-    el('admin-view').classList.add('hidden');
-  }
-  function showAdmin() {
-    el('login-view').classList.add('hidden');
-    el('admin-view').classList.remove('hidden');
-  }
-
-  /* ─── API ─── */
-  async function apiFetchUsers() {
-    const res = await fetch(`${API}/admin/pm-tracker/users`, { headers: authHdr() });
-    if (res.status === 401) {
-      showLogin('Your session has expired. Sign in again via the main app, then return here.');
-      return null;
-    }
-    if (res.status === 403) {
-      showLogin(
-        'Your account does not have ADMIN access. Contact an admin to upgrade your role.',
-        'Access denied',
-      );
-      return null;
-    }
-    if (!res.ok) throw new Error(`Server error (${res.status}).`);
-    const data = await res.json();
-    return data.users;
-  }
-
-  async function apiDelete(id) {
-    const res = await fetch(`${API}/admin/pm-tracker/users/${id}`, {
-      method: 'DELETE',
-      headers: authHdr(),
-    });
-    return res.ok || res.status === 204;
-  }
-
-  async function apiChangePassword(id, password) {
-    const res = await fetch(`${API}/admin/pm-tracker/users/${id}/password`, {
-      method: 'PUT',
-      headers: authHdr(),
-      body: JSON.stringify({ password }),
-    });
-    return res.ok || res.status === 204;
-  }
-
-  /* ─── Render ─── */
-  function connHTML(on, cls, label) {
-    return `<span class="conn ${cls}" title="${label}">
-      <span class="dot${on ? ' on' : ''}"></span>${label}
-    </span>`;
-  }
-
-  function renderTable(list) {
-    const tbody = el('user-tbody');
-    const empty = el('empty-state');
-    if (!list || list.length === 0) {
-      tbody.innerHTML = '';
-      empty.classList.remove('hidden');
-      el('table-section').classList.add('hidden');
-      el('count-label').textContent = '0 users';
-      return;
-    }
-    empty.classList.add('hidden');
-    el('table-section').classList.remove('hidden');
-    el('count-label').textContent = `${list.length} user${list.length !== 1 ? 's' : ''}`;
-    tbody.innerHTML = list.map((u) => {
-      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || '(no name)';
-      const roleBadge = u.role === 'ADMIN'
-        ? `<span class="badge badge-admin">Admin</span>`
-        : `<span class="badge badge-creator">Creator</span>`;
-      const statusBadge = u.status === 'active'
-        ? `<span class="badge badge-active">Active</span>`
-        : `<span class="badge badge-inactive">${esc(u.status || 'inactive')}</span>`;
-      return `<tr>
-        <td>
-          <div class="user-name">${esc(name)}</div>
-          <div class="user-email">${esc(u.email)}</div>
-        </td>
-        <td>${roleBadge}</td>
-        <td>${statusBadge}</td>
-        <td class="num">${u.devCount ?? 0}</td>
-        <td class="num">${u.projectCount ?? 0}</td>
-        <td>
-          <div class="conns">
-            ${connHTML(u.jiraConnected,   'jira', 'Jira')}
-            ${connHTML(u.gitlabConnected, 'gl',   'GitLab')}
-            ${connHTML(u.githubConnected, 'gh',   'GitHub')}
-          </div>
-        </td>
-        <td>
-          <div class="row-actions">
-            <button class="btn-icon" onclick="openPw('${u.id}','${esc(name)}')" title="Change password">🔑</button>
-            <button class="btn-icon del" onclick="openDel('${u.id}','${esc(name)}')" title="Delete account">🗑</button>
-          </div>
-        </td>
-      </tr>`;
-    }).join('');
-  }
-
-  /* ─── Load users ─── */
-  async function loadUsers() {
-    const btn = el('refresh-btn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spin"></span> Loading…';
-    try {
-      const list = await apiFetchUsers();
-      if (list !== null) { users = list; renderTable(users); }
-    } catch (e) {
-      toast(e.message, 'err');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '↻ Refresh';
-    }
-  }
-
-  /* ─── Delete modal ─── */
-  function openDel(id, name) {
-    pendingDelId = id;
-    el('del-name').textContent = name;
-    el('del-overlay').classList.remove('hidden');
-  }
-  el('del-cancel').onclick = () => el('del-overlay').classList.add('hidden');
-  el('del-overlay').onclick = (e) => { if (e.target === el('del-overlay')) el('del-overlay').classList.add('hidden'); };
-  el('del-confirm').onclick = async () => {
-    const btn = el('del-confirm');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spin"></span> Deleting…';
-    const ok = await apiDelete(pendingDelId);
-    btn.disabled = false;
-    btn.textContent = 'Delete account';
-    el('del-overlay').classList.add('hidden');
-    if (ok) { toast('Account deleted.'); await loadUsers(); }
-    else { toast('Failed to delete account.', 'err'); }
-  };
-
-  /* ─── Password modal ─── */
-  function openPw(id, name) {
-    pendingPwId = id;
-    el('pw-name').textContent = name;
-    el('pw-input').value = '';
-    el('pw-err').style.display = 'none';
-    el('pw-overlay').classList.remove('hidden');
-    setTimeout(() => el('pw-input').focus(), 60);
-  }
-  el('pw-cancel').onclick = () => el('pw-overlay').classList.add('hidden');
-  el('pw-overlay').onclick = (e) => { if (e.target === el('pw-overlay')) el('pw-overlay').classList.add('hidden'); };
-  el('pw-confirm').onclick = async () => {
-    const pw = el('pw-input').value;
-    if (pw.length < 6) {
-      el('pw-err').textContent = 'Password must be at least 6 characters.';
-      el('pw-err').style.display = 'block';
-      return;
-    }
-    const btn = el('pw-confirm');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spin"></span> Updating…';
-    const ok = await apiChangePassword(pendingPwId, pw);
-    btn.disabled = false;
-    btn.textContent = 'Update password';
-    el('pw-overlay').classList.add('hidden');
-    if (ok) { toast('Password updated.'); }
-    else { toast('Failed to update password.', 'err'); }
-  };
-
-  /* ─── Header actions ─── */
-  el('refresh-btn').onclick = loadUsers;
-  el('logout-btn').onclick  = () => { showLogin('Sign out successful. Sign back in via the main app.'); };
-
-  /* ─── Boot ─── */
-  (async function init() {
-    if (!getToken()) { showLogin(); return; }
-    showAdmin();
-    await loadUsers();
-  })();
 </script>
 </body>
 </html>

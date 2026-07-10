@@ -23,6 +23,7 @@ export interface AdminUser {
   firstName: string
   lastName: string
   email: string
+  phone?: string | null
   role: string
   status: string
   devCount: number
@@ -51,6 +52,16 @@ export async function adminDeleteUser(id: string): Promise<boolean> {
   } catch { return false }
 }
 
+export async function adminDeleteUserData(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/admin/pm-tracker/users/${id}/data`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    return res.ok || res.status === 204
+  } catch { return false }
+}
+
 export async function adminChangePassword(id: string, password: string): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/admin/pm-tracker/users/${id}/password`, {
@@ -59,6 +70,17 @@ export async function adminChangePassword(id: string, password: string): Promise
       body: JSON.stringify({ password }),
     })
     return res.ok || res.status === 204
+  } catch { return false }
+}
+
+export async function adminEditUser(id: string, data: { phone?: string | null }): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/users/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    })
+    return res.ok
   } catch { return false }
 }
 

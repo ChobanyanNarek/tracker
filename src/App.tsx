@@ -40,6 +40,13 @@ export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated)
   const [adminOpen, setAdminOpen] = useState(false)
 
+  useEffect(() => {
+    if (authed && localStorage.getItem('pm_open_admin')) {
+      localStorage.removeItem('pm_open_admin')
+      setAdminOpen(true)
+    }
+  }, [authed])
+
   const handleAuth = useCallback(async () => {
     await syncCloudToStore()
     setAuthed(true)
