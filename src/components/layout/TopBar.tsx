@@ -139,7 +139,7 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
         >
-          <svg width="26" height="26" viewBox="0 0 48 48" style={{ flexShrink: 0 }}>
+          <svg width="26" height="26" viewBox="0 0 48 48" style={{ flexShrink: 0, animation: 'spin 2s linear infinite' }}>
             <path fillRule="evenodd" fill="#171a2d" d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z"/>
             <g stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round">
               <line x1="21" y1="7" x2="27" y2="5"/>

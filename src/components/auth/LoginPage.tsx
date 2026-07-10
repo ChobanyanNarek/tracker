@@ -20,7 +20,7 @@ declare global {
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
 
 const Logo = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width={44} height={44}>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width={44} height={44} style={{ animation: 'spin 2s linear infinite' }}>
     <path fillRule="evenodd" fill="#171a2d"
       d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z" />
     <g stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round">
