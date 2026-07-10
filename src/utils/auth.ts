@@ -58,10 +58,38 @@ export async function fetchAndStoreUserInfo(): Promise<StoredUser | null> {
 interface TokenPayload { token: string; expiresIn?: number }
 interface AuthResponse { accessToken: TokenPayload }
 
+const ERROR_CODES: Record<string, string> = {
+  'error.userNotFound': 'Account not found. Check your email or phone number.',
+  'error.invalidCredentials': 'Incorrect password.',
+  'error.accountDisabled': 'Your account has been disabled.',
+  'error.userExists': 'An account with this email already exists.',
+  'error.invalidVerificationCode': 'Incorrect verification code.',
+  'error.verificationCodeExpired': 'Verification code expired. Please request a new one.',
+}
+
+function parseErrorMessage(data: unknown): string {
+  if (!data || typeof data !== 'object') return 'Something went wrong, please try again.'
+  const d = data as Record<string, unknown>
+  const msg = d['message']
+  if (typeof msg === 'string') return ERROR_CODES[msg] ?? msg
+  if (Array.isArray(msg)) {
+    const texts = msg.map((m) => {
+      if (typeof m === 'string') return ERROR_CODES[m] ?? m
+      if (m && typeof m === 'object') {
+        const c = (m as Record<string, unknown>)['constraints']
+        if (c && typeof c === 'object') return Object.values(c as Record<string, string>).join(', ')
+      }
+      return null
+    }).filter(Boolean) as string[]
+    return texts.length ? texts.join(' · ') : 'Please check your input and try again.'
+  }
+  return 'Something went wrong, please try again.'
+}
+
 async function handleAuthResponse(res: Response): Promise<string> {
   if (!res.ok) {
-    const data = await res.json().catch(() => ({})) as { message?: string }
-    throw new Error(data.message ?? `Request failed (${res.status})`)
+    const data = await res.json().catch(() => ({}))
+    throw new Error(parseErrorMessage(data))
   }
   const data = await res.json() as AuthResponse
   return data.accessToken.token
@@ -76,26 +104,30 @@ export async function apiLogin(credential: string, password: string): Promise<st
   return handleAuthResponse(res)
 }
 
+export async function apiSendRegistrationCode(email: string): Promise<void> {
+  const res = await fetch(`${API_URL}/auth/send-registration-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(parseErrorMessage(data))
+  }
+}
+
 export async function apiRegister(
   firstName: string,
   lastName: string,
   email: string,
   password: string,
+  code: string,
   phone?: string,
 ): Promise<string> {
   const res = await fetch(`${API_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ firstName, lastName, email, password, ...(phone ? { phone } : {}) }),
-  })
-  return handleAuthResponse(res)
-}
-
-export async function apiGoogleLogin(idToken: string): Promise<string> {
-  const res = await fetch(`${API_URL}/auth/google-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken }),
+    body: JSON.stringify({ firstName, lastName, email, password, code, ...(phone ? { phone } : {}) }),
   })
   return handleAuthResponse(res)
 }

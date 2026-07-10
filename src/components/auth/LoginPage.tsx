@@ -1,23 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { apiGoogleLogin, apiLogin, apiRegister, fetchAndStoreUserInfo, setToken } from '../../utils/auth'
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (cfg: {
-            client_id: string
-            callback: (r: { credential: string }) => void
-          }) => void
-          renderButton: (el: HTMLElement, opts: Record<string, unknown>) => void
-        }
-      }
-    }
-  }
-}
-
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
+import { apiLogin, apiRegister, apiSendRegistrationCode, fetchAndStoreUserInfo, setToken } from '../../utils/auth'
 
 interface Country { flag: string; name: string; code: string }
 
@@ -106,13 +88,19 @@ export default function LoginPage({ onAuth }: Props) {
   const [showCountry, setShowCountry] = useState(false)
   const [countrySearch, setCountrySearch] = useState('')
 
+  // email verification OTP
+  const [codeSent, setCodeSent] = useState(false)
+  const [codeSending, setCodeSending] = useState(false)
+  const [code, setCode] = useState('')
+  const [codeError, setCodeError] = useState<string | null>(null)
+  const [resendCooldown, setResendCooldown] = useState(0)
+
   // common
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const googleBtnRef = useRef<HTMLDivElement>(null)
   const countryRef = useRef<HTMLDivElement>(null)
 
   const filteredCountries = COUNTRIES.filter(c =>
@@ -133,53 +121,33 @@ export default function LoginPage({ onAuth }: Props) {
     return () => document.removeEventListener('mousedown', handler)
   }, [showCountry])
 
-  const initGoogle = () => {
-    if (!GOOGLE_CLIENT_ID || !window.google || !googleBtnRef.current) return
-    window.google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: async (response) => {
-        setLoading(true)
-        setError(null)
-        try {
-          const token = await apiGoogleLogin(response.credential)
-          setToken(token)
-          await fetchAndStoreUserInfo()
-          onAuth()
-        } catch (err) {
-          setError((err as Error).message)
-          setLoading(false)
-        }
-      },
-    })
-    window.google.accounts.id.renderButton(googleBtnRef.current, {
-      theme: 'outline', size: 'large', type: 'standard',
-      shape: 'rectangular', text: 'signin_with', width: 340,
-    })
-  }
-
+  // Resend cooldown countdown
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) return
-    if (window.google) { initGoogle(); return }
-    const script = document.querySelector('script[src*="accounts.google.com"]')
-    if (script) {
-      script.addEventListener('load', initGoogle)
-      return () => script.removeEventListener('load', initGoogle)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (window.google && googleBtnRef.current && GOOGLE_CLIENT_ID) {
-      window.google.accounts.id.renderButton(googleBtnRef.current, {
-        theme: 'outline', size: 'large', type: 'standard',
-        shape: 'rectangular', text: 'signin_with', width: 340,
-      })
-    }
-  }, [tab])
+    if (resendCooldown <= 0) return
+    const t = setTimeout(() => setResendCooldown(s => s - 1), 1000)
+    return () => clearTimeout(t)
+  }, [resendCooldown])
 
   const validateEmail = (val: string) => {
     if (!val.trim()) return 'Email is required'
     if (!EMAIL_RE.test(val.trim())) return 'Enter a valid email address'
     return null
+  }
+
+  async function handleSendCode() {
+    const err = validateEmail(email)
+    if (err) { setEmailError(err); return }
+    setCodeError(null)
+    setCodeSending(true)
+    try {
+      await apiSendRegistrationCode(email.trim())
+      setCodeSent(true)
+      setResendCooldown(60)
+    } catch (e) {
+      setCodeError((e as Error).message)
+    } finally {
+      setCodeSending(false)
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -189,6 +157,8 @@ export default function LoginPage({ onAuth }: Props) {
     if (tab === 'register') {
       const err = validateEmail(email)
       if (err) { setEmailError(err); return }
+      if (!codeSent) { setCodeError('Please verify your email first.'); return }
+      if (!code.trim()) { setCodeError('Enter the verification code.'); return }
     }
 
     setLoading(true)
@@ -198,7 +168,7 @@ export default function LoginPage({ onAuth }: Props) {
         token = await apiLogin(credential.trim(), password)
       } else {
         const fullPhone = phone.trim() ? `${country.code}${phone.trim()}` : undefined
-        token = await apiRegister(firstName.trim(), lastName.trim(), email.trim(), password, fullPhone)
+        token = await apiRegister(firstName.trim(), lastName.trim(), email.trim(), password, code.trim(), fullPhone)
       }
       setToken(token)
       await fetchAndStoreUserInfo()
@@ -260,7 +230,15 @@ export default function LoginPage({ onAuth }: Props) {
           {(['login', 'register'] as const).map((t) => (
             <button
               key={t}
-              onClick={() => { setTab(t); setError(null); setEmailError(null) }}
+              onClick={() => {
+                setTab(t)
+                setError(null)
+                setEmailError(null)
+                setCodeError(null)
+                setCodeSent(false)
+                setCode('')
+                setResendCooldown(0)
+              }}
               style={{
                 flex: 1, padding: '8px 0', borderRadius: 8, border: 'none',
                 background: tab === t ? 'var(--surface)' : 'transparent',
@@ -306,26 +284,80 @@ export default function LoginPage({ onAuth }: Props) {
                 </div>
               </div>
 
-              {/* Email with validation */}
+              {/* Email with Send Code button */}
               <div>
                 <label style={labelStyle}>Email</label>
-                <input
-                  style={emailError ? inputErrStyle : inputStyle}
-                  type="text"
-                  inputMode="email"
-                  placeholder="you@company.com"
-                  value={email}
-                  onChange={(e) => { setEmail(e.target.value); if (emailError) setEmailError(null) }}
-                  onBlur={() => setEmailError(validateEmail(email))}
-                  autoComplete="email"
-                  required
-                />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    style={{ ...(emailError ? inputErrStyle : inputStyle), flex: 1 }}
+                    type="text"
+                    inputMode="email"
+                    placeholder="you@company.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      if (emailError) setEmailError(null)
+                      if (codeSent) { setCodeSent(false); setCode(''); setResendCooldown(0) }
+                    }}
+                    onBlur={() => setEmailError(validateEmail(email))}
+                    autoComplete="email"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendCode}
+                    disabled={codeSending || resendCooldown > 0}
+                    style={{
+                      flexShrink: 0, padding: '0 12px', borderRadius: 8, border: '1.5px solid var(--accent)',
+                      background: codeSent ? 'var(--accent-dim)' : 'var(--accent)',
+                      color: codeSent ? 'var(--accent)' : '#fff',
+                      fontFamily: 'var(--sans)', fontSize: 12, fontWeight: 600,
+                      cursor: (codeSending || resendCooldown > 0) ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap', transition: 'all .15s', opacity: resendCooldown > 0 ? 0.6 : 1,
+                    }}
+                  >
+                    {codeSending ? '…' : resendCooldown > 0 ? `${resendCooldown}s` : codeSent ? 'Resend' : 'Send code'}
+                  </button>
+                </div>
                 {emailError && (
                   <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4, fontWeight: 500 }}>
                     {emailError}
                   </div>
                 )}
               </div>
+
+              {/* OTP field — shown once code is sent */}
+              {codeSent && (
+                <div>
+                  <label style={labelStyle}>Verification code</label>
+                  <input
+                    style={codeError ? inputErrStyle : inputStyle}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="6-digit code from your email"
+                    value={code}
+                    onChange={(e) => { setCode(e.target.value.replace(/\D/g, '')); setCodeError(null) }}
+                    autoComplete="one-time-code"
+                    required
+                  />
+                  {codeError && (
+                    <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4, fontWeight: 500 }}>
+                      {codeError}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5, fontWeight: 500 }}>
+                    A 6-digit code was sent to {email.trim()}. Expires in 15 minutes.
+                  </div>
+                </div>
+              )}
+
+              {/* Prompt to send code if not sent yet */}
+              {!codeSent && codeError && (
+                <div style={{ fontSize: 11, color: 'var(--red)', fontWeight: 500 }}>
+                  {codeError}
+                </div>
+              )}
 
               {/* Phone with country code */}
               <div>
@@ -484,17 +516,6 @@ export default function LoginPage({ onAuth }: Props) {
             {loading ? '…' : tab === 'login' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
-
-        {GOOGLE_CLIENT_ID && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '22px 0' }}>
-              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-              <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--sans)', fontWeight: 500, whiteSpace: 'nowrap' }}>or continue with</span>
-              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-            </div>
-            <div ref={googleBtnRef} style={{ display: 'flex', justifyContent: 'center' }} />
-          </>
-        )}
       </div>
     </div>
   )
