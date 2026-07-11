@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore, getVisibleTasks, getVisibleDevIds } from '../../store'
 import { STATUS_EMOJI, STATUS_LABEL } from '../../constants'
 import { getJiras, jiraLabel } from '../../utils/format'
-import { dlInfo, todayStr } from '../../utils/dates'
+import { dlInfo } from '../../utils/dates'
 import Modal from '../ui/Modal'
 
 const OFF_LABEL: Record<string, string> = {
@@ -17,19 +17,15 @@ interface Props { onClose: () => void }
 export default function StandupModal({ onClose }: Props) {
   const [copied, setCopied] = useState(false)
   const state = useStore()
-  const { developers, projects, schedule, selectedDev, selectedProject } = state
-
-  const today = todayStr()
-  // Override selectedDate so getVisibleTasks always operates on today
-  const stateForToday = { ...state, selectedDate: today }
+  const { developers, projects, schedule, selectedDev, selectedProject, selectedDate } = state
 
   const proj = projects.find((p) => p.id === selectedProject)
 
-  const dateLabel = new Date(today + 'T12:00:00').toLocaleDateString('en-US', {
+  const dateLabel = new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
   })
 
-  // Devs relevant to the current filter — use today's state so archived check is correct
+  // Devs relevant to the current filter
   const relevantDevs = developers.filter((d) => {
     if (d.archivedAt) return false
     if (selectedDev !== 'ALL' && d.id !== selectedDev) return false
@@ -40,10 +36,9 @@ export default function StandupModal({ onClose }: Props) {
     return true
   })
 
-  // Use the exact same visibility logic as the daily view, but for today
-  const visibleDevIds = getVisibleDevIds(stateForToday)
+  const visibleDevIds = getVisibleDevIds(state)
     .filter((id) => selectedDev === 'ALL' || id === selectedDev)
-  const dateTasks = visibleDevIds.flatMap((devId) => getVisibleTasks(stateForToday, devId))
+  const dateTasks = visibleDevIds.flatMap((devId) => getVisibleTasks(state, devId))
 
   const isFiltered = selectedProject !== 'ALL'
   const projIds = [...new Set(dateTasks.map((t) => t.projectId || 'none'))]
@@ -62,7 +57,7 @@ export default function StandupModal({ onClose }: Props) {
 
     if (dateTasks.length === 0) {
       relevantDevs.forEach((dev) => {
-        const offType = schedule[dev.id]?.[today]
+        const offType = schedule[dev.id]?.[selectedDate]
         if (offType && offType !== 'work') {
           lines.push(`${dev.name} (${dev.role}) — ${OFF_LABEL[offType] ?? offType}`)
         }
@@ -84,7 +79,7 @@ export default function StandupModal({ onClose }: Props) {
       devsInGroup.forEach((dev) => {
         // getVisibleTasks already deduplicated jiras — collect only visible (non-hidden) ones
         const dt = groupTasks.filter((t) => t.devId === dev.id)
-        const offType = schedule[dev.id]?.[today]
+        const offType = schedule[dev.id]?.[selectedDate]
         const offSuffix = offType && offType !== 'work' ? `  —  ${OFF_LABEL[offType] ?? offType}` : ''
 
         const taskItems = dt.map((t) => ({
@@ -114,7 +109,7 @@ export default function StandupModal({ onClose }: Props) {
 
     // Devs who are off but had no tasks at all
     relevantDevs.filter((d) => !devsWithTasks.has(d.id)).forEach((dev) => {
-      const offType = schedule[dev.id]?.[today]
+      const offType = schedule[dev.id]?.[selectedDate]
       if (offType && offType !== 'work') {
         lines.push(`${dev.name} (${dev.role}) — ${OFF_LABEL[offType] ?? offType}`)
         lines.push('')
@@ -125,7 +120,7 @@ export default function StandupModal({ onClose }: Props) {
   }
 
   const body = buildSlack()
-  const hasContent = dateTasks.length > 0 || relevantDevs.some((d) => schedule[d.id]?.[today] && schedule[d.id]?.[today] !== 'work')
+  const hasContent = dateTasks.length > 0 || relevantDevs.some((d) => schedule[d.id]?.[selectedDate] && schedule[d.id]?.[selectedDate] !== 'work')
 
   const copy = async () => {
     await navigator.clipboard.writeText(body)
