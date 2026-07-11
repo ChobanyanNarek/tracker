@@ -4,3 +4,4 @@ docs
 .vercel
 .DS_Store
 .env
+.env.production.local
