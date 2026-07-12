@@ -87,7 +87,13 @@ export default function StandupModal({ onClose }: Props) {
           comment: t.comment?.trim() ?? '',
         })).filter((tc) => tc.jiras.length > 0 || tc.comment)
 
-        if (!taskItems.length) return
+        if (!taskItems.length) {
+          if (offType && offType !== 'work') {
+            lines.push(`${indent}${dev.name} (${dev.role}) — ${OFF_LABEL[offType] ?? offType}`)
+            lines.push('')
+          }
+          return
+        }
 
         lines.push(`${indent}${dev.name} (${dev.role})${offSuffix}`)
 
