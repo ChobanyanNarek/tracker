@@ -84,6 +84,30 @@ export async function adminEditUser(id: string, data: { phone?: string | null })
   } catch { return false }
 }
 
+export async function updateMyProfile(phone: string | null): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/users/me`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ phone }),
+    })
+    return res.ok || res.status === 204
+  } catch { return false }
+}
+
+export async function changeMyPassword(currentPassword: string, password: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_URL}/users/me/password`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ currentPassword, password }),
+    })
+    if (res.ok || res.status === 204) return { ok: true }
+    const body = await res.json().catch(() => ({})) as { message?: string }
+    return { ok: false, error: body.message }
+  } catch { return { ok: false } }
+}
+
 export async function saveCloudState(data: Record<string, unknown>): Promise<boolean> {
   if (!getToken()) return false
   try {

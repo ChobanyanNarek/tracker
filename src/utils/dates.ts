@@ -19,24 +19,24 @@ export function isAmHoliday(dateStr: string): string | null {
   return AM_HOLIDAYS[mmdd] ?? null
 }
 
-export function isWeekend(dateStr: string): boolean {
+export function isWeekend(dateStr: string, nonWorkingDays: number[] = [0, 6]): boolean {
   const d = new Date(dateStr + 'T12:00:00')
-  return d.getDay() === 0 || d.getDay() === 6
+  return nonWorkingDays.includes(d.getDay())
 }
 
-export function nextWorkDay(dateStr: string): string {
+export function nextWorkDay(dateStr: string, nonWorkingDays: number[] = [0, 6]): string {
   const d = new Date(dateStr + 'T12:00:00')
   do {
     d.setDate(d.getDate() + 1)
-  } while (d.getDay() === 0 || d.getDay() === 6 || isAmHoliday(localDate(d)))
+  } while (nonWorkingDays.includes(d.getDay()) || isAmHoliday(localDate(d)))
   return localDate(d)
 }
 
-export function prevWorkDay(dateStr: string): string {
+export function prevWorkDay(dateStr: string, nonWorkingDays: number[] = [0, 6]): string {
   const d = new Date(dateStr + 'T12:00:00')
   do {
     d.setDate(d.getDate() - 1)
-  } while (d.getDay() === 0 || d.getDay() === 6 || isAmHoliday(localDate(d)))
+  } while (nonWorkingDays.includes(d.getDay()) || isAmHoliday(localDate(d)))
   return localDate(d)
 }
 

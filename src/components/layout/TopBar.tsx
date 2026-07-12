@@ -8,6 +8,7 @@ import ProjectSelector from './ProjectSelector'
 import DevSelector from './DevSelector'
 import IntegrationsDropdown from './IntegrationsDropdown'
 import DataDropdown from './DataDropdown'
+import ProfileModal from '../modals/ProfileModal'
 
 interface TopBarProps {
   urgentCount: number
@@ -56,6 +57,7 @@ const BellOff = () => (
 export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGithubConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
   const { setNotifsEnabled, syncJira, syncGitlab, syncGithub, notifsEnabled, setView, setSelectedDate } = useStore()
   const [profileOpen, setProfileOpen] = useState(false)
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
   const user = getUserInfo()
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
@@ -200,6 +202,17 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
         </div>
       </div>
       <div style={{ padding: '4px 0' }}>
+        <button
+          onClick={() => { setProfileOpen(false); setProfileModalOpen(true) }}
+          style={{ width: '100%', padding: '9px 16px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 10, transition: 'background .12s' }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+        >
+          <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--surface3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--text2)' }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+          </div>
+          Profile Settings
+        </button>
         {onAdminOpen && (
           <button
             onClick={() => { setProfileOpen(false); onAdminOpen() }}
@@ -234,6 +247,7 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
   /* ── Mobile: 2-row layout ── */
   if (isMobile) {
     return (
+      <>
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 300, boxShadow }}>
         {/* Row 1: Logo + app name + bell + profile */}
         <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px', height: 50, gap: 10 }}>
@@ -277,11 +291,14 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
           <DevSelector open={devPanelOpen} onToggle={onDevPanel} fill />
         </div>
       </div>
+      {profileModalOpen && <ProfileModal onClose={() => setProfileModalOpen(false)} />}
+      </>
     )
   }
 
   /* ── Desktop: single-row layout ── */
   return (
+    <>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 300, height: 54, boxShadow }}>
       <div style={{ display: 'flex', alignItems: 'center', height: '100%', gap: 0 }}>
         <button
@@ -346,5 +363,7 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
         </div>
       </div>
     </div>
+    {profileModalOpen && <ProfileModal onClose={() => setProfileModalOpen(false)} />}
+    </>
   )
 }

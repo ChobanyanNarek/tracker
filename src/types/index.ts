@@ -123,6 +123,7 @@ export interface Project {
   color: string
   desc: string
   members: string[]
+  nonWorkingDays?: number[]  // 0=Sun 1=Mon … 6=Sat; defaults to [0,6] when absent
 }
 
 export interface DeadlineItem {

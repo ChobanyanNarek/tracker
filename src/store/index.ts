@@ -85,6 +85,7 @@ interface StoreActions {
   unarchiveDeveloper: (id: string) => void
 
   addProject: (p: Omit<Project, 'id'>) => void
+  updateProject: (id: string, changes: Partial<Omit<Project, 'id'>>) => void
   deleteProject: (id: string) => void
   toggleMember: (projId: string, devId: string) => void
 
@@ -211,6 +212,9 @@ export const useStore = create<Store>((set, get) => {
     addProject: (p) =>
       set((s) => withSave({ ...s, projects: [...s.projects, { id: makeId('p'), ...p }] })),
 
+    updateProject: (id, changes) =>
+      set((s) => withSave({ ...s, projects: s.projects.map((p) => p.id === id ? { ...p, ...changes } : p) })),
+
     deleteProject: (id) =>
       set((s) =>
         withSave({
@@ -310,10 +314,11 @@ export const useStore = create<Store>((set, get) => {
     },
 
     carryOver: (id) => {
-      const { tasks } = get()
+      const { tasks, projects } = get()
       const task = tasks.find((t) => t.id === id)
       if (!task) return null
-      const nextDay = nextWorkDay(task.date)
+      const taskProj = projects.find((p) => p.id === task.projectId)
+      const nextDay = nextWorkDay(task.date, taskProj?.nonWorkingDays ?? [0, 6])
       const pending = (task.jiras ?? [])
         .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
         .filter((j) => j.status !== 'done')
@@ -372,7 +377,7 @@ export const useStore = create<Store>((set, get) => {
     },
 
     autoCarryOverdue: () => {
-      const { tasks } = get()
+      const { tasks, projects } = get()
       const today = todayStr()
       const yesterday = prevWorkDay(today)
 
@@ -435,7 +440,8 @@ export const useStore = create<Store>((set, get) => {
       }
 
       unfinished.forEach((t) => {
-        const targetDate = nextWorkDay(t.date)
+        const tProj = projects.find((p) => p.id === t.projectId)
+        const targetDate = nextWorkDay(t.date, tProj?.nonWorkingDays ?? [0, 6])
         if (t.jiras !== undefined) {
           const scheduled = getScheduled(t.devId)
           const pendingJiras = t.jiras
@@ -1307,7 +1313,7 @@ export const useStore = create<Store>((set, get) => {
       const next: AppState = {
         ...s,
         developers: d.developers.map((dev) => ({ periods: [], ...dev })),
-        projects: (d.projects ?? []).map((p) => ({ ...p, members: p.members ?? [] })),
+        projects: (d.projects ?? []).map((p) => ({ nonWorkingDays: [0, 6], ...p, members: p.members ?? [] })),
         tasks: d.tasks.map(normalizeTask),
         schedule: (d.schedule as Record<string, Record<string, string>>) ?? {},
         scheduleHours: d.scheduleHours ?? {},
@@ -1340,7 +1346,7 @@ function applyCloudState(cloud: Record<string, unknown> | null) {
     ...(cloud
       ? {
           ...(cloud.developers ? { developers: (cloud.developers as AppState['developers']).map((d) => ({ periods: [], ...d })) } : {}),
-          ...(cloud.projects ? { projects: (cloud.projects as AppState['projects']).map((p) => ({ ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
+          ...(cloud.projects ? { projects: (cloud.projects as AppState['projects']).map((p) => ({ nonWorkingDays: [0, 6] as number[], ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
           ...(cloud.tasks ? { tasks: (cloud.tasks as AppState['tasks']).map(normalizeTask) } : {}),
           ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
           ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),
@@ -1389,10 +1395,14 @@ export function getVisibleDevIds(state: AppState): string[] {
 }
 
 export function getVisibleTasks(state: AppState, devId?: string): Task[] {
+  const selectedDayOfWeek = new Date(state.selectedDate + 'T12:00:00').getDay()
   const base = state.tasks.filter((t) => {
     const dv = devId ? t.devId === devId : state.selectedDev === 'ALL' || t.devId === state.selectedDev
     const pj = state.selectedProject === 'ALL' || t.projectId === state.selectedProject
-    return dv && pj && t.date === state.selectedDate
+    if (!dv || !pj || t.date !== state.selectedDate) return false
+    const proj = state.projects.find((p) => p.id === t.projectId)
+    const nwd = proj?.nonWorkingDays ?? [0, 6]
+    return !nwd.includes(selectedDayOfWeek)
   })
 
   const ordered = [...base].sort((a, b) => {
