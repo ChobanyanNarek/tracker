@@ -5,6 +5,14 @@ import Modal from '../ui/Modal'
 
 interface Props { onClose: () => void }
 
+function normalizePhone(raw: string): string {
+  return raw.replace(/[\s\-().]/g, '')
+}
+
+function isValidPhone(raw: string): boolean {
+  return /^\+[1-9]\d{6,14}$/.test(normalizePhone(raw))
+}
+
 export default function ProfileModal({ onClose }: Props) {
   const user = getUserInfo()
 
@@ -19,10 +27,15 @@ export default function ProfileModal({ onClose }: Props) {
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const handlePhoneSave = async () => {
-    setPhoneSaving(true)
     setPhoneMsg(null)
-    const trimmed = phone.trim() || null
-    const ok = await updateMyProfile(trimmed)
+    const trimmed = phone.trim()
+    if (trimmed && !isValidPhone(trimmed)) {
+      setPhoneMsg({ ok: false, text: 'Enter a valid international phone number, e.g. +37498765432.' })
+      return
+    }
+    setPhoneSaving(true)
+    const normalized = trimmed ? normalizePhone(trimmed) : null
+    const ok = await updateMyProfile(normalized)
     if (ok) {
       await fetchAndStoreUserInfo()
       setPhoneMsg({ ok: true, text: 'Phone updated.' })
