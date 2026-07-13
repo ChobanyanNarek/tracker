@@ -1,4 +1,4 @@
-import type { JiraConfig, JiraIssue, Priority, Status, StatusHistoryEntry } from '../types'
+import type { JiraConfig, JiraIssue, JiraStatusMapping, Priority, Status, StatusHistoryEntry } from '../types'
 
 export interface JiraIssueRaw {
   key: string
@@ -102,6 +102,32 @@ import { authHeaders } from './auth'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
+export interface JiraStatusInfo {
+  name: string
+  categoryKey: string  // 'new' | 'indeterminate' | 'done'
+}
+
+export async function fetchJiraStatuses(config: JiraConfig): Promise<JiraStatusInfo[]> {
+  const res = await fetch(`${API_URL}/pm-tracker/jira-statuses`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      baseUrl: config.baseUrl.trim(),
+      email: config.email.trim(),
+      token: config.token.trim(),
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Jira ${res.status}: ${text.slice(0, 300) || res.statusText}`)
+  }
+  const data = (await res.json()) as Array<{ name: string; statusCategory: { key: string } }>
+  const seen = new Set<string>()
+  return data
+    .filter((s) => { if (seen.has(s.name)) return false; seen.add(s.name); return true })
+    .map((s) => ({ name: s.name, categoryKey: s.statusCategory?.key ?? 'new' }))
+}
+
 export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<JiraIssueRaw[]> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-search`, {
     method: 'POST',
@@ -123,11 +149,40 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
   return data.issues ?? []
 }
 
-export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string): JiraIssue {
+export function buildJqlStatusFilter(mappings: JiraStatusMapping[] | undefined): string {
+  if (!mappings?.length) {
+    return `(status in ("To Do", "In Progress", "Code Review", "Blocked", "Backlog") OR (status = "Closed" AND updated >= -7d))`
+  }
+  const visible = mappings.filter((m) => m.displayBucket !== 'hidden').map((m) => `"${m.jiraStatus}"`)
+  if (!visible.length) return 'status = "To Do"'
+  return `status in (${visible.join(', ')})`
+}
+
+export function applyStatusMapping(
+  categoryKey: string,
+  statusName: string,
+  mappings: JiraStatusMapping[] | undefined,
+): { status: Status; displayLabel?: string } {
+  if (mappings?.length) {
+    const match = mappings.find((m) => m.jiraStatus.toLowerCase() === statusName.toLowerCase())
+    if (match && match.displayBucket !== 'hidden') {
+      return { status: match.displayBucket as Status, displayLabel: match.displayLabel || undefined }
+    }
+  }
+  return { status: mapStatus(categoryKey, statusName) }
+}
+
+export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: JiraStatusMapping[]): JiraIssue {
+  const { status, displayLabel } = applyStatusMapping(
+    issue.fields.status.statusCategory.key,
+    issue.fields.status.name,
+    mappings,
+  )
   return {
     url: `${baseUrl.replace(/\/$/, '')}/browse/${issue.key}`,
     name: issue.fields.summary,
-    status: mapStatus(issue.fields.status.statusCategory.key, issue.fields.status.name),
+    status,
+    displayLabel,
     priority: mapPriority(issue.fields.priority?.name),
     deadline: issue.fields.duedate ?? '',
     deadlineTime: '',

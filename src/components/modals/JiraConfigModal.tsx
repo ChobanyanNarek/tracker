@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
-import type { JiraConfig } from '../../types'
-import { fetchJiraIssues } from '../../utils/jira-api'
+import type { JiraConfig, JiraStatusMapping, Status } from '../../types'
+import { fetchJiraIssues, fetchJiraStatuses, type JiraStatusInfo } from '../../utils/jira-api'
 import Modal from '../ui/Modal'
+import { formatDateTime } from '../../utils/dates'
 
 interface Props { onClose: () => void }
 
@@ -16,6 +17,29 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4, display: 'block',
 }
 
+const BUCKET_OPTIONS: { value: Status | 'hidden'; label: string }[] = [
+  { value: 'todo', label: 'To Do' },
+  { value: 'inprogress', label: 'In Progress' },
+  { value: 'blocked', label: 'Blocked' },
+  { value: 'review', label: 'Code Review' },
+  { value: 'done', label: 'Done' },
+  { value: 'hidden', label: '— hidden —' },
+]
+
+const BUCKET_STYLE: Record<string, React.CSSProperties> = {
+  todo:       { background: 'var(--surface3)', color: 'var(--text3)', borderColor: 'var(--border2)' },
+  inprogress: { background: 'var(--amber-dim)', color: 'var(--amber)', borderColor: 'var(--amber-border)' },
+  blocked:    { background: 'var(--red-dim)', color: 'var(--red)', borderColor: 'var(--red-border)' },
+  review:     { background: 'var(--purple-dim)', color: 'var(--purple)', borderColor: 'var(--purple-border)' },
+  done:       { background: 'var(--green-dim)', color: 'var(--green)', borderColor: 'var(--green-border)' },
+  hidden:     { background: 'var(--surface3)', color: 'var(--text4)', borderColor: 'var(--border)', opacity: 0.7 },
+}
+
+const CAT_STYLE: Record<string, React.CSSProperties> = {
+  new:           { background: 'var(--surface3)', color: 'var(--text3)', borderColor: 'var(--border2)' },
+  indeterminate: { background: 'var(--amber-dim)', color: 'var(--amber)', borderColor: 'var(--amber-border)' },
+  done:          { background: 'var(--green-dim)', color: 'var(--green)', borderColor: 'var(--green-border)' },
+}
 
 function makeEmptyConn(): JiraConfig {
   return {
@@ -28,6 +52,43 @@ function makeEmptyConn(): JiraConfig {
     projectKeys: [],
     syncInterval: 5,
   }
+}
+
+interface StatusMappingRowProps {
+  info: JiraStatusInfo
+  mapping: JiraStatusMapping
+  onChange: (m: JiraStatusMapping) => void
+}
+
+function StatusMappingRow({ info, mapping, onChange }: StatusMappingRowProps) {
+  const catStyle = CAT_STYLE[info.categoryKey] ?? CAT_STYLE['new']!
+  const bucketStyle = BUCKET_STYLE[mapping.displayBucket] ?? BUCKET_STYLE['hidden']!
+  const isHidden = mapping.displayBucket === 'hidden'
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 20px 100px 1fr', alignItems: 'center', gap: 6, padding: '3px 2px', borderRadius: 5 }}>
+      <span style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600, padding: '4px 9px', borderRadius: 5, border: '1px solid', display: 'inline-flex', alignItems: 'center', gap: 5, overflow: 'hidden', ...catStyle }}>
+        <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{info.name}</span>
+      </span>
+      <span style={{ color: 'var(--text4)', fontSize: 12, textAlign: 'center', userSelect: 'none' }}>→</span>
+      <select
+        value={mapping.displayBucket}
+        onChange={(e) => onChange({ ...mapping, displayBucket: e.target.value as Status | 'hidden', displayLabel: e.target.value === 'hidden' ? '' : mapping.displayLabel })}
+        style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 600, border: '1px solid', borderRadius: 5, padding: '4px 6px', cursor: 'pointer', outline: 'none', width: '100%', appearance: 'none', ...bucketStyle }}
+      >
+        {BUCKET_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <input
+        type="text"
+        disabled={isHidden}
+        placeholder={isHidden ? '' : `e.g. ${info.name}`}
+        value={mapping.displayLabel ?? ''}
+        onChange={(e) => onChange({ ...mapping, displayLabel: e.target.value })}
+        style={{ ...inputStyle, fontSize: 10, padding: '4px 8px', opacity: isHidden ? 0.35 : 1, cursor: isHidden ? 'not-allowed' : 'text' }}
+      />
+    </div>
+  )
 }
 
 interface ConnFormProps {
@@ -43,6 +104,11 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   const [showToken, setShowToken] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [fetchingStatuses, setFetchingStatuses] = useState(false)
+  const [statuses, setStatuses] = useState<JiraStatusInfo[]>(() => {
+    // Rebuild info list from saved mappings so rows appear without re-fetching
+    return conn.statusMappings?.map((m) => ({ name: m.jiraStatus, categoryKey: 'new' })) ?? []
+  })
 
   function patch<K extends keyof JiraConfig>(key: K, value: JiraConfig[K]) {
     onChange({ ...conn, [key]: value })
@@ -79,6 +145,37 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     setTesting(false)
   }
 
+  async function fetchStatuses() {
+    setFetchingStatuses(true)
+    try {
+      const fetched = await fetchJiraStatuses(conn)
+      setStatuses(fetched)
+      // Merge with existing mappings — keep user customisations, add new rows
+      const existing = conn.statusMappings ?? []
+      const merged: JiraStatusMapping[] = fetched.map((s) => {
+        const prev = existing.find((m) => m.jiraStatus.toLowerCase() === s.name.toLowerCase())
+        if (prev) return prev
+        // Auto-guess bucket from category
+        let bucket: Status | 'hidden' = 'todo'
+        if (s.categoryKey === 'indeterminate') bucket = 'inprogress'
+        if (s.categoryKey === 'done') bucket = 'hidden'
+        return { jiraStatus: s.name, displayBucket: bucket, displayLabel: '' }
+      })
+      onChange({ ...conn, statusMappings: merged })
+    } catch (err) {
+      setTestResult({ ok: false, msg: `Failed to fetch statuses: ${(err as Error).message}` })
+    }
+    setFetchingStatuses(false)
+  }
+
+  function updateMapping(idx: number, m: JiraStatusMapping) {
+    const updated = [...(conn.statusMappings ?? [])]
+    updated[idx] = m
+    onChange({ ...conn, statusMappings: updated })
+  }
+
+  const mappings = conn.statusMappings ?? []
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
       {/* header row */}
@@ -94,11 +191,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
           <span style={{ fontSize: 11, color: 'var(--text2)' }}>Enabled</span>
         </label>
         {!isOnly && (
-          <button
-            onClick={onDelete}
-            title="Remove connection"
-            style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}
-          >✕</button>
+          <button onClick={onDelete} title="Remove connection" style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>✕</button>
         )}
       </div>
 
@@ -169,11 +262,59 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {conn.lastSync && (
         <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-          Last sync: {new Date(conn.lastSync).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          Last sync: {formatDateTime(conn.lastSync)}
           {conn.lastSyncResult ? ` — ${conn.lastSyncResult}` : ''}
         </div>
       )}
 
+      {/* ── STATUS MAPPING ── */}
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>
+            Jira status → display as
+          </span>
+          <button
+            onClick={fetchStatuses}
+            disabled={fetchingStatuses || !conn.baseUrl || !conn.token}
+            style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}
+          >
+            {fetchingStatuses ? '…loading' : '⟳ Fetch statuses'}
+          </button>
+        </div>
+
+        {statuses.length > 0 && (
+          <>
+            {/* column headers */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 20px 100px 1fr', gap: 6, padding: '0 2px', marginBottom: 4 }}>
+              <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Jira board status</span>
+              <span />
+              <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Bucket</span>
+              <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Custom label</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {statuses.map((s, i) => (
+                <StatusMappingRow
+                  key={s.name}
+                  info={s}
+                  mapping={mappings[i] ?? { jiraStatus: s.name, displayBucket: 'todo', displayLabel: '' }}
+                  onChange={(m) => updateMapping(i, m)}
+                />
+              ))}
+            </div>
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', background: 'var(--surface3)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', marginTop: 8, lineHeight: 1.5 }}>
+              <strong style={{ color: 'var(--text2)' }}>hidden</strong> issues are synced but not shown on the dashboard. Leave <strong style={{ color: 'var(--text2)' }}>Custom label</strong> empty to use the bucket name.
+            </div>
+          </>
+        )}
+
+        {statuses.length === 0 && (
+          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text4)', padding: '6px 2px' }}>
+            Click "Fetch statuses" to load your Jira board statuses and configure visibility.
+          </div>
+        )}
+      </div>
+
+      {/* developers */}
       {developers.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
           <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developers in this connection</div>
@@ -239,7 +380,6 @@ export default function JiraConfigModal({ onClose }: Props) {
   }
 
   async function handleSyncNow() {
-    // Save first so syncJira uses the latest connections
     setJiraConnections(conns)
     setSyncing(true)
     setSyncResult(null)
@@ -276,7 +416,6 @@ export default function JiraConfigModal({ onClose }: Props) {
       }
     >
       <>
-        {/* connections list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {conns.map((c, i) => (
             <ConnForm

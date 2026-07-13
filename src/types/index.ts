@@ -27,6 +27,12 @@ export interface GitHubConfig {
   lastSyncResult?: string
 }
 
+export interface JiraStatusMapping {
+  jiraStatus: string      // exact Jira status name
+  displayBucket: Status | 'hidden'  // app bucket to map to
+  displayLabel?: string   // custom label shown in the app (falls back to jiraStatus if empty)
+}
+
 export interface JiraConfig {
   id: string
   name: string
@@ -37,6 +43,7 @@ export interface JiraConfig {
   projectKeys: string[]
   syncInterval: number  // minutes; 0 = manual only
   developerEmails?: Record<string, string>  // devId → jira email for this connection
+  statusMappings?: JiraStatusMapping[]      // user-defined Jira status → display bucket+label
   lastSync?: string
   lastSyncResult?: string
 }
@@ -63,6 +70,7 @@ export interface JiraIssue {
   prs: PrEntry[]
   comment: string
   hidden?: boolean
+  displayLabel?: string   // custom label from Jira status mapping (shown instead of bucket name)
   manualStatus?: Status  // set when user manually changes status; overrides Jira sync
   statusHistory?: StatusHistoryEntry[]
   _srcIdx?: number
@@ -94,6 +102,7 @@ export interface Task {
   date: string
   carriedOver?: boolean
   carriedFrom?: string
+  carriedOverNwd?: boolean
   jiraSync?: boolean
   deletedJiraUrls?: string[]
 }

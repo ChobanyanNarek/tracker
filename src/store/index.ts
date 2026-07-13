@@ -3,7 +3,7 @@ import type { AppState, Developer, Project, Task, JiraIssue, JiraConfig, GitLabC
 import { loadCloudState, saveCloudState } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
-import { fetchJiraIssues, rawToJiraItem, mergeStatusHistory } from '../utils/jira-api'
+import { fetchJiraIssues, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
@@ -120,6 +120,8 @@ interface StoreActions {
   exportJSON: () => void
   importJSON: (json: string) => Promise<boolean>
   setHighlightedTaskId: (id: string | null) => void
+  searchQuery: string
+  setSearchQuery: (q: string) => void
   cloudSyncing: boolean
 }
 
@@ -141,12 +143,14 @@ export const useStore = create<Store>((set, get) => {
   return {
     ...base,
     cloudSyncing: true,
+    searchQuery: '',
 
     setView: (view) => set({ view }),
     setSelectedDate: (selectedDate) => set({ selectedDate }),
     setSelectedDev: (selectedDev) => set({ selectedDev }),
     setSelectedProject: (selectedProject) => set({ selectedProject, selectedDev: 'ALL' }),
     setHighlightedTaskId: (highlightedTaskId) => set({ highlightedTaskId }),
+    setSearchQuery: (searchQuery) => set({ searchQuery }),
 
     addDeveloper: (dev) =>
       set((s) => withSave({ ...s, developers: [...s.developers, { id: makeId('d'), periods: [], ...dev }] })),
@@ -213,7 +217,116 @@ export const useStore = create<Store>((set, get) => {
       set((s) => withSave({ ...s, projects: [...s.projects, { id: makeId('p'), ...p }] })),
 
     updateProject: (id, changes) =>
-      set((s) => withSave({ ...s, projects: s.projects.map((p) => p.id === id ? { ...p, ...changes } : p) })),
+      set((s) => {
+        const newProjects = s.projects.map((p) => (p.id === id ? { ...p, ...changes } : p))
+        let tasks = s.tasks
+        let selectedDate = s.selectedDate
+
+        if (changes.nonWorkingDays) {
+          try {
+            const oldProj = s.projects.find((p) => p.id === id)
+            if (oldProj) {
+              const oldNwd = oldProj.nonWorkingDays ?? [0, 6]
+              const newNwd = changes.nonWorkingDays
+              const today = todayStr()
+              // Use the date the user is currently viewing (if not in the past)
+              const refDate = s.selectedDate >= today ? s.selectedDate : today
+              const refDow = new Date(refDate + 'T12:00:00').getDay()
+
+              // --- forward pass: newly non-working day → push tasks forward ---
+              if (newNwd.includes(refDow) && !oldNwd.includes(refDow)) {
+                const targetDate = nextWorkDay(refDate, newNwd)
+
+                const targetKeys = new Set<string>()
+                tasks
+                  .filter((t) => t.projectId === id && t.date === targetDate)
+                  .forEach((t) =>
+                    (t.jiras ?? []).forEach((j) => {
+                      if (j.issueId) targetKeys.add(j.issueId)
+                      const dk = jiraDedupeKey(j.url, j.name)
+                      if (dk && dk !== 'name:') targetKeys.add(dk)
+                    }),
+                  )
+
+                const toAdd: Task[] = []
+                for (const t of tasks.filter((t) => t.projectId === id && t.date === refDate)) {
+                  if (Array.isArray(t.jiras)) {
+                    const pendingJiras = t.jiras
+                      .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
+                      .filter((j) => {
+                        if (j.status === 'done') return false
+                        if (j.issueId && targetKeys.has(j.issueId)) return false
+                        const dk = jiraDedupeKey(j.url, j.name)
+                        return !(dk && dk !== 'name:' && targetKeys.has(dk))
+                      })
+                    if (!pendingJiras.length) continue
+                    pendingJiras.forEach((j) => {
+                      if (j.issueId) targetKeys.add(j.issueId)
+                      const dk = jiraDedupeKey(j.url, j.name)
+                      if (dk && dk !== 'name:') targetKeys.add(dk)
+                    })
+                    toAdd.push({
+                      ...t,
+                      id: makeId('t'),
+                      date: targetDate,
+                      carriedOver: true,
+                      carriedFrom: refDate,
+                      carriedOverNwd: true,
+                      jiras: pendingJiras,
+                      prs: (t.prs ?? []).map((pr) => ({ ...pr })),
+                    })
+                  } else if (t.status !== 'done') {
+                    const alreadyOnTarget = tasks.some(
+                      (x) => x.devId === t.devId && x.jira === t.jira && x.date === targetDate,
+                    )
+                    if (!alreadyOnTarget) {
+                      toAdd.push({
+                        ...t,
+                        id: makeId('t'),
+                        date: targetDate,
+                        carriedOver: true,
+                        carriedFrom: refDate,
+                        carriedOverNwd: true,
+                        prs: (t.prs ?? []).map((pr) => ({ ...pr })),
+                      })
+                    }
+                  }
+                }
+                if (toAdd.length > 0) {
+                  tasks = [...tasks, ...toAdd]
+                  selectedDate = targetDate
+                }
+              }
+
+              // --- reverse pass: newly working day → remove the nwd copies, restore originals ---
+              const newlyWorkingDows = new Set(oldNwd.filter((dow) => !newNwd.includes(dow)))
+              if (newlyWorkingDows.size > 0) {
+                const toRemoveIds = new Set<string>()
+                const restoredFromDates: string[] = []
+                for (const t of tasks) {
+                  if (t.projectId !== id || !t.carriedOverNwd || !t.carriedFrom) continue
+                  const fromDow = new Date(t.carriedFrom + 'T12:00:00').getDay()
+                  if (newlyWorkingDows.has(fromDow)) {
+                    toRemoveIds.add(t.id)
+                    restoredFromDates.push(t.carriedFrom)
+                  }
+                }
+                if (toRemoveIds.size > 0) {
+                  tasks = tasks.filter((t) => !toRemoveIds.has(t.id))
+                  // Navigate back to the source date so the originals are visible
+                  if (restoredFromDates.length > 0) {
+                    selectedDate = restoredFromDates.sort()[0]!
+                  }
+                }
+              }
+            }
+          } catch {
+            // carry-over failed; nonWorkingDays change still saves
+          }
+        }
+
+        return withSave({ ...s, projects: newProjects, tasks, selectedDate })
+      }),
 
     deleteProject: (id) =>
       set((s) =>
@@ -860,7 +973,7 @@ export const useStore = create<Store>((set, get) => {
 
         const byDev = new Map<string, JiraIssueRaw[]>()
         for (const { dev, email } of connDevs) {
-          const statusFilter = `(status in ("To Do", "In Progress", "Code Review", "Blocked", "Backlog") OR (status = "Closed" AND updated >= -7d))`
+          const statusFilter = buildJqlStatusFilter(conn.statusMappings)
           const devJql = projList
             ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
             : `assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
@@ -885,7 +998,7 @@ export const useStore = create<Store>((set, get) => {
             const k = jiraDedupeKey(url, raw.fields.summary)
             if (k && k !== 'name:') closedKeys.add(k)
           })
-          const incoming = devIssues.filter((raw) => !isClosed(raw)).map((i) => rawToJiraItem(i, conn.baseUrl))
+          const incoming = devIssues.filter((raw) => !isClosed(raw)).map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings))
           const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today)
 
           if (closedKeys.size) {
@@ -1028,11 +1141,12 @@ export const useStore = create<Store>((set, get) => {
     setGitlabConnections: (gitlabConnections) => set((s) => withSave({ ...s, gitlabConnections })),
 
     syncGitlab: async () => {
-      const { gitlabConnections, jiraConnections, tasks, trackerTimezone, developers } = get()
+      const { gitlabConnections, jiraConnections, tasks, developers } = get()
       const enabledConns = gitlabConnections.filter((c) => c.enabled && c.token && c.groupPath)
       if (!enabledConns.length) throw new Error('No GitLab connections configured')
 
-      const tz = resolveTrackerTz(trackerTimezone)
+      // All external timestamps are recorded in the user's local timezone.
+      const tz = resolveTrackerTz()
       const toLocalParts = (d: Date) => {
         const parts = new Intl.DateTimeFormat('en-CA', {
           timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -1181,11 +1295,12 @@ export const useStore = create<Store>((set, get) => {
     setGithubConnections: (githubConnections) => set((s) => withSave({ ...s, githubConnections })),
 
     syncGithub: async () => {
-      const { githubConnections, jiraConnections, tasks, trackerTimezone, developers } = get()
+      const { githubConnections, jiraConnections, tasks, developers } = get()
       const enabledConns = githubConnections.filter((c) => c.enabled && c.token)
       if (!enabledConns.length) throw new Error('No GitHub connections configured')
 
-      const tz = resolveTrackerTz(trackerTimezone)
+      // All external timestamps are recorded in the user's local timezone.
+      const tz = resolveTrackerTz()
       const toLocalParts = (d: Date) => {
         const parts = new Intl.DateTimeFormat('en-CA', {
           timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
