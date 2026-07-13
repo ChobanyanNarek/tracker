@@ -1,7 +1,8 @@
 import { useStore } from '../../store'
 import { hexRgb, initials, getJiras, jiraLabel, prLabel } from '../../utils/format'
-import { dlInfo } from '../../utils/dates'
-import { STATUS_LABEL, STATUS_COLOR, PRIORITY_CONF } from '../../constants'
+import { dlInfo, formatDate } from '../../utils/dates'
+import { PRIORITY_CONF } from '../../constants'
+import { resolveIssueDisplay } from '../ui/StatusBadge'
 import type { Task } from '../../types'
 
 interface Props {
@@ -10,7 +11,8 @@ interface Props {
 }
 
 export default function TaskDetailModal({ task, onClose }: Props) {
-  const { developers, projects, setSelectedDate, setView } = useStore()
+  const { developers, projects, jiraConnections, setSelectedDate, setView } = useStore()
+  const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
   const dev = developers.find((d) => d.id === task.devId)
   const proj = projects.find((p) => p.id === task.projectId)
   const jiras = getJiras(task)
@@ -46,7 +48,7 @@ export default function TaskDetailModal({ task, onClose }: Props) {
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{task.date}</span>
                 {task.carriedOver && task.carriedFrom && (
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'var(--amber-dim)', color: 'var(--amber)', border: '1px solid var(--amber)' }}>
-                    ⏩ from {new Date(task.carriedFrom + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    ⏩ from {formatDate(task.carriedFrom)}
                   </span>
                 )}
               </div>
@@ -67,7 +69,7 @@ export default function TaskDetailModal({ task, onClose }: Props) {
               const jiraLbl = jiraLabel(j.url)
               const dl = j.deadline ? dlInfo(j.deadline, j.deadlineTime) : null
               const pc = PRIORITY_CONF[j.priority ?? 'medium']
-              const statusColor = STATUS_COLOR[j.status]
+              const { label: statusLbl, text: statusColor } = resolveIssueDisplay(j, conn)
               const prsWithDate = (j.prs ?? []).filter((p) => p.date)
               const latestPr = prsWithDate.length
                 ? prsWithDate.reduce((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')) >= 0 ? a : b)
@@ -91,7 +93,7 @@ export default function TaskDetailModal({ task, onClose }: Props) {
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
                       <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: statusColor + '20', color: statusColor, border: `1px solid ${statusColor}40` }}>
-                        {STATUS_LABEL[j.status]}
+                        {statusLbl}
                       </span>
                       <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'transparent', color: pc.color, border: `1px solid ${pc.color}60` }}>
                         {pc.label}

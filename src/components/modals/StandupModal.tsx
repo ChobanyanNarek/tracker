@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useStore, getVisibleTasks, getVisibleDevIds } from '../../store'
-import { STATUS_EMOJI, STATUS_LABEL } from '../../constants'
+import { STATUS_EMOJI } from '../../constants'
+import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel } from '../../utils/format'
-import { dlInfo } from '../../utils/dates'
+import { dlInfo, formatDate } from '../../utils/dates'
 import Modal from '../ui/Modal'
 
 const OFF_LABEL: Record<string, string> = {
@@ -17,13 +18,12 @@ interface Props { onClose: () => void }
 export default function StandupModal({ onClose }: Props) {
   const [copied, setCopied] = useState(false)
   const state = useStore()
-  const { developers, projects, schedule, selectedDev, selectedProject, selectedDate } = state
+  const { developers, projects, schedule, selectedDev, selectedProject, selectedDate, jiraConnections } = state
+  const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
 
   const proj = projects.find((p) => p.id === selectedProject)
 
-  const dateLabel = new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric',
-  })
+  const dateLabel = formatDate(selectedDate)
 
   // Devs relevant to the current filter
   const relevantDevs = developers.filter((d) => {
@@ -100,7 +100,7 @@ export default function StandupModal({ onClose }: Props) {
         taskItems.forEach(({ jiras, comment }) => {
           jiras.forEach((j) => {
             const name = j.name || jiraLabel(j.url) || 'Issue'
-            const status = STATUS_LABEL[j.status ?? 'todo'] ?? j.status
+            const status = resolveIssueDisplay(j, conn).label
             const emoji = STATUS_EMOJI[j.status ?? 'todo'] ?? '📋'
             const dl = j.deadline ? dlInfo(j.deadline, j.deadlineTime).text : ''
             const cmt = j.comment?.trim() ?? ''

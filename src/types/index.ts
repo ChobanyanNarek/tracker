@@ -27,10 +27,18 @@ export interface GitHubConfig {
   lastSyncResult?: string
 }
 
+export type StatusGroupColor = 'blue' | 'amber' | 'red' | 'purple' | 'green' | 'teal' | 'pink' | 'orange' | 'gray'
+
+export interface StatusGroup {
+  id: string             // unique slug e.g. 'inprogress', 'testing'
+  label: string          // shown on card badge
+  color: StatusGroupColor
+  isClosed?: boolean     // issues in this group are removed from daily board (like "done")
+}
+
 export interface JiraStatusMapping {
-  jiraStatus: string      // exact Jira status name
-  displayBucket: Status | 'hidden'  // app bucket to map to
-  displayLabel?: string   // custom label shown in the app (falls back to jiraStatus if empty)
+  jiraStatus: string     // exact Jira status name
+  groupId: string        // points to a StatusGroup id; 'hidden' = never show
 }
 
 export interface JiraConfig {
@@ -43,7 +51,8 @@ export interface JiraConfig {
   projectKeys: string[]
   syncInterval: number  // minutes; 0 = manual only
   developerEmails?: Record<string, string>  // devId → jira email for this connection
-  statusMappings?: JiraStatusMapping[]      // user-defined Jira status → display bucket+label
+  statusGroups?: StatusGroup[]              // user-defined display groups
+  statusMappings?: JiraStatusMapping[]      // jiraStatus → groupId mapping
   lastSync?: string
   lastSyncResult?: string
 }
@@ -70,7 +79,7 @@ export interface JiraIssue {
   prs: PrEntry[]
   comment: string
   hidden?: boolean
-  displayLabel?: string   // custom label from Jira status mapping (shown instead of bucket name)
+  groupId?: string        // display group id from status mapping (drives label + color on card)
   manualStatus?: Status  // set when user manually changes status; overrides Jira sync
   statusHistory?: StatusHistoryEntry[]
   _srcIdx?: number

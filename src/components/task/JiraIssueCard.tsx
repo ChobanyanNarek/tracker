@@ -1,8 +1,8 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { JiraIssue } from '../../types'
+import type { JiraIssue, JiraConfig } from '../../types'
 import { PRIORITY_CONF } from '../../constants'
-import { dlInfo } from '../../utils/dates'
+import { dlInfo, formatDate } from '../../utils/dates'
 import { prLabel, jiraLabel } from '../../utils/format'
 import StatusSelect from '../ui/StatusSelect'
 
@@ -10,14 +10,15 @@ interface Props {
   issue: JiraIssue
   taskId: string
   index: number
-  onStatusChange: (issueId: string | undefined, url: string, status: JiraIssue['status']) => void
+  conn?: JiraConfig
+  onStatusChange: (issueId: string | undefined, url: string, status: JiraIssue['status'], groupId: string) => void
   onPriorityChange: (issueId: string | undefined, url: string, priority: JiraIssue['priority']) => void
   onEdit: (issueId: string | undefined, url: string) => void
   onDelete: (issueId: string | undefined, url: string) => void
   onHide: (issueId: string | undefined, url: string) => void
 }
 
-export default function JiraIssueCard({ issue, taskId, index, onStatusChange, onPriorityChange, onEdit, onDelete, onHide }: Props) {
+export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChange, onPriorityChange, onEdit, onDelete, onHide }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `${taskId}-${index}`,
   })
@@ -137,7 +138,9 @@ export default function JiraIssueCard({ issue, taskId, index, onStatusChange, on
         )}
         <StatusSelect
           value={issue.status}
-          onChange={(v) => onStatusChange(issue.issueId, issue.url ?? '', v)}
+          groupId={issue.groupId}
+          conn={conn}
+          onChange={(v, gid) => onStatusChange(issue.issueId, issue.url ?? '', v, gid)}
           style={{ fontSize: 10, padding: '2px 20px 2px 8px' }}
         />
         {dl && dl.cls !== 'dl-none' && (
@@ -152,7 +155,7 @@ export default function JiraIssueCard({ issue, taskId, index, onStatusChange, on
           {issue.prs.map((p, i) => {
             const lbl = prLabel(p.url)
             const prDateLabel = p.date
-              ? new Date(p.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + (p.time ? ' at ' + p.time : '')
+              ? formatDate(p.date) + (p.time ? ' at ' + p.time : '')
               : null
             return lbl ? (
               <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>

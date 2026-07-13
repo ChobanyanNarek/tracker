@@ -18,7 +18,9 @@ interface Props {
  *  card in DailyView — never shows its own header/border, so multiple
  *  checkpoints for the same developer+day read as one seamless block. */
 export default function TaskCard({ task, onToast }: Props) {
-  const { updateJiraStatus, updateJiraPriority, updateJira, reorderJiras, deleteJira, toggleJiraHidden } = useStore()
+  const { updateJiraStatus, updateJiraPriority, updateJira, reorderJiras, deleteJira, toggleJiraHidden, jiraConnections } = useStore()
+  // Find the Jira connection that covers this task's issues (for status group resolution)
+  const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
   const [deletingIssue, setDeletingIssue] = useState<{ issueId: string | undefined; url: string; name: string } | null>(null)
   const [editingIssueKey, setEditingIssueKey] = useState<string | null>(null)
 
@@ -65,7 +67,8 @@ export default function TaskCard({ task, onToast }: Props) {
                     issue={j}
                     taskId={task.id}
                     index={i}
-                    onStatusChange={(iid, url, s) => updateJiraStatus(task.id, iid, url, s)}
+                    conn={conn}
+                    onStatusChange={(iid, url, s, gid) => updateJiraStatus(task.id, iid, url, s, gid)}
                     onPriorityChange={(iid, url, p) => updateJiraPriority(task.id, iid, url, p)}
                     onEdit={() => setEditingIssueKey(issueKey(j))}
                     onDelete={(iid, url) => {

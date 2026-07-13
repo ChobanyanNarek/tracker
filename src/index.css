@@ -29,6 +29,16 @@
   --purple-dim: #ede9fe;
   --purple-border: #c4b5fd;
 
+  --teal: #0891b2;
+  --teal-dim: #e0f2fe;
+  --teal-border: #7dd3fc;
+  --pink: #db2777;
+  --pink-dim: #fce7f3;
+  --pink-border: #f9a8d4;
+  --orange: #ea580c;
+  --orange-dim: #ffedd5;
+  --orange-border: #fdba74;
+
   --shadow-xs: 0 1px 3px rgba(25,35,90,.06);
   --shadow-sm: 0 2px 8px rgba(25,35,90,.09), 0 1px 3px rgba(25,35,90,.05);
   --shadow: 0 4px 18px rgba(25,35,90,.11), 0 1px 5px rgba(25,35,90,.06);

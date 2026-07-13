@@ -5,6 +5,7 @@ import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/date
 import { getJiras, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
+import { isClosedGroup } from '../utils/status-groups'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
@@ -17,9 +18,13 @@ function makeJiraMatcher(issueId: string | undefined, url: string) {
   return (j: JiraIssue) => (issueId ? j.issueId === issueId : !!url && j.url === url)
 }
 
+function isIssueDone(j: JiraIssue): boolean {
+  return j.status === 'done'
+}
+
 function sortJiraIssues(jiras: JiraIssue[]): JiraIssue[] {
-  const active = jiras.filter((j) => !j.hidden && j.status !== 'done')
-  const done = jiras.filter((j) => !j.hidden && j.status === 'done')
+  const active = jiras.filter((j) => !j.hidden && !isIssueDone(j))
+  const done = jiras.filter((j) => !j.hidden && isIssueDone(j))
   const hidden = jiras.filter((j) => j.hidden)
   return [...active, ...done, ...hidden]
 }
@@ -99,7 +104,7 @@ interface StoreActions {
   deduplicateJiras: () => void
   mergeSameDayTasks: () => void
 
-  updateJiraStatus: (taskId: string, issueId: string | undefined, url: string, status: JiraIssue['status']) => void
+  updateJiraStatus: (taskId: string, issueId: string | undefined, url: string, status: JiraIssue['status'], groupId?: string) => void
   updateJiraPriority: (taskId: string, issueId: string | undefined, url: string, priority: JiraIssue['priority']) => void
   updateJira: (taskId: string, issueId: string | undefined, url: string, patch: Partial<JiraIssue>) => void
   reorderJiras: (taskId: string, fromId: string, toId: string) => void
@@ -730,7 +735,7 @@ export const useStore = create<Store>((set, get) => {
       if (changed) set((s) => withSave({ ...s, tasks: merged }))
     },
 
-    updateJiraStatus: (taskId, issueId, url, status) =>
+    updateJiraStatus: (taskId, issueId, url, status, groupId) =>
       set((s) => {
         const targetTask = s.tasks.find((t) => t.id === taskId)
         const matchJira = makeJiraMatcher(issueId, url)
@@ -744,7 +749,7 @@ export const useStore = create<Store>((set, get) => {
               const updated = t.jiras.map((j) => {
                 if (!matchJira(j)) return j
                 const history = j.statusHistory ?? [{ status: j.status, at: now }]
-                return { ...j, status, manualStatus: status, statusHistory: [...history, { status, at: now }] }
+                return { ...j, status, groupId: groupId ?? j.groupId, manualStatus: status, statusHistory: [...history, { status, at: now }] }
               })
               const jiras = sortJiraIssues(updated)
               const allDone = jiras.every((j) => j.status === 'done')
@@ -756,7 +761,7 @@ export const useStore = create<Store>((set, get) => {
               const updated = t.jiras.map((j) => {
                 if (j.issueId !== issueId) return j
                 const history = j.statusHistory ?? [{ status: j.status, at: now }]
-                return { ...j, status, manualStatus: status, statusHistory: [...history, { status, at: now }] }
+                return { ...j, status, groupId: groupId ?? j.groupId, manualStatus: status, statusHistory: [...history, { status, at: now }] }
               })
               if (updated.every((j, i) => j === t.jiras![i])) return t
               const jiras = sortJiraIssues(updated)
@@ -990,15 +995,23 @@ export const useStore = create<Store>((set, get) => {
             dedupedTasks.find((t) => t.devId === devId && t.date === today && t.jiraSync) ??
             dedupedTasks.find((t) => t.devId === devId && t.date === today)
 
-          const isClosed = (raw: JiraIssueRaw) => raw.fields.status.name.toLowerCase() === 'closed'
+          const isClosedRaw = (raw: JiraIssueRaw) => {
+            const statusName = raw.fields.status.name
+            // If mappings exist, check if the mapped group is marked isClosed
+            if (conn.statusMappings?.length) {
+              const m = conn.statusMappings.find((m) => m.jiraStatus.toLowerCase() === statusName.toLowerCase())
+              if (m) return isClosedGroup(m.groupId, conn)
+            }
+            return statusName.toLowerCase() === 'closed' || statusName.toLowerCase() === 'done'
+          }
           const closedKeys = new Set<string>()
           devIssues.forEach((raw) => {
-            if (!isClosed(raw)) return
+            if (!isClosedRaw(raw)) return
             const url = `${conn.baseUrl.replace(/\/$/, '')}/browse/${raw.key}`
             const k = jiraDedupeKey(url, raw.fields.summary)
             if (k && k !== 'name:') closedKeys.add(k)
           })
-          const incoming = devIssues.filter((raw) => !isClosed(raw)).map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings))
+          const incoming = devIssues.filter((raw) => !isClosedRaw(raw)).map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings))
           const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today)
 
           if (closedKeys.size) {

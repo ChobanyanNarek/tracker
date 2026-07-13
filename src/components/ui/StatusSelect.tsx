@@ -1,25 +1,34 @@
-import type { Status } from '../../types'
-import { STATUS_LABEL } from '../../constants'
-
-const INLINE: Record<Status, React.CSSProperties> = {
-  todo:       { background: 'var(--surface3)', borderColor: 'var(--border2)', color: 'var(--text3)' },
-  inprogress: { background: 'var(--amber-dim)', borderColor: 'var(--amber)', color: 'var(--amber)' },
-  review:     { background: 'var(--purple-dim)', borderColor: 'var(--purple)', color: 'var(--purple)' },
-  done:       { background: 'var(--green-dim)', borderColor: 'var(--green)', color: 'var(--green)' },
-  blocked:    { background: 'var(--red-dim)', borderColor: 'var(--red)', color: 'var(--red)' },
-}
+import type { Status, JiraConfig } from '../../types'
+import { resolveGroups, GROUP_COLOR_TOKENS, legacyStatusToGroupId } from '../../utils/status-groups'
 
 interface Props {
   value: Status
-  onChange: (v: Status) => void
+  groupId?: string
+  conn?: JiraConfig
+  onChange: (v: Status, groupId: string) => void
   style?: React.CSSProperties
 }
 
-export default function StatusSelect({ value, onChange, style }: Props) {
+export default function StatusSelect({ value, groupId, conn, onChange, style }: Props) {
+  const groups = resolveGroups(conn)
+  const activeId = groupId ?? legacyStatusToGroupId(value)
+  const activeGroup = groups.find((g) => g.id === activeId) ?? groups[0]!
+  const tokens = GROUP_COLOR_TOKENS[activeGroup.color]
+
   return (
     <select
-      value={value}
-      onChange={(e) => onChange(e.target.value as Status)}
+      value={activeId}
+      onChange={(e) => {
+        const gid = e.target.value
+        const group = groups.find((g) => g.id === gid)
+        // Derive legacy Status from group — isClosed=done, else keep internal logic
+        const newStatus: Status = group?.isClosed ? 'done'
+          : gid === 'blocked' ? 'blocked'
+          : gid === 'review' ? 'review'
+          : gid === 'inprogress' ? 'inprogress'
+          : 'todo'
+        onChange(newStatus, gid)
+      }}
       style={{
         border: '1.5px solid',
         borderRadius: 20,
@@ -35,15 +44,20 @@ export default function StatusSelect({ value, onChange, style }: Props) {
         backgroundRepeat: 'no-repeat',
         backgroundPosition: 'right 8px center',
         transition: 'all .15s',
-        ...INLINE[value],
+        background: tokens.bg,
+        color: tokens.text,
+        borderColor: tokens.border,
         ...style,
       }}
     >
-      {(['todo', 'inprogress', 'review', 'done', 'blocked'] as Status[]).map((s) => (
-        <option key={s} value={s} style={{ background: 'var(--surface)', color: 'var(--text)', fontWeight: 500 }}>
-          {STATUS_LABEL[s]}
-        </option>
-      ))}
+      {groups.map((g) => {
+        const t = GROUP_COLOR_TOKENS[g.color]
+        return (
+          <option key={g.id} value={g.id} style={{ background: t.bg.startsWith('var') ? undefined : t.bg, color: 'var(--text)', fontWeight: 500 }}>
+            {g.label}
+          </option>
+        )
+      })}
     </select>
   )
 }

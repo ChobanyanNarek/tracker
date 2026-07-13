@@ -1,4 +1,5 @@
 import type { JiraConfig, JiraIssue, JiraStatusMapping, Priority, Status, StatusHistoryEntry } from '../types'
+import { groupForJiraStatus, buildJqlFromMappings } from './status-groups'
 
 export interface JiraIssueRaw {
   key: string
@@ -22,21 +23,21 @@ export interface JiraIssueRaw {
   }
 }
 
+// Fallback status guesser — only used when no mapping is configured
 function mapStatus(categoryKey: string, statusName: string): Status {
   const cat = categoryKey.toLowerCase()
   const name = statusName.toLowerCase()
   if (cat === 'done') return 'done'
-  if (name.includes('code review') || name === 'code_review') return 'done'
   if (name.includes('block') || name.includes('impediment')) return 'blocked'
   if (name.includes('review') || name.includes('testing') || name.includes('qa')) return 'review'
   if (cat === 'indeterminate' || name.includes('progress') || name.includes('develop')) return 'inprogress'
   return 'todo'
 }
 
+// Fallback for history entries when no mapping configured
 function mapStatusName(name: string): Status {
   const n = name.toLowerCase()
   if (n === 'done' || n === 'closed' || n === 'resolved' || n === 'released') return 'done'
-  if (n.includes('code review') || n === 'code_review') return 'done'
   if (n.includes('block') || n.includes('impediment')) return 'blocked'
   if (n.includes('review') || n.includes('testing') || n.includes('qa')) return 'review'
   if (n.includes('progress') || n.includes('develop') || n.includes('active')) return 'inprogress'
@@ -52,11 +53,22 @@ function mapPriority(name?: string | null): Priority {
   return 'medium'
 }
 
-function buildStatusHistory(raw: JiraIssueRaw): StatusHistoryEntry[] | undefined {
+// Derive a legacy Status from groupId for internal logic (carry-over, done detection)
+export function groupIdToStatus(groupId: string | undefined, _mappings: JiraStatusMapping[] | undefined, categoryKey: string, statusName: string): Status {
+  if (!groupId) return mapStatus(categoryKey, statusName)
+  if (groupId === 'done') return 'done'
+  if (groupId === 'blocked') return 'blocked'
+  if (groupId === 'review') return 'review'
+  if (groupId === 'inprogress') return 'inprogress'
+  // custom group — derive from category as best-effort for internal logic
+  if (categoryKey === 'done') return 'done'
+  return 'inprogress'
+}
+
+function buildStatusHistory(raw: JiraIssueRaw, mappings?: JiraStatusMapping[]): StatusHistoryEntry[] | undefined {
   const histories = raw.changelog?.histories
   if (!histories?.length) return undefined
 
-  // Collect all status-field transitions, sorted chronologically (oldest first)
   const transitions = histories
     .flatMap((h) =>
       h.items
@@ -67,32 +79,27 @@ function buildStatusHistory(raw: JiraIssueRaw): StatusHistoryEntry[] | undefined
 
   if (!transitions.length) return undefined
 
+  const resolveStatus = (name: string): Status => {
+    const gid = groupForJiraStatus(name, mappings)
+    if (gid && gid !== 'hidden') return groupIdToStatus(gid, mappings, '', name)
+    return mapStatusName(name)
+  }
+
   const history: StatusHistoryEntry[] = []
-  // Seed with the initial status (before the first transition)
-  // using issue creation date as the "entered at" time
   const createdAt = raw.fields.created ?? transitions[0]!.at
-  history.push({ status: mapStatusName(transitions[0]!.from), at: createdAt })
-  // Each transition marks when the issue entered the new status
+  history.push({ status: resolveStatus(transitions[0]!.from), at: createdAt })
   for (const t of transitions) {
-    history.push({ status: mapStatusName(t.to), at: t.at })
+    history.push({ status: resolveStatus(t.to), at: t.at })
   }
   return history
 }
 
-/**
- * Merge Jira changelog history (fresh) with locally tracked history (existing).
- * Fresh is authoritative for the past; any local entries recorded after the
- * last fresh entry are appended so manual changes aren't lost.
- */
 export function mergeStatusHistory(
   existing: StatusHistoryEntry[] | undefined,
   fresh: StatusHistoryEntry[] | undefined,
 ): StatusHistoryEntry[] | undefined {
   if (!fresh?.length) return existing
   if (!existing?.length) return fresh
-  // Compare chronologically, not lexicographically: Jira changelog timestamps
-  // may carry numeric offsets (+0300) while local entries are always UTC (…Z),
-  // so a raw string `>` can mis-order genuinely newer local entries.
   const lastFreshMs = new Date(fresh[fresh.length - 1]!.at).getTime()
   const localTail = existing.filter((e) => new Date(e.at).getTime() > lastFreshMs)
   return localTail.length ? [...fresh, ...localTail] : fresh
@@ -150,44 +157,27 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
 }
 
 export function buildJqlStatusFilter(mappings: JiraStatusMapping[] | undefined): string {
-  if (!mappings?.length) {
-    return `(status in ("To Do", "In Progress", "Code Review", "Blocked", "Backlog") OR (status = "Closed" AND updated >= -7d))`
-  }
-  const visible = mappings.filter((m) => m.displayBucket !== 'hidden').map((m) => `"${m.jiraStatus}"`)
-  if (!visible.length) return 'status = "To Do"'
-  return `status in (${visible.join(', ')})`
-}
-
-export function applyStatusMapping(
-  categoryKey: string,
-  statusName: string,
-  mappings: JiraStatusMapping[] | undefined,
-): { status: Status; displayLabel?: string } {
-  if (mappings?.length) {
-    const match = mappings.find((m) => m.jiraStatus.toLowerCase() === statusName.toLowerCase())
-    if (match && match.displayBucket !== 'hidden') {
-      return { status: match.displayBucket as Status, displayLabel: match.displayLabel || undefined }
-    }
-  }
-  return { status: mapStatus(categoryKey, statusName) }
+  const custom = buildJqlFromMappings(mappings)
+  if (custom) return custom
+  return `(status in ("To Do", "In Progress", "Code Review", "Blocked", "Backlog") OR (status = "Closed" AND updated >= -7d))`
 }
 
 export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: JiraStatusMapping[]): JiraIssue {
-  const { status, displayLabel } = applyStatusMapping(
-    issue.fields.status.statusCategory.key,
-    issue.fields.status.name,
-    mappings,
-  )
+  const jiraStatusName = issue.fields.status.name
+  const categoryKey = issue.fields.status.statusCategory.key
+  const groupId = groupForJiraStatus(jiraStatusName, mappings)
+  const status = groupIdToStatus(groupId, mappings, categoryKey, jiraStatusName)
+
   return {
     url: `${baseUrl.replace(/\/$/, '')}/browse/${issue.key}`,
     name: issue.fields.summary,
     status,
-    displayLabel,
+    groupId: groupId && groupId !== 'hidden' ? groupId : undefined,
     priority: mapPriority(issue.fields.priority?.name),
     deadline: issue.fields.duedate ?? '',
     deadlineTime: '',
     prs: [],
     comment: '',
-    statusHistory: buildStatusHistory(issue),
+    statusHistory: buildStatusHistory(issue, mappings),
   }
 }
