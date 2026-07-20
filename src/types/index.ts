@@ -53,6 +53,7 @@ export interface JiraConfig {
   developerEmails?: Record<string, string>  // devId → jira email for this connection
   statusGroups?: StatusGroup[]              // user-defined display groups
   statusMappings?: JiraStatusMapping[]      // jiraStatus → groupId mapping
+  boardIds?: number[]                       // if set, sync only issues from these boards
   lastSync?: string
   lastSyncResult?: string
 }

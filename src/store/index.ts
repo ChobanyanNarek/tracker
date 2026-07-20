@@ -495,13 +495,32 @@ export const useStore = create<Store>((set, get) => {
     },
 
     autoCarryOverdue: () => {
-      const { tasks, projects } = get()
+      let { tasks, projects } = get()
       const today = todayStr()
-      const yesterday = prevWorkDay(today)
 
-      function isDoneInLaterTask(devId: string, issueId: string | undefined, url: string, name: string, afterDate: string): boolean {
+      // Find the most recent date with tasks before today (up to 30 days back)
+      // so we can backfill gaps when the app wasn't opened for multiple days.
+      let scanDate = prevWorkDay(today)
+      let daysBack = 0
+      while (daysBack < 30 && !tasks.some((t) => t.date === scanDate)) {
+        scanDate = prevWorkDay(scanDate)
+        daysBack++
+      }
+      if (!tasks.some((t) => t.date === scanDate)) return false
+
+      // Build the chain of work days from scanDate up to (but not including) today
+      const chain: string[] = []
+      let d = scanDate
+      while (d < today) {
+        chain.push(d)
+        d = nextWorkDay(d)
+      }
+
+      let anyAdded = false
+
+      function isDoneInLaterTask(allTasks: Task[], devId: string, issueId: string | undefined, url: string, name: string, afterDate: string): boolean {
         if (issueId) {
-          return tasks.some(
+          return allTasks.some(
             (x) =>
               x.devId === devId &&
               x.date > afterDate &&
@@ -510,7 +529,7 @@ export const useStore = create<Store>((set, get) => {
         }
         const key = jiraDedupeKey(url, name)
         if (!key || key === 'name:') return false
-        return tasks.some(
+        return allTasks.some(
           (x) =>
             x.devId === devId &&
             x.date > afterDate &&
@@ -518,102 +537,107 @@ export const useStore = create<Store>((set, get) => {
         )
       }
 
-      const unfinished = tasks.filter((t) => {
-        if (t.date !== yesterday) return false
-        if (t.jiras !== undefined) {
-          return t.jiras.some(
-            (j) => j.status !== 'done' && !isDoneInLaterTask(t.devId, j.issueId, j.url, j.name, t.date),
-          )
+      for (const fromDate of chain) {
+        const targetDate = nextWorkDay(fromDate)
+        if (targetDate > today) break
+
+        const deletedUrls = new Map<string, Set<string>>()
+        tasks
+          .filter((x) => x.date === targetDate && x.deletedJiraUrls?.length)
+          .forEach((x) => {
+            if (!deletedUrls.has(x.devId)) deletedUrls.set(x.devId, new Set())
+            x.deletedJiraUrls!.forEach((u) => deletedUrls.get(x.devId)!.add(u))
+          })
+
+        const scheduledKeys = new Map<string, Set<string>>()
+        function getScheduled(devId: string): Set<string> {
+          if (!scheduledKeys.has(devId)) {
+            const existing = new Set<string>()
+            tasks
+              .filter((x) => x.devId === devId && x.date === targetDate)
+              .forEach((x) =>
+                (x.jiras ?? []).forEach((j) => {
+                  if (j.issueId) existing.add(j.issueId)
+                  const dk = jiraDedupeKey(j.url, j.name)
+                  if (dk && dk !== 'name:') existing.add(dk)
+                }),
+              )
+            scheduledKeys.set(devId, existing)
+          }
+          return scheduledKeys.get(devId)!
         }
-        return t.status !== 'done'
-      })
 
-      const newTasks: Task[] = []
-
-      const deletedTodayUrls = new Map<string, Set<string>>()
-      tasks
-        .filter((x) => x.date === today && x.deletedJiraUrls?.length)
-        .forEach((x) => {
-          if (!deletedTodayUrls.has(x.devId)) deletedTodayUrls.set(x.devId, new Set())
-          x.deletedJiraUrls!.forEach((u) => deletedTodayUrls.get(x.devId)!.add(u))
+        const unfinished = tasks.filter((t) => {
+          if (t.date !== fromDate) return false
+          if (t.jiras !== undefined) {
+            return t.jiras.some(
+              (j) => j.status !== 'done' && !isDoneInLaterTask(tasks, t.devId, j.issueId, j.url, j.name, t.date),
+            )
+          }
+          return t.status !== 'done'
         })
 
-      const scheduledKeys = new Map<string, Set<string>>()
+        const newTasks: Task[] = []
 
-      function getScheduled(devId: string): Set<string> {
-        if (!scheduledKeys.has(devId)) {
-          const existing = new Set<string>()
-          tasks
-            .filter((x) => x.devId === devId && x.date === today)
-            .forEach((x) =>
-              (x.jiras ?? []).forEach((j) => {
-                if (j.issueId) existing.add(j.issueId)
+        unfinished.forEach((t) => {
+          const tProj = projects.find((p) => p.id === t.projectId)
+          const tTargetDate = nextWorkDay(t.date, tProj?.nonWorkingDays ?? [0, 6])
+          if (tTargetDate !== targetDate) return
+          if (t.jiras !== undefined) {
+            const scheduled = getScheduled(t.devId)
+            const pendingJiras = t.jiras
+              .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
+              .filter((j) => {
+                if (j.status === 'done') return false
+                if (isDoneInLaterTask(tasks, t.devId, j.issueId, j.url, j.name, t.date)) return false
+                if (deletedUrls.get(t.devId)?.has(j.url)) return false
+                if (t.deletedJiraUrls?.includes(j.url)) return false
+                if (j.issueId && scheduled.has(j.issueId)) return false
                 const dk = jiraDedupeKey(j.url, j.name)
-                if (dk && dk !== 'name:') existing.add(dk)
-              }),
-            )
-          scheduledKeys.set(devId, existing)
-        }
-        return scheduledKeys.get(devId)!
-      }
-
-      unfinished.forEach((t) => {
-        const tProj = projects.find((p) => p.id === t.projectId)
-        const targetDate = nextWorkDay(t.date, tProj?.nonWorkingDays ?? [0, 6])
-        if (t.jiras !== undefined) {
-          const scheduled = getScheduled(t.devId)
-          const pendingJiras = t.jiras
-            .map((j, i) => ({ ...j, _srcIdx: j._srcIdx ?? i }))
-            .filter((j) => {
-              if (j.status === 'done') return false
-              if (isDoneInLaterTask(t.devId, j.issueId, j.url, j.name, t.date)) return false
-              if (deletedTodayUrls.get(t.devId)?.has(j.url)) return false
-              if (t.deletedJiraUrls?.includes(j.url)) return false
-              if (j.issueId && scheduled.has(j.issueId)) return false
+                if (dk && dk !== 'name:' && scheduled.has(dk)) return false
+                return true
+              })
+            if (!pendingJiras.length) return
+            pendingJiras.forEach((j) => {
+              if (j.issueId) scheduled.add(j.issueId)
               const dk = jiraDedupeKey(j.url, j.name)
-              if (dk && dk !== 'name:' && scheduled.has(dk)) return false
-              return true
+              if (dk && dk !== 'name:') scheduled.add(dk)
             })
-          if (!pendingJiras.length) return
-          pendingJiras.forEach((j) => {
-            if (j.issueId) scheduled.add(j.issueId)
-            const dk = jiraDedupeKey(j.url, j.name)
-            if (dk && dk !== 'name:') scheduled.add(dk)
-          })
-          newTasks.push({
-            ...t,
-            id: makeId('t'),
-            date: targetDate,
-            carriedOver: true,
-            carriedFrom: t.date,
-            jiras: pendingJiras,
-            prs: (t.prs ?? []).map((p) => ({ ...p })),
-          })
-        } else {
-          const alreadyOnToday = tasks.some(
-            (x) => x.devId === t.devId && x.jira === t.jira && x.date === today,
-          )
-          if (alreadyOnToday) return
-          newTasks.push({
-            ...t,
-            id: makeId('t'),
-            date: targetDate,
-            carriedOver: true,
-            carriedFrom: t.date,
-            prs: (t.prs ?? []).map((p) => ({ ...p })),
-          })
-        }
-      })
+            newTasks.push({
+              ...t,
+              id: makeId('t'),
+              date: tTargetDate,
+              carriedOver: true,
+              carriedFrom: t.date,
+              jiras: pendingJiras,
+              prs: (t.prs ?? []).map((p) => ({ ...p })),
+            })
+          } else {
+            const alreadyOnTarget = tasks.some(
+              (x) => x.devId === t.devId && x.jira === t.jira && x.date === tTargetDate,
+            )
+            if (alreadyOnTarget) return
+            newTasks.push({
+              ...t,
+              id: makeId('t'),
+              date: tTargetDate,
+              carriedOver: true,
+              carriedFrom: t.date,
+              prs: (t.prs ?? []).map((p) => ({ ...p })),
+            })
+          }
+        })
 
-      if (newTasks.length > 0) {
-        set((s) =>
-          withSave({
-            ...s,
-            tasks: [...s.tasks, ...newTasks],
-          }),
-        )
+        if (newTasks.length > 0) {
+          tasks = [...tasks, ...newTasks]
+          anyAdded = true
+        }
       }
-      return newTasks.length > 0
+
+      if (anyAdded) {
+        set((s) => withSave({ ...s, tasks }))
+      }
+      return anyAdded
     },
 
     migrateIssueIds: () => {
@@ -979,9 +1003,12 @@ export const useStore = create<Store>((set, get) => {
         const byDev = new Map<string, JiraIssueRaw[]>()
         for (const { dev, email } of connDevs) {
           const statusFilter = buildJqlStatusFilter(conn.statusMappings)
+          const boardFilter = conn.boardIds?.length
+            ? ` AND board in (${conn.boardIds.join(',')})`
+            : ''
           const devJql = projList
-            ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
-            : `assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
+            ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter}${boardFilter} ORDER BY updated DESC`
+            : `assignee = "${email}" AND ${statusFilter}${boardFilter} ORDER BY updated DESC`
           const devIssues = await fetchJiraIssues(conn, devJql)
           if (devIssues.length) byDev.set(dev.id, devIssues)
         }

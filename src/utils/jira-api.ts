@@ -114,6 +114,30 @@ export interface JiraStatusInfo {
   categoryKey: string  // 'new' | 'indeterminate' | 'done'
 }
 
+export interface JiraBoardInfo {
+  id: number
+  name: string
+  type: string  // 'scrum' | 'kanban' | 'simple'
+}
+
+export async function fetchJiraBoards(config: JiraConfig): Promise<JiraBoardInfo[]> {
+  const res = await fetch(`${API_URL}/pm-tracker/jira-boards`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      baseUrl: config.baseUrl.trim(),
+      email: config.email.trim(),
+      token: config.token.trim(),
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Jira ${res.status}: ${text.slice(0, 300) || res.statusText}`)
+  }
+  const data = (await res.json()) as Array<{ id: number; name: string; type: string }>
+  return data.map((b) => ({ id: b.id, name: b.name, type: b.type }))
+}
+
 export async function fetchJiraStatuses(config: JiraConfig): Promise<JiraStatusInfo[]> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-statuses`, {
     method: 'POST',
