@@ -1003,12 +1003,9 @@ export const useStore = create<Store>((set, get) => {
         const byDev = new Map<string, JiraIssueRaw[]>()
         for (const { dev, email } of connDevs) {
           const statusFilter = buildJqlStatusFilter(conn.statusMappings)
-          const boardFilter = conn.boardIds?.length
-            ? ` AND board in (${conn.boardIds.join(',')})`
-            : ''
           const devJql = projList
-            ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter}${boardFilter} ORDER BY updated DESC`
-            : `assignee = "${email}" AND ${statusFilter}${boardFilter} ORDER BY updated DESC`
+            ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
+            : `assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
           const devIssues = await fetchJiraIssues(conn, devJql)
           if (devIssues.length) byDev.set(dev.id, devIssues)
         }
