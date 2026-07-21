@@ -61,12 +61,12 @@ export function groupForJiraStatus(
   return m?.groupId
 }
 
-// Build JQL status filter from mappings — only fetch non-hidden statuses
+// Build JQL status filter from mappings — exclude only statuses explicitly mapped to 'hidden'
 export function buildJqlFromMappings(mappings: JiraStatusMapping[] | undefined): string | null {
   if (!mappings?.length) return null
-  const visible = mappings.filter((m) => m.groupId !== 'hidden').map((m) => `"${m.jiraStatus}"`)
-  if (!visible.length) return 'status = "To Do"'
-  return `status in (${visible.join(', ')})`
+  const hidden = mappings.filter((m) => m.groupId === 'hidden').map((m) => `"${m.jiraStatus}"`)
+  if (!hidden.length) return `statusCategory != Done`
+  return `statusCategory != Done AND status not in (${hidden.join(', ')})`
 }
 
 // Legacy Status → groupId for backward compat (issues saved before groupId existed)

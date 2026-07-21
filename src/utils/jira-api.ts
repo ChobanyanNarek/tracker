@@ -183,7 +183,8 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
 export function buildJqlStatusFilter(mappings: JiraStatusMapping[] | undefined): string {
   const custom = buildJqlFromMappings(mappings)
   if (custom) return custom
-  return `(status in ("To Do", "In Progress", "Code Review", "Blocked", "Backlog") OR (status = "Closed" AND updated >= -7d))`
+  // No mappings configured — fetch everything that isn't done/closed
+  return `statusCategory != Done`
 }
 
 export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: JiraStatusMapping[]): JiraIssue {
