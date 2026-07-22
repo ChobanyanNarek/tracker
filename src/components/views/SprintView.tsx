@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store'
 import type { Sprint } from '../../types'
 import { initials, hexRgb } from '../../utils/format'
+import { fetchJiraSprints } from '../../utils/jira-api'
 import SprintModal from '../sprint/SprintModal'
 
 function todayStr() {
@@ -176,8 +177,39 @@ function SprintCard({ sprint, onEdit, onDelete }: { sprint: Sprint; onEdit: () =
 }
 
 export default function SprintView() {
-  const { selectedProject, sprints, projects, deleteSprint } = useStore()
+  const { selectedProject, sprints, projects, jiraConnections, addSprint, deleteSprint } = useStore()
   const [modalSprint, setModalSprint] = useState<Sprint | null | 'new'>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+
+  const syncFromJira = async () => {
+    if (!proj || proj.mode !== 'scrum' || !proj.jiraBoardId) return
+    const conn = jiraConnections.find((c) => c.enabled)
+    if (!conn) return
+    setSyncing(true)
+    setSyncError(null)
+    try {
+      const jiraSprints = await fetchJiraSprints(conn, proj.jiraBoardId)
+      const existingJiraIds = new Set(sprints.filter((s) => s.projectId === selectedProject && s.jiraSprintId).map((s) => s.jiraSprintId))
+      let added = 0
+      for (const js of jiraSprints) {
+        if (existingJiraIds.has(js.id)) continue
+        addSprint({
+          projectId: selectedProject,
+          name: js.name,
+          startDate: js.startDate ?? new Date().toISOString().slice(0, 10),
+          endDate: js.endDate ?? new Date().toISOString().slice(0, 10),
+          jiraSprintId: js.id,
+        })
+        added++
+      }
+      if (added === 0) setSyncError('All sprints already imported')
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : 'Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const proj = projects.find((p) => p.id === selectedProject)
   const projectSprints = sprints.filter((s) => s.projectId === selectedProject)
@@ -204,13 +236,26 @@ export default function SprintView() {
         <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.8px' }}>
           {proj.name} · Sprints
         </span>
-        <button
-          onClick={() => setModalSprint('new')}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 7, cursor: 'pointer' }}
-        >
-          <IcoPlus />
-          New sprint
-        </button>
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+          {proj.jiraBoardId && jiraConnections.some((c) => c.enabled) && (
+            <button
+              onClick={() => { void syncFromJira() }}
+              disabled={syncing}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid var(--border2)', background: 'var(--surface2)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 7, cursor: syncing ? 'default' : 'pointer', opacity: syncing ? 0.6 : 1 }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={syncing ? { animation: 'spin 1s linear infinite' } : {}}><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              {syncing ? 'Syncing…' : 'Sync from Jira'}
+            </button>
+          )}
+          {syncError && <span style={{ fontSize: 10, color: 'var(--red)', fontFamily: 'var(--mono)' }}>{syncError}</span>}
+          <button
+            onClick={() => setModalSprint('new')}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 7, cursor: 'pointer' }}
+          >
+            <IcoPlus />
+            New sprint
+          </button>
+        </div>
       </div>
 
       {projectSprints.length === 0 ? (

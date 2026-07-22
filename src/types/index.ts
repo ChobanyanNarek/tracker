@@ -142,7 +142,7 @@ export interface Sprint {
   name: string
   startDate: string  // YYYY-MM-DD
   endDate: string    // YYYY-MM-DD
-  jiraBoardId?: number
+  jiraSprintId?: number  // Jira sprint ID for dedup on re-sync
 }
 
 export interface Project {

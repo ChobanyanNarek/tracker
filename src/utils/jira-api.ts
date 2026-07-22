@@ -138,6 +138,33 @@ export async function fetchJiraBoards(config: JiraConfig): Promise<JiraBoardInfo
   return data.map((b) => ({ id: b.id, name: b.name, type: b.type }))
 }
 
+export interface JiraSprintInfo {
+  id: number
+  name: string
+  state: string  // 'active' | 'future' | 'closed'
+  startDate?: string
+  endDate?: string
+}
+
+export async function fetchJiraSprints(config: JiraConfig, boardId: number): Promise<JiraSprintInfo[]> {
+  const res = await fetch(`${API_URL}/pm-tracker/jira-sprints`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      baseUrl: config.baseUrl.trim(),
+      email: config.email.trim(),
+      token: config.token.trim(),
+      boardId,
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Jira ${res.status}: ${text.slice(0, 300) || res.statusText}`)
+  }
+  const data = (await res.json()) as Array<{ id: number; name: string; state: string; startDate?: string; endDate?: string }>
+  return data.map((s) => ({ id: s.id, name: s.name, state: s.state, startDate: s.startDate?.slice(0, 10), endDate: s.endDate?.slice(0, 10) }))
+}
+
 export async function fetchJiraStatuses(config: JiraConfig): Promise<JiraStatusInfo[]> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-statuses`, {
     method: 'POST',
