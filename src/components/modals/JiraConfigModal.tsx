@@ -153,8 +153,22 @@ interface ConnFormProps {
   isOnly: boolean
 }
 
+function parseJiraUrl(raw: string): { baseUrl: string; projectKey: string | null } {
+  const trimmed = raw.trim().replace(/\/$/, '')
+  // https://company.atlassian.net/jira/software/projects/KEY/boards/...
+  // https://company.atlassian.net/jira/software/c/projects/KEY/boards/...
+  const projectMatch = trimmed.match(/^(https?:\/\/[^/]+)(?:\/jira)?\/software\/(?:c\/)?projects\/([A-Z][A-Z0-9_]+)/i)
+  if (projectMatch) return { baseUrl: projectMatch[1]!, projectKey: projectMatch[2]!.toUpperCase() }
+  // https://company.atlassian.net/browse/KEY-123
+  const browseMatch = trimmed.match(/^(https?:\/\/[^/]+)\/browse\/([A-Z][A-Z0-9_]+)-\d+/i)
+  if (browseMatch) return { baseUrl: browseMatch[1]!, projectKey: browseMatch[2]!.toUpperCase() }
+  // plain base URL
+  return { baseUrl: trimmed, projectKey: null }
+}
+
 function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProps) {
   const [projectKeysRaw, setProjectKeysRaw] = useState(conn.projectKeys.join(', '))
+  const [urlRaw, setUrlRaw] = useState(conn.baseUrl)
   const [showToken, setShowToken] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
@@ -255,8 +269,35 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       </div>
 
       <div>
-        <span style={labelStyle}>Jira Base URL</span>
-        <input style={inputStyle} placeholder="https://yourcompany.atlassian.net" value={conn.baseUrl} onChange={(e) => patch('baseUrl', e.target.value)} />
+        <span style={labelStyle}>Jira URL — base or project/board link</span>
+        <input
+          style={inputStyle}
+          placeholder="https://company.atlassian.net  or  …/projects/COM/boards"
+          value={urlRaw}
+          onChange={(e) => {
+            const raw = e.target.value
+            setUrlRaw(raw)
+            const { baseUrl, projectKey } = parseJiraUrl(raw)
+            if (projectKey) {
+              const existing = conn.projectKeys.filter((k) => k !== projectKey)
+              const keys = [projectKey, ...existing]
+              setProjectKeysRaw(keys.join(', '))
+              onChange({ ...conn, baseUrl, projectKeys: keys })
+            } else {
+              onChange({ ...conn, baseUrl })
+            }
+          }}
+        />
+        {(() => {
+          const { baseUrl, projectKey } = parseJiraUrl(urlRaw)
+          if (!projectKey) return null
+          return (
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', marginTop: 3 }}>
+              Base: <strong style={{ color: 'var(--text2)' }}>{baseUrl}</strong>
+              {' · '}Project key added: <strong style={{ color: 'var(--accent)' }}>{projectKey}</strong>
+            </div>
+          )
+        })()}
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
