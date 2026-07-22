@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStore } from '../../store'
 import { PALETTE } from '../../constants'
+import { fetchJiraBoards, type JiraBoardInfo } from '../../utils/jira-api'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import MembersModal from '../modals/MembersModal'
 
@@ -92,8 +93,20 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
   const [editNonWorkingDays, setEditNonWorkingDays] = useState<number[]>([0, 6])
   const [editMode, setEditMode] = useState<'kanban' | 'scrum'>('kanban')
   const [editJiraBoardId, setEditJiraBoardId] = useState<string>('')
+  const [boards, setBoards] = useState<JiraBoardInfo[]>([])
+  const [loadingBoards, setLoadingBoards] = useState(false)
 
-  const { projects, selectedProject, addProject, updateProject, deleteProject, setSelectedProject } = useStore()
+  const { projects, selectedProject, jiraConnections, addProject, updateProject, deleteProject, setSelectedProject } = useStore()
+
+  useEffect(() => {
+    if (editMode !== 'scrum') return
+    const conn = jiraConnections.find((c) => c.enabled)
+    if (!conn) return
+    setLoadingBoards(true)
+    fetchJiraBoards(conn).then((b) => {
+      setBoards(b.filter((x) => x.type === 'scrum'))
+    }).catch(() => {}).finally(() => setLoadingBoards(false))
+  }, [editMode, jiraConnections])
 
   const deletingProj = projects.find((p) => p.id === deletingProjId)
 
@@ -297,14 +310,29 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                       </div>
                       {editMode === 'scrum' && (
                         <div>
-                          <label style={labelStyle}>Jira Board ID (optional)</label>
-                          <input
-                            style={{ padding: '5px 8px', fontSize: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text)', width: '100%', boxSizing: 'border-box' as const }}
-                            value={editJiraBoardId}
-                            onChange={(e) => setEditJiraBoardId(e.target.value)}
-                            placeholder="Board ID number"
-                            type="number"
-                          />
+                          <label style={labelStyle}>Jira Scrum Board</label>
+                          {loadingBoards ? (
+                            <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>Loading boards…</div>
+                          ) : boards.length > 0 ? (
+                            <select
+                              style={{ padding: '5px 8px', fontSize: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text)', width: '100%', boxSizing: 'border-box' as const }}
+                              value={editJiraBoardId}
+                              onChange={(e) => setEditJiraBoardId(e.target.value)}
+                            >
+                              <option value="">— select board —</option>
+                              {boards.map((b) => (
+                                <option key={b.id} value={String(b.id)}>{b.name} (#{b.id})</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              style={{ padding: '5px 8px', fontSize: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text)', width: '100%', boxSizing: 'border-box' as const }}
+                              value={editJiraBoardId}
+                              onChange={(e) => setEditJiraBoardId(e.target.value)}
+                              placeholder="Board ID (no Jira connection found)"
+                              type="number"
+                            />
+                          )}
                         </div>
                       )}
                       <div style={{ display: 'flex', gap: 5, marginTop: 2 }}>
