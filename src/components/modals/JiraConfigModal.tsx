@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
 import type { JiraConfig, JiraStatusMapping, StatusGroup, StatusGroupColor } from '../../types'
-import { fetchJiraIssues, fetchJiraStatuses, fetchJiraBoards, type JiraStatusInfo, type JiraBoardInfo } from '../../utils/jira-api'
+import { fetchJiraIssues, fetchJiraStatuses, type JiraStatusInfo } from '../../utils/jira-api'
 import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX } from '../../utils/status-groups'
 import Modal from '../ui/Modal'
 import { formatDateTime } from '../../utils/dates'
@@ -153,17 +153,19 @@ interface ConnFormProps {
   isOnly: boolean
 }
 
-function parseJiraUrl(raw: string): { baseUrl: string; projectKey: string | null } {
+function parseJiraUrl(raw: string): { baseUrl: string; projectKey: string | null; boardId: number | null } {
   const trimmed = raw.trim().replace(/\/$/, '')
-  // https://company.atlassian.net/jira/software/projects/KEY/boards/...
-  // https://company.atlassian.net/jira/software/c/projects/KEY/boards/...
+  // https://company.atlassian.net/jira/software/projects/KEY/boards/123
+  const boardMatch = trimmed.match(/^(https?:\/\/[^/]+)(?:\/jira)?\/software\/(?:c\/)?projects\/([A-Z][A-Z0-9_]+)\/boards\/(\d+)/i)
+  if (boardMatch) return { baseUrl: boardMatch[1]!, projectKey: boardMatch[2]!.toUpperCase(), boardId: Number(boardMatch[3]) }
+  // https://company.atlassian.net/jira/software/projects/KEY (no board id)
   const projectMatch = trimmed.match(/^(https?:\/\/[^/]+)(?:\/jira)?\/software\/(?:c\/)?projects\/([A-Z][A-Z0-9_]+)/i)
-  if (projectMatch) return { baseUrl: projectMatch[1]!, projectKey: projectMatch[2]!.toUpperCase() }
+  if (projectMatch) return { baseUrl: projectMatch[1]!, projectKey: projectMatch[2]!.toUpperCase(), boardId: null }
   // https://company.atlassian.net/browse/KEY-123
   const browseMatch = trimmed.match(/^(https?:\/\/[^/]+)\/browse\/([A-Z][A-Z0-9_]+)-\d+/i)
-  if (browseMatch) return { baseUrl: browseMatch[1]!, projectKey: browseMatch[2]!.toUpperCase() }
+  if (browseMatch) return { baseUrl: browseMatch[1]!, projectKey: browseMatch[2]!.toUpperCase(), boardId: null }
   // plain base URL
-  return { baseUrl: trimmed, projectKey: null }
+  return { baseUrl: trimmed, projectKey: null, boardId: null }
 }
 
 function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProps) {
@@ -176,8 +178,6 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   const [statuses, setStatuses] = useState<JiraStatusInfo[]>(() =>
     conn.statusMappings?.map((m) => ({ name: m.jiraStatus, categoryKey: 'new' })) ?? []
   )
-  const [fetchingBoards, setFetchingBoards] = useState(false)
-  const [boards, setBoards] = useState<JiraBoardInfo[]>([])
 
   const groups = conn.statusGroups?.length ? conn.statusGroups : DEFAULT_STATUS_GROUPS
 
@@ -207,23 +207,6 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       setTestResult({ ok: true, msg: 'Connection successful ✓' })
     } catch (err) { setTestResult({ ok: false, msg: (err as Error).message }) }
     setTesting(false)
-  }
-
-  async function fetchBoardsList() {
-    setFetchingBoards(true)
-    try {
-      const fetched = await fetchJiraBoards(conn)
-      setBoards(fetched)
-    } catch (err) {
-      setTestResult({ ok: false, msg: `Failed to fetch boards: ${(err as Error).message}` })
-    }
-    setFetchingBoards(false)
-  }
-
-  function toggleBoard(id: number) {
-    const current = conn.boardIds ?? []
-    const next = current.includes(id) ? current.filter((b) => b !== id) : [...current, id]
-    onChange({ ...conn, boardIds: next.length ? next : undefined })
   }
 
   async function fetchStatuses() {
@@ -277,24 +260,22 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
           onChange={(e) => {
             const raw = e.target.value
             setUrlRaw(raw)
-            const { baseUrl, projectKey } = parseJiraUrl(raw)
-            if (projectKey) {
-              const existing = conn.projectKeys.filter((k) => k !== projectKey)
-              const keys = [projectKey, ...existing]
-              setProjectKeysRaw(keys.join(', '))
-              onChange({ ...conn, baseUrl, projectKeys: keys })
-            } else {
-              onChange({ ...conn, baseUrl })
-            }
+            const { baseUrl, projectKey, boardId } = parseJiraUrl(raw)
+            const keys = projectKey
+              ? [projectKey, ...conn.projectKeys.filter((k) => k !== projectKey)]
+              : conn.projectKeys
+            if (projectKey) setProjectKeysRaw(keys.join(', '))
+            onChange({ ...conn, baseUrl, projectKeys: keys, boardId: boardId ?? undefined })
           }}
         />
         {(() => {
-          const { baseUrl, projectKey } = parseJiraUrl(urlRaw)
-          if (!projectKey) return null
+          const { baseUrl, projectKey, boardId } = parseJiraUrl(urlRaw)
+          if (!projectKey && !boardId) return null
           return (
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', marginTop: 3 }}>
               Base: <strong style={{ color: 'var(--text2)' }}>{baseUrl}</strong>
-              {' · '}Project key added: <strong style={{ color: 'var(--accent)' }}>{projectKey}</strong>
+              {projectKey && <>{' · '}Project: <strong style={{ color: 'var(--accent)' }}>{projectKey}</strong></>}
+              {boardId && <>{' · '}Board ID: <strong style={{ color: 'var(--accent)' }}>{boardId}</strong> — <span style={{ color: 'var(--green)' }}>board-scoped sync</span></>}
             </div>
           )
         })()}
@@ -405,51 +386,12 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         )}
       </div>
 
-      {/* ── BOARDS ── */}
-      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <div>
-            <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>Boards filter</span>
-            {conn.boardIds?.length ? (
-              <span style={{ marginLeft: 8, fontSize: 9, fontFamily: 'var(--mono)', background: 'var(--accent-dim)', color: 'var(--accent)', border: '1px solid var(--accent-border)', borderRadius: 8, padding: '1px 6px' }}>
-                {conn.boardIds.length} selected
-              </span>
-            ) : (
-              <span style={{ marginLeft: 8, fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)' }}>all boards</span>
-            )}
-          </div>
-          <button
-            onClick={fetchBoardsList}
-            disabled={fetchingBoards || !conn.baseUrl || !conn.token}
-            style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}
-          >
-            {fetchingBoards ? '…loading' : '⟳ Fetch boards'}
-          </button>
+      {conn.boardId && (
+        <div style={{ fontSize: 10, fontFamily: 'var(--mono)', padding: '6px 10px', borderRadius: 6, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)' }}>
+          Board-scoped sync active — only issues from board #{conn.boardId} will be fetched.
+          <button onClick={() => onChange({ ...conn, boardId: undefined })} style={{ marginLeft: 8, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline', padding: 0 }}>clear</button>
         </div>
-
-        {boards.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {boards.map((b) => {
-              const selected = conn.boardIds?.includes(b.id) ?? false
-              return (
-                <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '4px 6px', borderRadius: 5, background: selected ? 'var(--accent-dim)' : 'transparent', border: `1px solid ${selected ? 'var(--accent-border)' : 'transparent'}` }}>
-                  <input type="checkbox" checked={selected} onChange={() => toggleBoard(b.id)} style={{ width: 12, height: 12, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: selected ? 'var(--accent)' : 'var(--text)', flex: 1 }}>{b.name}</span>
-                  <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{b.type}</span>
-                  <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)' }}>#{b.id}</span>
-                </label>
-              )
-            })}
-            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text4)', marginTop: 4 }}>
-              {!conn.boardIds?.length ? 'No boards selected — syncing all project issues.' : 'Only issues from selected boards will be synced.'}
-            </div>
-          </div>
-        ) : (
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text4)', padding: '6px 2px' }}>
-            Click "Fetch boards" to load your Jira boards and choose which ones to sync.
-          </div>
-        )}
-      </div>
+      )}
 
       {/* developers */}
       {developers.length > 0 && (

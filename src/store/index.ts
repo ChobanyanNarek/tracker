@@ -3,7 +3,7 @@ import type { AppState, Developer, Project, Sprint, Task, JiraIssue, JiraConfig,
 import { loadCloudState, saveCloudState } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
-import { fetchJiraIssues, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
+import { fetchJiraIssues, fetchJiraBoardIssues, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { isClosedGroup } from '../utils/status-groups'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
@@ -1017,12 +1017,16 @@ export const useStore = create<Store>((set, get) => {
 
         const byDev = new Map<string, JiraIssueRaw[]>()
         for (const { dev, email } of connDevs) {
-          const statusFilter = buildJqlStatusFilter(conn.statusMappings)
-          const devJql = projList
-            ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
-            : `assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
-          const devIssues = await fetchJiraIssues(conn, devJql)
-          console.debug(`[sync] dev=${dev.name} jql="${devJql}" → ${devIssues.length} issues: [${devIssues.map(i => i.key).join(', ')}]`)
+          let devIssues: JiraIssueRaw[]
+          if (conn.boardId) {
+            devIssues = await fetchJiraBoardIssues(conn, conn.boardId, email)
+          } else {
+            const statusFilter = buildJqlStatusFilter(conn.statusMappings)
+            const devJql = projList
+              ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
+              : `assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
+            devIssues = await fetchJiraIssues(conn, devJql)
+          }
           if (devIssues.length) byDev.set(dev.id, devIssues)
         }
 
@@ -1051,7 +1055,6 @@ export const useStore = create<Store>((set, get) => {
             const k = jiraDedupeKey(url, raw.fields.summary)
             if (k && k !== 'name:') closedKeys.add(k)
           })
-          devIssues.forEach((raw) => { if (isClosedRaw(raw)) console.debug(`[sync] CLOSED→skipped: ${raw.key} status="${raw.fields.status.name}"`) })
           const incoming = devIssues.filter((raw) => !isClosedRaw(raw)).map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings))
           const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today)
 
@@ -1082,10 +1085,8 @@ export const useStore = create<Store>((set, get) => {
           const trulyNew: typeof incoming = []
           const deletedUrls = new Set(syncTask?.deletedJiraUrls ?? [])
 
-          console.debug(`[sync] incoming (non-closed): [${incoming.map(j => j.url.split('/browse/')[1]).join(', ')}]`)
-          console.debug(`[sync] deletedUrls:`, [...deletedUrls])
           incoming.forEach((nj) => {
-            if (deletedUrls.has(nj.url)) { console.debug(`[sync] DELETED→skipped: ${nj.url}`); return }
+            if (deletedUrls.has(nj.url)) return
             const njKey = jiraDedupeKey(nj.url, nj.name)
 
             if (syncTask) {
@@ -1118,7 +1119,6 @@ export const useStore = create<Store>((set, get) => {
             }
 
             if (nj.status !== 'done') trulyNew.push(nj)
-            else console.debug(`[sync] STATUS=done→skipped: ${nj.url.split('/browse/')[1]}`)
           })
 
           if (trulyNew.length > 0) {

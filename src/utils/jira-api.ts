@@ -120,6 +120,26 @@ export interface JiraBoardInfo {
   type: string  // 'scrum' | 'kanban' | 'simple'
 }
 
+export async function fetchJiraBoardIssues(config: JiraConfig, boardId: number, assigneeEmail: string): Promise<JiraIssueRaw[]> {
+  const res = await fetch(`${API_URL}/pm-tracker/jira-board-issues`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      baseUrl: config.baseUrl.trim(),
+      email: config.email.trim(),
+      token: config.token.trim(),
+      boardId,
+      assigneeEmail,
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Jira ${res.status}: ${text.slice(0, 300) || res.statusText}`)
+  }
+  const data = (await res.json()) as { issues?: JiraIssueRaw[] }
+  return data.issues ?? []
+}
+
 export async function fetchJiraBoards(config: JiraConfig): Promise<JiraBoardInfo[]> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-boards`, {
     method: 'POST',
