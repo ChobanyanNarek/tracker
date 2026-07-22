@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppState, Developer, Project, Task, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry } from '../types'
+import type { AppState, Developer, Project, Sprint, Task, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry } from '../types'
 import { loadCloudState, saveCloudState } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
@@ -53,6 +53,7 @@ function freshState(): AppState {
     githubConnections: [],
     developers: [],
     projects: [],
+    sprints: [],
     tasks: [],
   }
 }
@@ -62,6 +63,7 @@ function persistState(state: AppState): void {
     _v: 2,
     developers: state.developers,
     projects: state.projects,
+    sprints: state.sprints,
     tasks: state.tasks,
     schedule: state.schedule,
     scheduleHours: state.scheduleHours,
@@ -93,6 +95,10 @@ interface StoreActions {
   updateProject: (id: string, changes: Partial<Omit<Project, 'id'>>) => void
   deleteProject: (id: string) => void
   toggleMember: (projId: string, devId: string) => void
+
+  addSprint: (s: Omit<Sprint, 'id'>) => void
+  updateSprint: (id: string, changes: Partial<Omit<Sprint, 'id'>>) => void
+  deleteSprint: (id: string) => void
 
   addTask: (t: Omit<Task, 'id'>) => void
   updateTask: (id: string, patch: Partial<Task>) => void
@@ -217,6 +223,15 @@ export const useStore = create<Store>((set, get) => {
           }),
         }),
       ),
+
+    addSprint: (s_) =>
+      set((s) => withSave({ ...s, sprints: [...(s.sprints ?? []), { id: makeId('sp'), ...s_ }] })),
+
+    updateSprint: (id, changes) =>
+      set((s) => withSave({ ...s, sprints: (s.sprints ?? []).map((sp) => (sp.id === id ? { ...sp, ...changes } : sp)) })),
+
+    deleteSprint: (id) =>
+      set((s) => withSave({ ...s, sprints: (s.sprints ?? []).filter((sp) => sp.id !== id) })),
 
     addProject: (p) =>
       set((s) => withSave({ ...s, projects: [...s.projects, { id: makeId('p'), ...p }] })),
@@ -1007,6 +1022,7 @@ export const useStore = create<Store>((set, get) => {
             ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
             : `assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
           const devIssues = await fetchJiraIssues(conn, devJql)
+          console.debug(`[sync] dev=${dev.name} jql="${devJql}" → ${devIssues.length} issues: [${devIssues.map(i => i.key).join(', ')}]`)
           if (devIssues.length) byDev.set(dev.id, devIssues)
         }
 
@@ -1035,6 +1051,7 @@ export const useStore = create<Store>((set, get) => {
             const k = jiraDedupeKey(url, raw.fields.summary)
             if (k && k !== 'name:') closedKeys.add(k)
           })
+          devIssues.forEach((raw) => { if (isClosedRaw(raw)) console.debug(`[sync] CLOSED→skipped: ${raw.key} status="${raw.fields.status.name}"`) })
           const incoming = devIssues.filter((raw) => !isClosedRaw(raw)).map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings))
           const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today)
 
@@ -1065,8 +1082,10 @@ export const useStore = create<Store>((set, get) => {
           const trulyNew: typeof incoming = []
           const deletedUrls = new Set(syncTask?.deletedJiraUrls ?? [])
 
+          console.debug(`[sync] incoming (non-closed): [${incoming.map(j => j.url.split('/browse/')[1]).join(', ')}]`)
+          console.debug(`[sync] deletedUrls:`, [...deletedUrls])
           incoming.forEach((nj) => {
-            if (deletedUrls.has(nj.url)) return
+            if (deletedUrls.has(nj.url)) { console.debug(`[sync] DELETED→skipped: ${nj.url}`); return }
             const njKey = jiraDedupeKey(nj.url, nj.name)
 
             if (syncTask) {
@@ -1076,9 +1095,11 @@ export const useStore = create<Store>((set, get) => {
               })
               if (existIdx >= 0) {
                 const ex = syncTask.jiras[existIdx]
+                const usesManual = !!ex.manualStatus && nj.status !== 'done'
                 const resolvedStatus = nj.status === 'done' ? 'done' : (ex.manualStatus ?? nj.status)
                 const resolvedManual = nj.status === 'done' ? undefined : ex.manualStatus
-                syncTask.jiras[existIdx] = { ...ex, status: resolvedStatus, manualStatus: resolvedManual, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory) }
+                const resolvedGroupId = usesManual ? ex.groupId : nj.groupId
+                syncTask.jiras[existIdx] = { ...ex, status: resolvedStatus, groupId: resolvedGroupId, manualStatus: resolvedManual, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory) }
                 connUpdated++
                 return
               }
@@ -1087,14 +1108,17 @@ export const useStore = create<Store>((set, get) => {
             if (njKey && njKey !== 'name:' && keyToTask.has(njKey)) {
               const { task, idx } = keyToTask.get(njKey)!
               const ex = task.jiras[idx]
+              const usesManual2 = !!ex.manualStatus && nj.status !== 'done'
               const resolvedStatus2 = nj.status === 'done' ? 'done' : (ex.manualStatus ?? nj.status)
               const resolvedManual2 = nj.status === 'done' ? undefined : ex.manualStatus
-              task.jiras[idx] = { ...ex, status: resolvedStatus2, manualStatus: resolvedManual2, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory) }
+              const resolvedGroupId2 = usesManual2 ? ex.groupId : nj.groupId
+              task.jiras[idx] = { ...ex, status: resolvedStatus2, groupId: resolvedGroupId2, manualStatus: resolvedManual2, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory) }
               connUpdated++
               return
             }
 
             if (nj.status !== 'done') trulyNew.push(nj)
+            else console.debug(`[sync] STATUS=done→skipped: ${nj.url.split('/browse/')[1]}`)
           })
 
           if (trulyNew.length > 0) {
@@ -1499,6 +1523,7 @@ function applyCloudState(cloud: Record<string, unknown> | null) {
       ? {
           ...(cloud.developers ? { developers: (cloud.developers as AppState['developers']).map((d) => ({ periods: [], ...d })) } : {}),
           ...(cloud.projects ? { projects: (cloud.projects as AppState['projects']).map((p) => ({ nonWorkingDays: [0, 6] as number[], ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
+          ...(cloud.sprints ? { sprints: cloud.sprints as AppState['sprints'] } : {}),
           ...(cloud.tasks ? { tasks: (cloud.tasks as AppState['tasks']).map(normalizeTask) } : {}),
           ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
           ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),

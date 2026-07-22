@@ -1,7 +1,7 @@
 export type Status = 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
 export type Priority = 'low' | 'medium' | 'high' | 'critical'
 export type ScheduleType = 'work' | 'vacation' | 'dayoff' | 'sick' | 'holiday'
-export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule'
+export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule' | 'sprint'
 
 export interface GitLabConfig {
   id: string
@@ -136,6 +136,15 @@ export interface Developer {
   workSchedule?: WorkSchedule
 }
 
+export interface Sprint {
+  id: string
+  projectId: string
+  name: string
+  startDate: string  // YYYY-MM-DD
+  endDate: string    // YYYY-MM-DD
+  jiraBoardId?: number
+}
+
 export interface Project {
   id: string
   name: string
@@ -143,6 +152,8 @@ export interface Project {
   desc: string
   members: string[]
   nonWorkingDays?: number[]  // 0=Sun 1=Mon … 6=Sat; defaults to [0,6] when absent
+  mode?: 'kanban' | 'scrum'
+  jiraBoardId?: number
 }
 
 export interface DeadlineItem {
@@ -161,6 +172,7 @@ export interface DeadlineItem {
 export interface AppState {
   developers: Developer[]
   projects: Project[]
+  sprints: Sprint[]
   tasks: Task[]
   schedule: Record<string, Record<string, string>>
   scheduleHours: Record<string, Record<string, number>>

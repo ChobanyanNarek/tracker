@@ -10,20 +10,55 @@ interface Props {
   topOffset: number
 }
 
-const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
-const DAY_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+// Monday-first week order: Mon=1 Tue=2 Wed=3 Thu=4 Fri=5 Sat=6 Sun=0
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+const DAY_FULL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+// JS day-of-week → name (0=Sun … 6=Sat)
+const DOW_NAME = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+const IcoFolders = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+  </svg>
+)
+
+const IcoPencil = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+)
+
+const IcoUsers = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+    <circle cx="9" cy="7" r="4"/>
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+  </svg>
+)
+
+const IcoTrash = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"/>
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    <path d="M10 11v6M14 11v6"/>
+    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+  </svg>
+)
 
 function DayPicker({ value, onChange }: { value: number[]; onChange: (v: number[]) => void }) {
   const toggle = (d: number) => onChange(value.includes(d) ? value.filter((x) => x !== d) : [...value, d].sort())
   return (
     <div style={{ display: 'flex', gap: 3 }}>
-      {DAY_LABELS.map((label, i) => {
-        const active = value.includes(i)
+      {WEEK_ORDER.map((dow, i) => {
+        const active = value.includes(dow)
         return (
           <button
-            key={i}
+            key={dow}
             type="button"
-            onClick={() => toggle(i)}
+            onClick={() => toggle(dow)}
             title={DAY_FULL[i]}
             style={{
               width: 26, height: 26, borderRadius: 6, fontSize: 10, fontWeight: 700,
@@ -32,7 +67,7 @@ function DayPicker({ value, onChange }: { value: number[]; onChange: (v: number[
               color: active ? 'var(--accent)' : 'var(--text3)',
               cursor: 'pointer', transition: 'all .12s', padding: 0,
             }}
-          >{label}</button>
+          >{DAY_LABELS[i]}</button>
         )
       })}
     </div>
@@ -55,6 +90,8 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
   const [editDesc, setEditDesc] = useState('')
   const [editColor, setEditColor] = useState(PALETTE[0])
   const [editNonWorkingDays, setEditNonWorkingDays] = useState<number[]>([0, 6])
+  const [editMode, setEditMode] = useState<'kanban' | 'scrum'>('kanban')
+  const [editJiraBoardId, setEditJiraBoardId] = useState<string>('')
 
   const { projects, selectedProject, addProject, updateProject, deleteProject, setSelectedProject } = useStore()
 
@@ -74,6 +111,8 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
     setEditDesc(p.desc ?? '')
     setEditColor(p.color)
     setEditNonWorkingDays(p.nonWorkingDays ?? [0, 6])
+    setEditMode(p.mode ?? 'kanban')
+    setEditJiraBoardId(p.jiraBoardId != null ? String(p.jiraBoardId) : '')
   }
 
   const handleSaveEdit = () => {
@@ -83,6 +122,8 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
       desc: editDesc.trim(),
       color: editColor,
       nonWorkingDays: editNonWorkingDays,
+      mode: editMode,
+      jiraBoardId: editMode === 'scrum' && editJiraBoardId ? Number(editJiraBoardId) : undefined,
     })
     setEditingProjId(null)
   }
@@ -153,7 +194,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
           {/* All projects */}
           <div style={{ padding: '6px 8px 2px' }}>
             <div onClick={() => selectProject('ALL')} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 'var(--r)', cursor: 'pointer', border: `1px solid ${selectedProject === 'ALL' ? 'var(--accent)' : 'var(--border)'}`, background: selectedProject === 'ALL' ? 'var(--accent-dim)' : 'var(--surface2)', transition: 'all .15s' }}>
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--surface3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>📁</div>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--surface3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', flexShrink: 0 }}><IcoFolders /></div>
               <span style={{ fontSize: 13, fontWeight: 500, color: selectedProject === 'ALL' ? 'var(--accent)' : 'var(--text2)', flex: 1 }}>All projects</span>
             </div>
           </div>
@@ -177,10 +218,15 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 500, color: isActive ? 'var(--accent)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
                       {p.desc && <div style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.desc}</div>}
-                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                        {p.members.length} member{p.members.length !== 1 ? 's' : ''}
-                        {(p.nonWorkingDays ?? [0, 6]).length > 0 && (
-                          <span style={{ marginLeft: 4 }}>· off: {(p.nonWorkingDays ?? [0, 6]).map((d) => DAY_FULL[d]).join(', ')}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                          {p.members.length} member{p.members.length !== 1 ? 's' : ''}
+                          {(p.nonWorkingDays ?? [0, 6]).length > 0 && (
+                            <span style={{ marginLeft: 4 }}>· off: {(p.nonWorkingDays ?? [0, 6]).map((d) => DOW_NAME[d]).join(', ')}</span>
+                          )}
+                        </span>
+                        {p.mode === 'scrum' && (
+                          <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent-dim)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '0 4px', letterSpacing: '.3px' }}>SCRUM</span>
                         )}
                       </div>
                     </div>
@@ -190,21 +236,21 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                       style={{ background: isEditing ? 'var(--accent-dim)' : 'none', border: `1px solid ${isEditing ? 'var(--accent)' : 'var(--border)'}`, color: isEditing ? 'var(--accent)' : 'var(--text3)', fontSize: 10, width: 22, height: 22, borderRadius: 5, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .15s', flexShrink: 0 }}
                       onMouseEnter={(e) => { if (!isEditing) { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
                       onMouseLeave={(e) => { if (!isEditing) { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
-                    >✏️</button>
+                    ><IcoPencil /></button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setMembersModalProjId(p.id) }}
                       title="Edit members"
-                      style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: 11, width: 22, height: 22, borderRadius: 5, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .15s', flexShrink: 0 }}
+                      style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', width: 22, height: 22, borderRadius: 5, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .15s', flexShrink: 0 }}
                       onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
                       onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-                    >👥</button>
+                    ><IcoUsers /></button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeletingProjId(p.id) }}
                       title="Delete project"
-                      style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: 10, width: 22, height: 22, borderRadius: 5, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .15s', flexShrink: 0 }}
+                      style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', width: 22, height: 22, borderRadius: 5, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .15s', flexShrink: 0 }}
                       onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)' }}
                       onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-                    >✕</button>
+                    ><IcoTrash /></button>
                   </div>
 
                   {/* Inline edit form */}
@@ -230,6 +276,37 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                         <label style={labelStyle}>Non-working days</label>
                         <DayPicker value={editNonWorkingDays} onChange={setEditNonWorkingDays} />
                       </div>
+                      <div>
+                        <label style={labelStyle}>Mode</label>
+                        <div style={{ display: 'flex', gap: 5 }}>
+                          {(['kanban', 'scrum'] as const).map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setEditMode(m)}
+                              style={{
+                                flex: 1, padding: '5px 0', fontSize: 11, fontWeight: 600, borderRadius: 6,
+                                border: `1.5px solid ${editMode === m ? 'var(--accent)' : 'var(--border2)'}`,
+                                background: editMode === m ? 'var(--accent-dim)' : 'none',
+                                color: editMode === m ? 'var(--accent)' : 'var(--text3)',
+                                cursor: 'pointer', transition: 'all .12s', textTransform: 'capitalize',
+                              }}
+                            >{m}</button>
+                          ))}
+                        </div>
+                      </div>
+                      {editMode === 'scrum' && (
+                        <div>
+                          <label style={labelStyle}>Jira Board ID (optional)</label>
+                          <input
+                            style={{ padding: '5px 8px', fontSize: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text)', width: '100%', boxSizing: 'border-box' as const }}
+                            value={editJiraBoardId}
+                            onChange={(e) => setEditJiraBoardId(e.target.value)}
+                            placeholder="Board ID number"
+                            type="number"
+                          />
+                        </div>
+                      )}
                       <div style={{ display: 'flex', gap: 5, marginTop: 2 }}>
                         <button className="btn-soft" style={{ flex: 1, justifyContent: 'center', fontSize: 11 }} onClick={handleSaveEdit}>Save</button>
                         <button className="btn-secondary" style={{ flex: 1, padding: '4px 0', fontSize: 11 }} onClick={() => setEditingProjId(null)}>Cancel</button>

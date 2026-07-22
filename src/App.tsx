@@ -14,6 +14,8 @@ import DeadlinesView from './components/views/DeadlinesView'
 import SearchView from './components/views/SearchView'
 import PerformanceView from './components/views/PerformanceView'
 import ScheduleView from './components/views/ScheduleView'
+import SprintView from './components/views/SprintView'
+import SprintBand from './components/sprint/SprintBand'
 import StandupModal from './components/modals/StandupModal'
 import GanttModal from './components/modals/GanttModal'
 import JiraConfigModal from './components/modals/JiraConfigModal'
@@ -23,7 +25,6 @@ import GitHubConfigModal from './components/modals/GitHubConfigModal'
 const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
   deadlines: 'Deadlines',
-  search: 'Search',
   performance: 'Performance',
   schedule: 'Schedule',
 }
@@ -31,9 +32,9 @@ const VIEW_LABELS: Record<string, string> = {
 const VIEW_ICONS: Record<string, ReactNode> = {
   daily: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
   deadlines: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
-  search: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   performance: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
   schedule: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="8" y2="18"/><line x1="12" y1="18" x2="12" y2="18"/></svg>,
+  sprint: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>,
 }
 
 export default function App() {
@@ -67,7 +68,7 @@ export default function App() {
 }
 
 function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
-  const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing } = useStore()
+  const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing } = useStore()
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
@@ -139,6 +140,18 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
   }, [])
 
   const proj = projects.find((p) => p.id === selectedProject)
+  const isScrumProject = proj?.mode === 'scrum'
+
+  // If sprint tab is active but project is no longer scrum, go back to daily
+  if (view === 'sprint' && !isScrumProject) {
+    setView('daily')
+  }
+  const activeSprint = isScrumProject
+    ? sprints.filter((s) => s.projectId === selectedProject).find((s) => {
+        const today = new Date().toISOString().slice(0, 10)
+        return today >= s.startDate && today <= s.endDate
+      }) ?? sprints.filter((s) => s.projectId === selectedProject).slice(-1)[0]
+    : undefined
 
   if (cloudSyncing) {
     return (
@@ -184,6 +197,16 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
                 )}
               </button>
             ))}
+            {isScrumProject && (
+              <button
+                onClick={() => setView('sprint')}
+                className={`view-tab${view === 'sprint' ? ' active' : ''}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              >
+                {VIEW_ICONS.sprint}
+                Sprint
+              </button>
+            )}
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6 }}>
               {cloudSyncing && (
@@ -199,6 +222,9 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
             </div>
           </div>
 
+          {view === 'daily' && isScrumProject && activeSprint && (
+            <SprintBand sprint={activeSprint} />
+          )}
           {view === 'daily' && (
             <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)' }}>
               <Calendar />
@@ -211,6 +237,7 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
             {view === 'search' && <SearchView />}
             {view === 'performance' && <PerformanceView />}
             {view === 'schedule' && <ScheduleView />}
+            {view === 'sprint' && <SprintView />}
           </div>
         </div>
 
