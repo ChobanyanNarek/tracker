@@ -966,7 +966,7 @@ export const useStore = create<Store>((set, get) => {
     setJiraConnections: (jiraConnections) => set((s) => withSave({ ...s, jiraConnections })),
 
     syncJira: async () => {
-      const { jiraConnections, developers, tasks } = get()
+      const { jiraConnections, developers, tasks, projects } = get()
       const enabledConns = jiraConnections.filter((c) => c.enabled && c.baseUrl && c.token)
       if (!enabledConns.length) throw new Error('No Jira connections configured')
 
@@ -1017,9 +1017,13 @@ export const useStore = create<Store>((set, get) => {
 
         const byDev = new Map<string, JiraIssueRaw[]>()
         for (const { dev, email } of connDevs) {
+          // If any scrum project with a board has this dev as member, fetch from board
+          const scrumProject = projects.find(
+            (p) => p.mode === 'scrum' && p.jiraBoardId && p.members.includes(dev.id)
+          )
           let devIssues: JiraIssueRaw[]
-          if (conn.boardId) {
-            devIssues = await fetchJiraBoardIssues(conn, conn.boardId, email)
+          if (scrumProject?.jiraBoardId) {
+            devIssues = await fetchJiraBoardIssues(conn, scrumProject.jiraBoardId, email)
           } else {
             const statusFilter = buildJqlStatusFilter(conn.statusMappings)
             const devJql = projList
