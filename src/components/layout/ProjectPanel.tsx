@@ -237,6 +237,9 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
   const [jiraModalOpen, setJiraModalOpen] = useState(false)
   const [gitlabModalOpen, setGitlabModalOpen] = useState(false)
   const [githubModalOpen, setGithubModalOpen] = useState(false)
+  const [jiraSyncing, setJiraSyncing] = useState(false)
+  const [glSyncing, setGlSyncing] = useState(false)
+  const [ghSyncing, setGhSyncing] = useState(false)
 
   // Dev management
   const [showDevForm, setShowDevForm] = useState(false)
@@ -689,7 +692,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                     <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: jiraEnabled ? '#60a5fa' : 'var(--text2)' }}>Jira</span>
                     {jiraEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#60a5fa', padding: '2px 6px', border: '1px solid #60a5fa40', borderRadius: 8, background: '#eff6ff' }}>on</span>}
                     <button style={iconBtnStyle} title="Jira settings" onClick={() => setJiraModalOpen(true)}><GearIcon /></button>
-                    <button style={{ ...iconBtnStyle, color: jiraEnabled ? '#60a5fa' : 'var(--text3)', borderColor: jiraEnabled ? '#60a5fa50' : 'var(--border)' }} title="Sync from Jira" onClick={async () => { try { await syncJira() } catch {} }}><SyncIcon spinning={false} /></button>
+                    <button style={{ ...iconBtnStyle, color: jiraEnabled ? '#60a5fa' : 'var(--text3)', borderColor: jiraEnabled ? '#60a5fa50' : 'var(--border)', opacity: jiraSyncing ? 0.5 : 1 }} title="Sync from Jira" disabled={jiraSyncing} onClick={async () => { setJiraSyncing(true); try { await syncJira() } catch {} finally { setJiraSyncing(false) } }}><SyncIcon spinning={jiraSyncing} /></button>
                   </div>
                   {/* GitLab */}
                   <div style={rowStyle}>
@@ -697,7 +700,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                     <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: gitlabEnabled ? '#fc6d26' : 'var(--text2)' }}>GitLab</span>
                     {gitlabEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#fc6d26', padding: '2px 6px', border: '1px solid #fc6d2640', borderRadius: 8, background: '#fff7ed' }}>on</span>}
                     <button style={iconBtnStyle} title="GitLab settings" onClick={() => setGitlabModalOpen(true)}><GearIcon /></button>
-                    <button style={{ ...iconBtnStyle, color: gitlabEnabled ? '#fc6d26' : 'var(--text3)', borderColor: gitlabEnabled ? '#fc6d2650' : 'var(--border)' }} title="Sync MRs" onClick={async () => { try { await syncGitlab() } catch {} }}><SyncIcon spinning={false} /></button>
+                    <button style={{ ...iconBtnStyle, color: gitlabEnabled ? '#fc6d26' : 'var(--text3)', borderColor: gitlabEnabled ? '#fc6d2650' : 'var(--border)', opacity: glSyncing ? 0.5 : 1 }} title="Sync MRs" disabled={glSyncing} onClick={async () => { setGlSyncing(true); try { await syncGitlab() } catch {} finally { setGlSyncing(false) } }}><SyncIcon spinning={glSyncing} /></button>
                   </div>
                   {/* GitHub */}
                   <div style={{ ...rowStyle, borderBottom: 'none' }}>
@@ -705,7 +708,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                     <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: githubEnabled ? '#6e40c9' : 'var(--text2)' }}>GitHub</span>
                     {githubEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#6e40c9', padding: '2px 6px', border: '1px solid #6e40c940', borderRadius: 8, background: '#f5f3ff' }}>on</span>}
                     <button style={iconBtnStyle} title="GitHub settings" onClick={() => setGithubModalOpen(true)}><GearIcon /></button>
-                    <button style={{ ...iconBtnStyle, color: githubEnabled ? '#6e40c9' : 'var(--text3)', borderColor: githubEnabled ? '#6e40c950' : 'var(--border)' }} title="Sync PRs" onClick={async () => { try { await syncGithub() } catch {} }}><SyncIcon spinning={false} /></button>
+                    <button style={{ ...iconBtnStyle, color: githubEnabled ? '#6e40c9' : 'var(--text3)', borderColor: githubEnabled ? '#6e40c950' : 'var(--border)', opacity: ghSyncing ? 0.5 : 1 }} title="Sync PRs" disabled={ghSyncing} onClick={async () => { setGhSyncing(true); try { await syncGithub() } catch {} finally { setGhSyncing(false) } }}><SyncIcon spinning={ghSyncing} /></button>
                   </div>
                 </div>
               )
