@@ -494,7 +494,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
         position: 'fixed', top: topOffset, left: PANEL_W, width: EDIT_W,
         height: `calc(100vh - ${topOffset}px)`,
         zIndex: 210, pointerEvents: editDrawerOpen ? 'all' : 'none',
-        transform: editDrawerOpen ? 'translateX(0)' : `translateX(-${EDIT_W}px)`,
+        transform: editDrawerOpen ? 'translateX(0)' : `translateX(-${PANEL_W + EDIT_W}px)`,
         transition: 'transform .24s cubic-bezier(.4,0,.2,1)',
       }}>
         {/* Drawer body */}
