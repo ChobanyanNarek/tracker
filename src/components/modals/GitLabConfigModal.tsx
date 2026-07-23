@@ -3,9 +3,10 @@ import { useStore } from '../../store'
 import type { GitLabConfig } from '../../types'
 import { fetchGroupMRs, normalizeGroupPath } from '../../utils/gitlab-api'
 import { jiraDedupeKey } from '../../utils/format'
+import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
 
-interface Props { onClose: () => void }
+interface Props { onClose: () => void; projectId?: string }
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)',
@@ -17,7 +18,7 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4, display: 'block',
 }
 
-function makeEmptyConn(): GitLabConfig {
+function makeEmptyConn(projectId?: string): GitLabConfig {
   return {
     id: 'gl_' + Date.now().toString(36),
     name: '',
@@ -26,6 +27,7 @@ function makeEmptyConn(): GitLabConfig {
     groupPath: '',
     syncInterval: 0,
     developerUsernames: {},
+    ...(projectId ? { projectId } : {}),
   }
 }
 
@@ -165,7 +167,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {conn.lastSync && (
         <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-          Last sync: {new Date(conn.lastSync).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          Last sync: {formatDateTime(conn.lastSync)}
           {conn.lastSyncResult ? ` — ${conn.lastSyncResult}` : ''}
         </div>
       )}
@@ -207,11 +209,12 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   )
 }
 
-export default function GitLabConfigModal({ onClose }: Props) {
+export default function GitLabConfigModal({ onClose, projectId }: Props) {
   const { gitlabConnections, developers, setGitlabConnections, syncGitlab } = useStore()
 
+  const filteredConns = projectId ? gitlabConnections.filter((c) => c.projectId === projectId) : gitlabConnections
   const [conns, setConns] = useState<GitLabConfig[]>(
-    gitlabConnections.length ? gitlabConnections : [makeEmptyConn()]
+    filteredConns.length ? filteredConns : [makeEmptyConn(projectId)]
   )
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
@@ -221,7 +224,7 @@ export default function GitLabConfigModal({ onClose }: Props) {
   }
 
   function addConn() {
-    setConns((prev) => [...prev, makeEmptyConn()])
+    setConns((prev) => [...prev, makeEmptyConn(projectId)])
   }
 
   function removeConn(idx: number) {
@@ -229,12 +232,22 @@ export default function GitLabConfigModal({ onClose }: Props) {
   }
 
   function save() {
-    setGitlabConnections(conns)
+    if (projectId) {
+      const others = gitlabConnections.filter((c) => c.projectId !== projectId)
+      setGitlabConnections([...others, ...conns])
+    } else {
+      setGitlabConnections(conns)
+    }
     onClose()
   }
 
   async function handleSyncNow() {
-    setGitlabConnections(conns)
+    if (projectId) {
+      const others = gitlabConnections.filter((c) => c.projectId !== projectId)
+      setGitlabConnections([...others, ...conns])
+    } else {
+      setGitlabConnections(conns)
+    }
     setSyncing(true)
     setSyncResult(null)
     try {

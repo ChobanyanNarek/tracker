@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
-import { dlInfo, todayStr } from '../../utils/dates'
+import { dlInfo, todayStr, formatDate } from '../../utils/dates'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
 import { STATUS_LABEL, STATUS_COLOR } from '../../constants'
 import type { DeadlineItem, Developer, Project } from '../../types'
@@ -58,7 +58,7 @@ function DeadlineCard({ item, developers, projects, yesterday, onJump }: {
           </>
         ) : task.date === yesterday ? (
           <div style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, color: 'var(--amber)' }}>
-            {`Since ${new Date(_sinceDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+            {`Since ${formatDate(_sinceDate)}`}
           </div>
         ) : (
           <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>No deadline</div>
@@ -105,15 +105,16 @@ export default function DeadlinesView() {
   const jiraMap = new Map<string, JiraEntry>()
 
   tasks.forEach((task) => {
-    // Only check today and yesterday
     if (archivedIds.has(task.devId)) return
-    if (task.date !== today && task.date !== yesterday) return
     if (selectedDev !== 'ALL' && task.devId !== selectedDev) return
     if (selectedProject !== 'ALL' && task.projectId !== selectedProject) return
 
     const jiras = getJiras(task)
     if (jiras.length) {
       jiras.forEach((j, ji) => {
+        // Issues without a deadline only contribute from today/yesterday (the "stuck" display).
+        // Issues with a deadline are collected from any date; dedup picks the latest occurrence.
+        if (!j.deadline && task.date !== today && task.date !== yesterday) return
         const jKey = `${task.devId}|${jiraDedupeKey(j.url, j.name) || `_anon${ji}`}`
         const item: DeadlineItem = {
           task, deadline: j.deadline, deadlineTime: j.deadlineTime ?? '',
@@ -129,7 +130,7 @@ export default function DeadlinesView() {
           if (task.date < ex.minDate) ex.minDate = task.date
         }
       })
-    } else if (task.deadline) {
+    } else if (task.deadline && (task.date === today || task.date === yesterday)) {
       const tKey = `${task.devId}|task-title:${task.title}`
       const item: DeadlineItem = {
         task, deadline: task.deadline, deadlineTime: task.deadlineTime ?? '',

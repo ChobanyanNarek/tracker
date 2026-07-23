@@ -6,7 +6,7 @@ import { useStore, countUrgentDeadlines, syncCloudToStore } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useAutoSync } from './hooks/useAutoSync'
 import TopBar from './components/layout/TopBar'
-import DevPanel from './components/layout/DevPanel'
+
 import ProjectPanel from './components/layout/ProjectPanel'
 import Calendar from './components/calendar/Calendar'
 import DailyView from './components/views/DailyView'
@@ -18,9 +18,6 @@ import SprintView from './components/views/SprintView'
 import SprintBand from './components/sprint/SprintBand'
 import StandupModal from './components/modals/StandupModal'
 import GanttModal from './components/modals/GanttModal'
-import JiraConfigModal from './components/modals/JiraConfigModal'
-import GitLabConfigModal from './components/modals/GitLabConfigModal'
-import GitHubConfigModal from './components/modals/GitHubConfigModal'
 
 const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
@@ -82,13 +79,13 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
   const [toast, setToast] = useState<string | null>(null)
   const [standupOpen, setStandupOpen] = useState(false)
   const [ganttOpen, setGanttOpen] = useState(false)
-  const [jiraConfigOpen, setJiraConfigOpen] = useState(false)
-  const [gitlabConfigOpen, setGitlabConfigOpen] = useState(false)
-  const [githubConfigOpen, setGithubConfigOpen] = useState(false)
-  const [openPanel, setOpenPanel] = useState<'dev' | 'proj' | null>(null)
-  const togglePanel = (which: 'dev' | 'proj') => setOpenPanel((p) => (p === which ? null : which))
+  const [openPanel, setOpenPanel] = useState<'proj' | null>(null)
+  const togglePanel = (which: 'proj') => setOpenPanel((p) => (p === which ? null : which))
 
-  const urgentCount = countUrgentDeadlines(tasks, developers)
+  const urgentProj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
+  const filteredTasks = urgentProj ? tasks.filter((t) => t.projectId === selectedProject) : tasks
+  const filteredDevs = urgentProj ? developers.filter((d) => urgentProj.members.includes(d.id)) : developers
+  const urgentCount = countUrgentDeadlines(filteredTasks, filteredDevs)
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showToast = useCallback((msg: string) => {
@@ -173,12 +170,7 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
       <TopBar
         urgentCount={urgentCount}
-        onJiraConfig={() => setJiraConfigOpen(true)}
-        onGitlabConfig={() => setGitlabConfigOpen(true)}
-        onGithubConfig={() => setGithubConfigOpen(true)}
         onFeedback={showToast}
-        onDevPanel={() => togglePanel('dev')}
-        devPanelOpen={openPanel === 'dev'}
         onProjPanel={() => togglePanel('proj')}
         projPanelOpen={openPanel === 'proj'}
         onAdminOpen={onAdminOpen}
@@ -245,7 +237,6 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
           </div>
         </div>
 
-        <DevPanel open={openPanel === 'dev'} onClose={() => setOpenPanel(null)} topOffset={isMobile ? 90 : 54} />
         <ProjectPanel open={openPanel === 'proj'} onClose={() => setOpenPanel(null)} topOffset={isMobile ? 90 : 54} />
       </div>
 
@@ -258,9 +249,6 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
 
       {standupOpen && <StandupModal onClose={() => setStandupOpen(false)} />}
       {ganttOpen && <GanttModal onClose={() => setGanttOpen(false)} />}
-      {jiraConfigOpen && <JiraConfigModal onClose={() => setJiraConfigOpen(false)} />}
-      {gitlabConfigOpen && <GitLabConfigModal onClose={() => setGitlabConfigOpen(false)} />}
-      {githubConfigOpen && <GitHubConfigModal onClose={() => setGithubConfigOpen(false)} />}
     </div>
   )
 }

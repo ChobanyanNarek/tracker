@@ -37,7 +37,7 @@ export function resolveTrackerTz(override?: string): string {
  *   per-day schedule override → active employment period hours → schedule default.
  * Lets part-time periods scale a developer's available time fairly.
  */
-function effectiveDailyHours(
+export function effectiveDailyHours(
   dev: Developer,
   dateStr: string,
   scheduleHours: Record<string, Record<string, number>>,
@@ -102,14 +102,14 @@ function tzDateStr(utcMs: number, tz: string): string {
   }).format(utcMs)
 }
 
-/** Returns "YYYY-MM-DD HH:MM" for a UTC timestamp in the given timezone. */
+/** Returns "dd.mm.yyyy HH:MM" for a UTC timestamp in the given timezone. */
 export function tzDateTimeLabel(utcMs: number, tz: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
   }).formatToParts(utcMs)
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+  return `${get('day')}.${get('month')}.${get('year')} ${get('hour')}:${get('minute')}`
 }
 
 /** Returns day-of-week (0=Sun…6=Sat) for a UTC timestamp in the given IANA timezone. */

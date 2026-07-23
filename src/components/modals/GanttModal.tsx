@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useStore } from '../../store'
 import type { Status } from '../../types'
 import { STATUS_COLOR, STATUS_LABEL } from '../../constants'
+import { formatDateMs } from '../../utils/dates'
 
 // ── constants ─────────────────────────────────────────────────────────────────
 const LABEL_W   = 260
@@ -20,14 +21,12 @@ function dayMs(iso: string): number {
 }
 function addDays(ms: number, n: number): number { return ms + n * 86_400_000 }
 function toIso(ms: number): string { return new Date(ms).toISOString().split('T')[0] }
-function fmtDay(ms: number, totalDays: number): string {
-  const d = new Date(ms)
-  if (totalDays <= 21)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' })
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+function fmtDay(ms: number, _totalDays: number): string {
+  return formatDateMs(ms)
 }
 function fmtMonth(ms: number): string {
-  return new Date(ms).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+  const d = new Date(ms)
+  return `${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
 }
 
 // ── data types ────────────────────────────────────────────────────────────────
@@ -387,7 +386,7 @@ export default function GanttModal({ onClose }: Props) {
                         const hi = Math.min(seg.to, toMs + 86_400_000)
                         if (hi <= lo) return null
                         return (
-                          <div key={si} title={`${STATUS_LABEL[seg.status]}: ${new Date(seg.from).toLocaleDateString()} – ${new Date(seg.to).toLocaleDateString()}`} style={{
+                          <div key={si} title={`${STATUS_LABEL[seg.status]}: ${formatDateMs(seg.from)} – ${formatDateMs(seg.to)}`} style={{
                             position: 'absolute',
                             left: pct(lo),
                             width: wPct(lo, hi),
@@ -405,7 +404,7 @@ export default function GanttModal({ onClose }: Props) {
                       {r.mrTimestamps.map((t, mi) => {
                         if (t < fromMs || t > toMs) return null
                         return (
-                          <div key={mi} title={`MR submitted ${new Date(t).toLocaleDateString()}`} style={{
+                          <div key={mi} title={`MR submitted ${formatDateMs(t)}`} style={{
                             position: 'absolute',
                             left: pct(t),
                             top: (ROW_H - BAR_H) / 2 - 2,
@@ -420,7 +419,7 @@ export default function GanttModal({ onClose }: Props) {
                       })}
                       {/* deadline */}
                       {r.deadlineMs && r.deadlineMs >= fromMs && r.deadlineMs <= toMs + 86_400_000 && (
-                        <div title={`Deadline: ${new Date(r.deadlineMs).toLocaleDateString()}`} style={{
+                        <div title={`Deadline: ${formatDateMs(r.deadlineMs)}`} style={{
                           position: 'absolute',
                           left: pct(r.deadlineMs),
                           top: 2, bottom: 2, width: 2,

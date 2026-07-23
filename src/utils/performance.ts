@@ -1,14 +1,35 @@
-import type { AppState, Developer, JiraIssue, Status, StatusHistoryEntry } from '../types'
+import type { Developer, JiraIssue, Status, StatusHistoryEntry, Task } from '../types'
 import { jiraDedupeKey } from './format'
-import {
-  calcWorkingHours,
-  addWorkingHoursToInstant,
-  tzWallClockToUtcMs,
-  resolveTrackerTz,
-  getSchedule,
-} from './working-hours'
+import { getSchedule, effectiveDailyHours } from './working-hours'
 
-export type Verdict = 'good' | 'mixed' | 'bad' | 'ongoing' | 'overdue' | 'insufficient'
+/**
+ * Performance engine.
+ *
+ * Everything is computed in the USER'S LOCAL TIMEZONE — external timestamps
+ * (Jira status history ISO instants, PR push date/time) are converted to local
+ * wall-clock before any comparison.
+ *
+ * Effort model (per the agreed spec):
+ * - Actual work = time in "In Progress" status, clipped to the developer's
+ *   daily work window, capped at the developer's productive hours per day.
+ * - Blocked time is tracked separately and NEVER counted as work, and it does
+ *   NOT extend the deadline.
+ * - Delivery = the LAST MR/PR push; fallback = last transition into
+ *   Review/Done. Jira status alone never overrides a pushed MR.
+ * - On-time check has a ±5 minute tolerance around the deadline.
+ * - A deadline without a time uses the developer's end-of-day.
+ */
+
+export type Timing = 'early' | 'onTime' | 'late'
+
+export type Verdict =
+  | 'great'        // delivered on time, mostly productive time
+  | 'onTimeBlocky' // delivered on time, but a large share was blocked
+  | 'lateSolid'    // delivered late, but working time was productive
+  | 'lateBlocky'   // delivered late with a large share blocked
+  | 'ongoing'      // no delivery signal yet, deadline not passed
+  | 'overdue'      // no delivery signal, deadline passed
+  | 'insufficient' // never In Progress — cannot measure
 
 export interface StatusInterval {
   status: Status
@@ -25,57 +46,55 @@ export interface IssuePerf {
   prUrls: string[]
   deadlineMs: number
   deadlineAssumed: boolean
-  effectiveDeadlineMs: number
   startMs: number | null
   deliveryMs: number | null
   deliverySource: 'pr' | 'status' | null
   effortH: number
   blockedH: number
-  cycleH: number | null
-  budgetH: number | null
-  onTime: boolean | null
-  onBudget: boolean | null
-  deliveryDeltaH: number | null // signed working hours vs effective deadline: + late, − early
+  flowEffPct: number | null // effort / (effort + blocked) — productive share
+  cycleH: number | null // working hours start → delivery (or → now while ongoing)
+  reworkCount: number // times it went back to In Progress after Review/Done
+  timing: Timing | null
+  deliveryDeltaH: number | null // signed working hours vs deadline: + late, − early, 0 on time
   verdict: Verdict
-  suspect: boolean
-  confidence: 'reliable' | 'partial'
+  suspect: boolean // PR pushed before the first In Progress
   intervals: StatusInterval[]
 }
 
 export interface DevPerf {
   dev: Developer
   issues: IssuePerf[]
-  scoredCount: number
-  goodCount: number
-  mixedCount: number
-  badCount: number
+  deliveredCount: number
+  onTimeCount: number
+  onTimePct: number | null
   ongoingCount: number
   overdueCount: number
   insufficientCount: number
-  onTimeCount: number
-  onBudgetCount: number
-  scorePct: number | null
-  onTimePct: number | null
-  onBudgetPct: number | null
+  effortTotalH: number
+  blockedTotalH: number
+  flowEffPct: number | null
   avgEffortH: number | null
   avgBlockedH: number | null
-  avgDeliveryDeltaH: number | null
   avgCycleH: number | null
-  reliableCount: number
+  avgDeliveryDeltaH: number | null
+  throughputWk: number | null // delivered issues per week in range
+  reworkIssues: number
+  reworkRatePct: number | null
   profile: string
 }
 
 export interface TeamPerf {
   devs: DevPerf[]
-  tz: string
-  goodCount: number
-  mixedCount: number
-  badCount: number
-  scoredCount: number
+  deliveredCount: number
+  onTimePct: number | null
+  flowEffPct: number | null
+  avgCycleH: number | null
+  avgDeliveryDeltaH: number | null
+  throughputWk: number | null
+  reworkRatePct: number | null
   ongoingCount: number
   overdueCount: number
-  onTimePct: number | null
-  onBudgetPct: number | null
+  weeks: number
 }
 
 export interface PerfRange {
@@ -83,14 +102,39 @@ export interface PerfRange {
   to?: string // YYYY-MM-DD inclusive
 }
 
-const SCORED: Verdict[] = ['good', 'mixed', 'bad']
+/** The store slices the engine needs — keeps the useMemo dependency narrow. */
+export interface PerfInput {
+  developers: Developer[]
+  tasks: Task[]
+  schedule: Record<string, Record<string, string>>
+  scheduleHours: Record<string, Record<string, number>>
+}
+
+const DELIVERED: Verdict[] = ['great', 'onTimeBlocky', 'lateSolid', 'lateBlocky']
 // Display priority within each developer section — most urgent first
 const VERDICT_ORDER: Record<Verdict, number> = {
-  bad: 0, overdue: 1, mixed: 2, ongoing: 3, good: 4, insufficient: 5,
+  lateBlocky: 0, overdue: 1, lateSolid: 2, onTimeBlocky: 3, ongoing: 4, great: 5, insufficient: 6,
 }
-const iso = (ms: number) => new Date(ms).toISOString()
+const ON_TIME_TOLERANCE_MS = 5 * 60_000
+const BLOCKY_THRESHOLD_PCT = 70
+
 const atMs = (e: StatusHistoryEntry) => new Date(e.at).getTime()
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const localDateStr = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+
+function timeToParts(t: string): [number, number] {
+  const [h, m] = t.split(':').map(Number)
+  return [h ?? 0, m ?? 0]
+}
+
+/** Local-timezone instant for a wall-clock date + time ("YYYY-MM-DD", "HH:MM"). */
+function localWallClockMs(dateStr: string, timeStr: string): number {
+  const [y, mo, d] = dateStr.split('-').map(Number)
+  const [hh, mm] = timeToParts(timeStr || '00:00')
+  return new Date(y ?? 1970, (mo ?? 1) - 1, d ?? 1, hh, mm, 0, 0).getTime()
+}
 
 function inRange(dateStr: string, range: PerfRange): boolean {
   if (range.from && dateStr < range.from) return false
@@ -98,25 +142,81 @@ function inRange(dateStr: string, range: PerfRange): boolean {
   return true
 }
 
+/**
+ * Working hours contained in a set of absolute-time segments, in local time.
+ *
+ * Per calendar day: raw overlap of the segments with the developer's work
+ * window (startTime–endTime), then capped at the developer's productive hours
+ * for that day. This matches the agreed arithmetic: partial-day work counts as
+ * real clock time, a full work-window day counts as `dailyHours`.
+ * Non-work days, vacation/sick/holiday days contribute nothing.
+ */
+function cappedWorkHours(
+  segments: Array<[number, number]>,
+  dev: Developer,
+  schedule: Record<string, Record<string, string>>,
+  scheduleHours: Record<string, Record<string, number>>,
+): number {
+  const valid = segments.filter(([s, e]) => e > s)
+  if (!valid.length) return 0
+
+  const sched = getSchedule(dev)
+  const [wsH, wsM] = timeToParts(sched.startTime)
+  const [weH, weM] = timeToParts(sched.endTime)
+
+  const minMs = Math.min(...valid.map(([s]) => s))
+  const maxMs = Math.max(...valid.map(([, e]) => e))
+
+  let total = 0
+  const cursor = new Date(minMs)
+  cursor.setHours(0, 0, 0, 0)
+
+  // Safety bound: ~10 years of calendar days
+  for (let i = 0; i < 3700 && cursor.getTime() <= maxMs; i++) {
+    const dateStr = localDateStr(cursor)
+    const dow = cursor.getDay()
+
+    if (sched.workDays.includes(dow)) {
+      const dayOff = schedule[dev.id]?.[dateStr]
+      if (!dayOff || dayOff === 'work') {
+        const winStart = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), wsH, wsM).getTime()
+        const winEnd = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), weH, weM).getTime()
+        if (winEnd > winStart) {
+          let rawH = 0
+          for (const [s, e] of valid) {
+            const overlap = Math.min(e, winEnd) - Math.max(s, winStart)
+            if (overlap > 0) rawH += overlap / 3_600_000
+          }
+          if (rawH > 0) {
+            total += Math.min(rawH, effectiveDailyHours(dev, dateStr, scheduleHours, sched))
+          }
+        }
+      }
+    }
+
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return total
+}
+
 function buildIntervals(
-  history: StatusHistoryEntry[],
+  sortedHistory: StatusHistoryEntry[],
   nowMs: number,
   dev: Developer,
   schedule: Record<string, Record<string, string>>,
   scheduleHours: Record<string, Record<string, number>>,
-  tz: string,
 ): StatusInterval[] {
-  const sorted = [...history].sort((a, b) => atMs(a) - atMs(b))
   const out: StatusInterval[] = []
-  for (let i = 0; i < sorted.length; i++) {
-    const startMs = atMs(sorted[i]!)
-    const endMs = i + 1 < sorted.length ? atMs(sorted[i + 1]!) : nowMs
+  for (let i = 0; i < sortedHistory.length; i++) {
+    const startMs = atMs(sortedHistory[i]!)
+    const endMs = i + 1 < sortedHistory.length ? atMs(sortedHistory[i + 1]!) : nowMs
     if (endMs <= startMs) continue
     out.push({
-      status: sorted[i]!.status,
+      status: sortedHistory[i]!.status,
       startMs,
       endMs,
-      workH: calcWorkingHours(iso(startMs), iso(endMs), dev, schedule, scheduleHours, tz),
+      workH: cappedWorkHours([[startMs, endMs]], dev, schedule, scheduleHours),
     })
   }
   return out
@@ -128,72 +228,88 @@ function computeIssue(
   dev: Developer,
   schedule: Record<string, Record<string, string>>,
   scheduleHours: Record<string, Record<string, number>>,
-  tz: string,
   nowMs: number,
 ): IssuePerf {
   const sched = getSchedule(dev)
-  const history = issue.statusHistory ?? []
-  const sortedHistory = [...history].sort((a, b) => atMs(a) - atMs(b))
-  const hasInProgress = history.some((e) => e.status === 'inprogress')
-  const intervals = buildIntervals(history, nowMs, dev, schedule, scheduleHours, tz)
+  const sortedHistory = [...(issue.statusHistory ?? [])].sort((a, b) => atMs(a) - atMs(b))
+  const hasInProgress = sortedHistory.some((e) => e.status === 'inprogress')
+  const intervals = buildIntervals(sortedHistory, nowMs, dev, schedule, scheduleHours)
 
   const firstIp = sortedHistory.find((e) => e.status === 'inprogress')
   const startMs = firstIp ? atMs(firstIp) : null
 
-  const effortH = intervals.filter((i) => i.status === 'inprogress').reduce((s, i) => s + i.workH, 0)
-  const blockedH = intervals.filter((i) => i.status === 'blocked').reduce((s, i) => s + i.workH, 0)
+  const seg = (status: Status): Array<[number, number]> =>
+    intervals.filter((iv) => iv.status === status).map((iv) => [iv.startMs, iv.endMs])
+  const effortH = cappedWorkHours(seg('inprogress'), dev, schedule, scheduleHours)
+  const blockedH = cappedWorkHours(seg('blocked'), dev, schedule, scheduleHours)
+  const trackedH = effortH + blockedH
+  const flowEffPct = trackedH > 1e-9 ? (effortH / trackedH) * 100 : null
 
-  // Deadline (wall-clock in tracker tz). Missing time → developer's work-day end (flagged).
+  // Rework: In Progress again after having reached Review/Done
+  let reworkCount = 0
+  let seenDelivered = false
+  for (const e of sortedHistory) {
+    if (e.status === 'review' || e.status === 'done') seenDelivered = true
+    else if (e.status === 'inprogress' && seenDelivered) {
+      reworkCount++
+      seenDelivered = false
+    }
+  }
+
   const deadlineAssumed = !issue.deadlineTime
-  const deadlineMs = tzWallClockToUtcMs(issue.deadline, issue.deadlineTime || sched.endTime, tz)
-  const effectiveDeadlineMs =
-    blockedH > 1e-9
-      ? new Date(addWorkingHoursToInstant(iso(deadlineMs), blockedH, dev, schedule, scheduleHours, tz)).getTime()
-      : deadlineMs
+  const deadlineMs = localWallClockMs(issue.deadline, issue.deadlineTime || sched.endTime)
 
-  // Delivery: latest PR push; else first transition into review/done.
+  // Delivery: LAST MR/PR push wins; fallback — last transition INTO review/done.
   const prInstants = (issue.prs ?? [])
     .filter((p) => p.date)
-    .map((p) => tzWallClockToUtcMs(p.date, p.time || sched.endTime, tz))
+    .map((p) => localWallClockMs(p.date, p.time || sched.endTime))
   let deliveryMs: number | null = null
   let deliverySource: IssuePerf['deliverySource'] = null
   if (prInstants.length) {
     deliveryMs = Math.max(...prInstants)
     deliverySource = 'pr'
   } else {
-    const term = sortedHistory.find((e) => e.status === 'review' || e.status === 'done')
-    if (term) {
-      deliveryMs = atMs(term)
+    let lastEntry: StatusHistoryEntry | null = null
+    let prevDelivered = false
+    for (const e of sortedHistory) {
+      const isDelivered = e.status === 'review' || e.status === 'done'
+      if (isDelivered && !prevDelivered) lastEntry = e
+      prevDelivered = isDelivered
+    }
+    if (lastEntry) {
+      deliveryMs = atMs(lastEntry)
       deliverySource = 'status'
     }
   }
 
   const suspect = startMs != null && prInstants.length > 0 && Math.min(...prInstants) < startMs
-  const confidence: IssuePerf['confidence'] = history.length >= 2 && hasInProgress ? 'reliable' : 'partial'
 
-  let budgetH: number | null = null
-  let cycleH: number | null = null
-  let onTime: boolean | null = null
-  let onBudget: boolean | null = null
+  let timing: Timing | null = null
   let deliveryDeltaH: number | null = null
+  let cycleH: number | null = null
   let verdict: Verdict
 
   if (!hasInProgress || startMs == null) {
     verdict = 'insufficient'
-  } else {
-    budgetH = calcWorkingHours(iso(startMs), iso(effectiveDeadlineMs), dev, schedule, scheduleHours, tz)
-    if (deliveryMs != null) {
-      cycleH = calcWorkingHours(iso(startMs), iso(Math.max(deliveryMs, startMs)), dev, schedule, scheduleHours, tz)
-      onTime = deliveryMs <= effectiveDeadlineMs
-      onBudget = effortH <= budgetH + 1e-9
-      deliveryDeltaH = onTime
-        ? -calcWorkingHours(iso(deliveryMs), iso(effectiveDeadlineMs), dev, schedule, scheduleHours, tz)
-        : calcWorkingHours(iso(effectiveDeadlineMs), iso(deliveryMs), dev, schedule, scheduleHours, tz)
-      verdict = onTime && onBudget ? 'good' : !onTime && !onBudget ? 'bad' : 'mixed'
+  } else if (deliveryMs != null) {
+    cycleH = cappedWorkHours([[startMs, Math.max(deliveryMs, startMs)]], dev, schedule, scheduleHours)
+    if (Math.abs(deliveryMs - deadlineMs) <= ON_TIME_TOLERANCE_MS) {
+      timing = 'onTime'
+      deliveryDeltaH = 0
+    } else if (deliveryMs < deadlineMs) {
+      timing = 'early'
+      deliveryDeltaH = -cappedWorkHours([[deliveryMs, deadlineMs]], dev, schedule, scheduleHours)
     } else {
-      cycleH = calcWorkingHours(iso(startMs), iso(Math.max(nowMs, startMs)), dev, schedule, scheduleHours, tz)
-      verdict = nowMs > effectiveDeadlineMs ? 'overdue' : 'ongoing'
+      timing = 'late'
+      deliveryDeltaH = cappedWorkHours([[deadlineMs, deliveryMs]], dev, schedule, scheduleHours)
     }
+    const blocky = flowEffPct != null && flowEffPct < BLOCKY_THRESHOLD_PCT
+    verdict = timing === 'late'
+      ? (blocky ? 'lateBlocky' : 'lateSolid')
+      : (blocky ? 'onTimeBlocky' : 'great')
+  } else {
+    cycleH = cappedWorkHours([[startMs, Math.max(nowMs, startMs)]], dev, schedule, scheduleHours)
+    verdict = nowMs > deadlineMs + ON_TIME_TOLERANCE_MS ? 'overdue' : 'ongoing'
   }
 
   return {
@@ -204,41 +320,54 @@ function computeIssue(
     prUrls: (issue.prs ?? []).map((p) => p.url).filter(Boolean),
     deadlineMs,
     deadlineAssumed,
-    effectiveDeadlineMs,
     startMs,
     deliveryMs,
     deliverySource,
     effortH,
     blockedH,
+    flowEffPct,
     cycleH,
-    budgetH,
-    onTime,
-    onBudget,
+    reworkCount,
+    timing,
     deliveryDeltaH,
     verdict,
     suspect,
-    confidence,
     intervals,
   }
 }
 
-function profileOf(d: Omit<DevPerf, 'profile'>): string {
-  if (!d.scoredCount) return 'No delivered issues in range'
-  const timeWord = d.onTimePct! >= 75 ? 'on time' : d.onTimePct! >= 40 ? 'sometimes late' : 'often late'
-  const budgetWord = d.onBudgetPct! >= 75 ? 'within budget' : 'effort-heavy'
-  const early = d.avgDeliveryDeltaH != null && d.avgDeliveryDeltaH < -0.5 ? ', usually early' : ''
-  return `Usually ${timeWord}, ${budgetWord}${early}`
+function profileOf(d: Pick<DevPerf, 'deliveredCount' | 'onTimePct' | 'flowEffPct' | 'avgDeliveryDeltaH'>): string {
+  if (!d.deliveredCount) return 'No delivered issues in range'
+  const timeWord = d.onTimePct! >= 75 ? 'usually on time' : d.onTimePct! >= 40 ? 'sometimes late' : 'often late'
+  const blockWord = d.flowEffPct == null || d.flowEffPct >= BLOCKY_THRESHOLD_PCT ? 'few blocks' : 'frequently blocked'
+  const early = d.avgDeliveryDeltaH != null && d.avgDeliveryDeltaH < -0.5 ? ' · typically delivers early' : ''
+  return `${timeWord[0]!.toUpperCase()}${timeWord.slice(1)} · ${blockWord}${early}`
 }
 
-export function computeTeamPerformance(state: AppState, range: PerfRange = {}): TeamPerf {
-  const tz = resolveTrackerTz(state.trackerTimezone)
+/** Weeks covered by the range (for throughput); clamped to a minimum of 1. */
+function rangeWeeks(range: PerfRange, issues: IssuePerf[], nowMs: number): number {
+  let fromMs: number | null = null
+  if (range.from) {
+    fromMs = localWallClockMs(range.from, '00:00')
+  } else {
+    const anchors = issues
+      .map((i) => i.startMs ?? i.deliveryMs ?? i.deadlineMs)
+      .filter((x): x is number => x != null)
+    if (anchors.length) fromMs = Math.min(...anchors)
+  }
+  if (fromMs == null) return 1
+  const toMs = range.to ? localWallClockMs(range.to, '23:59') : nowMs
+  return Math.max(1, (toMs - fromMs) / (7 * 86_400_000))
+}
+
+export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}): TeamPerf {
   const nowMs = Date.now()
-  const devById = new Map(state.developers.map((d) => [d.id, d]))
+  const devById = new Map(input.developers.map((d) => [d.id, d]))
 
   // Dedupe the same issue across carry-over/daily copies per developer; keep the
   // instance with the richest record (most status history, then most PRs).
   const best = new Map<string, { taskId: string; issue: JiraIssue; devId: string; rank: number }>()
-  for (const task of state.tasks) {
+  for (const task of input.tasks) {
     if (!devById.has(task.devId)) continue
     for (const issue of task.jiras ?? []) {
       if (!issue.deadline || !inRange(issue.deadline, range)) continue
@@ -252,65 +381,75 @@ export function computeTeamPerformance(state: AppState, range: PerfRange = {}): 
   const perDev = new Map<string, IssuePerf[]>()
   for (const { taskId, issue, devId } of best.values()) {
     const dev = devById.get(devId)!
-    const ip = computeIssue(taskId, issue, dev, state.schedule, state.scheduleHours, tz, nowMs)
+    const ip = computeIssue(taskId, issue, dev, input.schedule, input.scheduleHours, nowMs)
     if (!perDev.has(devId)) perDev.set(devId, [])
     perDev.get(devId)!.push(ip)
   }
 
-  const devs: DevPerf[] = state.developers
+  const allIssues = [...perDev.values()].flat()
+  const weeks = rangeWeeks(range, allIssues, nowMs)
+
+  const devs: DevPerf[] = input.developers
     .filter((d) => !d.archivedAt)
     .map((dev) => {
       const issues = (perDev.get(dev.id) ?? []).sort((a, b) => {
         const od = VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict]
         return od !== 0 ? od : b.deadlineMs - a.deadlineMs
       })
-      const scored = issues.filter((i) => SCORED.includes(i.verdict))
-      const goodCount = scored.filter((i) => i.verdict === 'good').length
-      const mixedCount = scored.filter((i) => i.verdict === 'mixed').length
-      const badCount = scored.filter((i) => i.verdict === 'bad').length
-      const ongoingCount = issues.filter((i) => i.verdict === 'ongoing').length
-      const overdueCount = issues.filter((i) => i.verdict === 'overdue').length
-      const insufficientCount = issues.filter((i) => i.verdict === 'insufficient').length
-      const onTimeCount = scored.filter((i) => i.onTime).length
-      const onBudgetCount = scored.filter((i) => i.onBudget).length
-      const n = scored.length
-      const base: Omit<DevPerf, 'profile'> = {
+      const delivered = issues.filter((i) => DELIVERED.includes(i.verdict))
+      const measured = issues.filter((i) => i.verdict !== 'insufficient')
+      const n = delivered.length
+      const onTimeCount = delivered.filter((i) => i.timing !== 'late').length
+      const effortTotalH = measured.reduce((s, i) => s + i.effortH, 0)
+      const blockedTotalH = measured.reduce((s, i) => s + i.blockedH, 0)
+      const trackedH = effortTotalH + blockedTotalH
+      const reworkIssues = measured.filter((i) => i.reworkCount > 0).length
+      const base = {
+        deliveredCount: n,
+        onTimePct: n ? (onTimeCount / n) * 100 : null,
+        flowEffPct: trackedH > 1e-9 ? (effortTotalH / trackedH) * 100 : null,
+        avgDeliveryDeltaH: mean(delivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
+      }
+      return {
         dev,
         issues,
-        scoredCount: n,
-        goodCount,
-        mixedCount,
-        badCount,
-        ongoingCount,
-        overdueCount,
-        insufficientCount,
+        ...base,
         onTimeCount,
-        onBudgetCount,
-        scorePct: n ? (goodCount / n) * 100 : null,
-        onTimePct: n ? (onTimeCount / n) * 100 : null,
-        onBudgetPct: n ? (onBudgetCount / n) * 100 : null,
-        avgEffortH: mean(scored.map((i) => i.effortH)),
-        avgBlockedH: mean(scored.map((i) => i.blockedH)),
-        avgDeliveryDeltaH: mean(scored.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
-        avgCycleH: mean(scored.filter((i) => i.cycleH != null).map((i) => i.cycleH!)),
-        reliableCount: scored.filter((i) => i.confidence === 'reliable').length,
+        ongoingCount: issues.filter((i) => i.verdict === 'ongoing').length,
+        overdueCount: issues.filter((i) => i.verdict === 'overdue').length,
+        insufficientCount: issues.filter((i) => i.verdict === 'insufficient').length,
+        effortTotalH,
+        blockedTotalH,
+        avgEffortH: mean(delivered.map((i) => i.effortH)),
+        avgBlockedH: mean(delivered.map((i) => i.blockedH)),
+        avgCycleH: mean(delivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!)),
+        throughputWk: n ? n / weeks : null,
+        reworkIssues,
+        reworkRatePct: measured.length ? (reworkIssues / measured.length) * 100 : null,
+        profile: profileOf(base),
       }
-      return { ...base, profile: profileOf(base) }
     })
-    .sort((a, b) => (b.scorePct ?? -1) - (a.scorePct ?? -1))
+    .sort((a, b) => (b.onTimePct ?? -1) - (a.onTimePct ?? -1))
 
-  const allScored = devs.flatMap((d) => d.issues.filter((i) => SCORED.includes(i.verdict)))
-  const sc = allScored.length
+  const allDelivered = devs.flatMap((d) => d.issues.filter((i) => DELIVERED.includes(i.verdict)))
+  const teamEffort = devs.reduce((s, d) => s + d.effortTotalH, 0)
+  const teamBlocked = devs.reduce((s, d) => s + d.blockedTotalH, 0)
+  const teamTracked = teamEffort + teamBlocked
+  const teamMeasured = devs.reduce((s, d) => s + (d.issues.length - d.insufficientCount), 0)
+  const teamRework = devs.reduce((s, d) => s + d.reworkIssues, 0)
+  const n = allDelivered.length
+
   return {
     devs,
-    tz,
-    goodCount: allScored.filter((i) => i.verdict === 'good').length,
-    mixedCount: allScored.filter((i) => i.verdict === 'mixed').length,
-    badCount: allScored.filter((i) => i.verdict === 'bad').length,
-    scoredCount: sc,
+    deliveredCount: n,
+    onTimePct: n ? (allDelivered.filter((i) => i.timing !== 'late').length / n) * 100 : null,
+    flowEffPct: teamTracked > 1e-9 ? (teamEffort / teamTracked) * 100 : null,
+    avgCycleH: mean(allDelivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!)),
+    avgDeliveryDeltaH: mean(allDelivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
+    throughputWk: n ? n / weeks : null,
+    reworkRatePct: teamMeasured ? (teamRework / teamMeasured) * 100 : null,
     ongoingCount: devs.reduce((s, d) => s + d.ongoingCount, 0),
     overdueCount: devs.reduce((s, d) => s + d.overdueCount, 0),
-    onTimePct: sc ? (allScored.filter((i) => i.onTime).length / sc) * 100 : null,
-    onBudgetPct: sc ? (allScored.filter((i) => i.onBudget).length / sc) * 100 : null,
+    weeks,
   }
 }

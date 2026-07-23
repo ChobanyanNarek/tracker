@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useStore } from '../store'
 import { jiraDedupeKey } from '../utils/format'
-import { NOTIFICATION_ICON } from '../constants'
+
 
 
 /** Fires a browser notification once an in-progress issue/task has 15 minutes
@@ -63,7 +63,6 @@ export function useDeadlineNotifications() {
           navigator.serviceWorker.ready.then((reg) =>
             reg.showNotification('⏰ 15 min until deadline!', {
               body: `${label} · ${dev?.name ?? ''}${j.deadlineTime ? ` · due at ${j.deadlineTime}` : ''}`,
-              icon: NOTIFICATION_ICON,
               tag: nk,
               requireInteraction: true,
               data: { taskId: task.id, date: task.date },
@@ -89,7 +88,6 @@ export function useDeadlineNotifications() {
               navigator.serviceWorker.ready.then((reg) =>
                 reg.showNotification('⏰ 15 min until deadline!', {
                   body: `${task.title || 'Checkpoint'} · ${dev?.name ?? ''}${task.deadlineTime ? ` · due at ${task.deadlineTime}` : ''}`,
-                  icon: NOTIFICATION_ICON,
                   tag: nk,
                   requireInteraction: true,
                   data: { taskId: task.id, date: task.date },

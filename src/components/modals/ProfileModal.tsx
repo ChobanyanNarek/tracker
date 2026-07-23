@@ -5,18 +5,60 @@ import Modal from '../ui/Modal'
 
 interface Props { onClose: () => void }
 
-function normalizePhone(raw: string): string {
-  return raw.replace(/[\s\-().]/g, '')
+const COUNTRY_CODES = [
+  { code: '+374', label: '🇦🇲 +374' },
+  { code: '+994', label: '🇦🇿 +994' },
+  { code: '+375', label: '🇧🇾 +375' },
+  { code: '+32',  label: '🇧🇪 +32'  },
+  { code: '+86',  label: '🇨🇳 +86'  },
+  { code: '+420', label: '🇨🇿 +420' },
+  { code: '+33',  label: '🇫🇷 +33'  },
+  { code: '+995', label: '🇬🇪 +995' },
+  { code: '+49',  label: '🇩🇪 +49'  },
+  { code: '+30',  label: '🇬🇷 +30'  },
+  { code: '+91',  label: '🇮🇳 +91'  },
+  { code: '+972', label: '🇮🇱 +972' },
+  { code: '+39',  label: '🇮🇹 +39'  },
+  { code: '+81',  label: '🇯🇵 +81'  },
+  { code: '+7',   label: '🇰🇿 +7 KZ' },
+  { code: '+31',  label: '🇳🇱 +31'  },
+  { code: '+47',  label: '🇳🇴 +47'  },
+  { code: '+48',  label: '🇵🇱 +48'  },
+  { code: '+351', label: '🇵🇹 +351' },
+  { code: '+7',   label: '🇷🇺 +7 RU' },
+  { code: '+966', label: '🇸🇦 +966' },
+  { code: '+34',  label: '🇪🇸 +34'  },
+  { code: '+46',  label: '🇸🇪 +46'  },
+  { code: '+41',  label: '🇨🇭 +41'  },
+  { code: '+90',  label: '🇹🇷 +90'  },
+  { code: '+971', label: '🇦🇪 +971' },
+  { code: '+44',  label: '🇬🇧 +44'  },
+  { code: '+380', label: '🇺🇦 +380' },
+  { code: '+1',   label: '🇺🇸 +1'   },
+]
+
+function parsePhone(phone: string | null | undefined): { code: string; local: string } {
+  if (!phone) return { code: '+374', local: '' }
+  const sorted = [...COUNTRY_CODES]
+    .filter((v, i, a) => a.findIndex(x => x.code === v.code) === i)
+    .sort((a, b) => b.code.length - a.code.length)
+  for (const { code } of sorted) {
+    if (phone.startsWith(code)) return { code, local: phone.slice(code.length) }
+  }
+  return { code: '+374', local: phone.startsWith('+') ? phone.slice(1) : phone }
 }
 
-function isValidPhone(raw: string): boolean {
-  return /^\+[1-9]\d{6,14}$/.test(normalizePhone(raw))
+function isValidPhone(code: string, local: string): boolean {
+  const digits = local.replace(/\D/g, '')
+  return /^\+[1-9]\d{6,14}$/.test(code + digits)
 }
 
 export default function ProfileModal({ onClose }: Props) {
   const user = getUserInfo()
+  const parsed = parsePhone(user?.phone)
 
-  const [phone, setPhone] = useState(user?.phone ?? '')
+  const [countryCode, setCountryCode] = useState(parsed.code)
+  const [localNumber, setLocalNumber] = useState(parsed.local)
   const [phoneSaving, setPhoneSaving] = useState(false)
   const [phoneMsg, setPhoneMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -28,13 +70,13 @@ export default function ProfileModal({ onClose }: Props) {
 
   const handlePhoneSave = async () => {
     setPhoneMsg(null)
-    const trimmed = phone.trim()
-    if (trimmed && !isValidPhone(trimmed)) {
-      setPhoneMsg({ ok: false, text: 'Enter a valid international phone number, e.g. +37498765432.' })
+    const trimmed = localNumber.trim()
+    if (trimmed && !isValidPhone(countryCode, trimmed)) {
+      setPhoneMsg({ ok: false, text: 'Enter a valid phone number for the selected country code.' })
       return
     }
     setPhoneSaving(true)
-    const normalized = trimmed ? normalizePhone(trimmed) : null
+    const normalized = trimmed ? countryCode + trimmed.replace(/\D/g, '') : null
     const ok = await updateMyProfile(normalized)
     if (ok) {
       await fetchAndStoreUserInfo()
@@ -107,14 +149,25 @@ export default function ProfileModal({ onClose }: Props) {
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.7px' }}>Phone Number</div>
         <label style={labelStyle}>Phone</label>
-        <input
-          style={fieldStyle}
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="+374 XX XXX XXX"
-          onKeyDown={(e) => e.key === 'Enter' && handlePhoneSave()}
-        />
+        <div style={{ display: 'flex', gap: 6 }}>
+          <select
+            value={countryCode}
+            onChange={(e) => setCountryCode(e.target.value)}
+            style={{ ...fieldStyle, width: 112, flexShrink: 0, cursor: 'pointer' }}
+          >
+            {COUNTRY_CODES.map((c, i) => (
+              <option key={i} value={c.code}>{c.label}</option>
+            ))}
+          </select>
+          <input
+            style={{ ...fieldStyle, flex: 1 }}
+            type="tel"
+            value={localNumber}
+            onChange={(e) => setLocalNumber(e.target.value)}
+            placeholder="XX XXX XXXX"
+            onKeyDown={(e) => e.key === 'Enter' && handlePhoneSave()}
+          />
+        </div>
         {phoneMsg && <div style={msgStyle(phoneMsg.ok)}>{phoneMsg.text}</div>}
         <button
           onClick={handlePhoneSave}

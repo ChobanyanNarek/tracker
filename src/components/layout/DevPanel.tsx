@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useStore } from '../../store'
 import { hexRgb, initials } from '../../utils/format'
-import { todayStr } from '../../utils/dates'
+import { todayStr, formatDate } from '../../utils/dates'
 import { DEFAULT_WORK_SCHEDULE, getSchedule } from '../../utils/working-hours'
 import type { Developer, WorkSchedule } from '../../types'
 import ConfirmDialog from '../ui/ConfirmDialog'
@@ -298,7 +298,7 @@ export default function DevPanel({ open, onClose, topOffset }: Props) {
                         <div className="av" style={{ background: `rgba(${rgb},.15)`, color: dev.color, width: 26, height: 26, fontSize: 10 }}>{initials(dev.name)}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{dev.name}</div>
-                          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>until {new Date(dev.archivedAt! + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>until {formatDate(dev.archivedAt!)}</div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
                           <button onClick={() => unarchiveDeveloper(dev.id)} title="Restore" style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: 10, padding: '2px 5px', borderRadius: 4, cursor: 'pointer', lineHeight: 1, transition: 'all .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}>↩</button>

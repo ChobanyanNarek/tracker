@@ -1,23 +1,16 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store'
 import { clearToken, getUserInfo } from '../../utils/auth'
-import { NOTIFICATION_ICON } from '../../constants'
+
 import { todayStr } from '../../utils/dates'
-import Clock from './Clock'
 import ProjectSelector from './ProjectSelector'
-import DevSelector from './DevSelector'
-import IntegrationsDropdown from './IntegrationsDropdown'
+
 import DataDropdown from './DataDropdown'
 import ProfileModal from '../modals/ProfileModal'
 
 interface TopBarProps {
   urgentCount: number
-  onJiraConfig: () => void
-  onGitlabConfig: () => void
-  onGithubConfig: () => void
   onFeedback: (msg: string) => void
-  onDevPanel: () => void
-  devPanelOpen: boolean
   onProjPanel: () => void
   onAdminOpen?: () => void
   projPanelOpen: boolean
@@ -54,8 +47,8 @@ const BellOff = () => (
   </svg>
 )
 
-export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGithubConfig, onFeedback, onDevPanel, devPanelOpen, onProjPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
-  const { setNotifsEnabled, syncJira, syncGitlab, syncGithub, notifsEnabled, setView, setSelectedDate } = useStore()
+export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
+  const { setNotifsEnabled, notifsEnabled, setView, setSelectedDate, searchQuery, setSearchQuery } = useStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
@@ -86,15 +79,6 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
     ? `${(user.firstName ?? '?')[0]}${(user.lastName ?? '')[0] ?? ''}`.toUpperCase()
     : '?'
   const displayName = user ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email : null
-  const jiraConnections = useStore((s) => s.jiraConnections)
-  const jiraEnabled = jiraConnections.some((c) => c.enabled && c.token)
-  const gitlabConnections = useStore((s) => s.gitlabConnections)
-  const gitlabEnabled = gitlabConnections.some((c) => c.enabled && c.token)
-  const githubConnections = useStore((s) => s.githubConnections)
-  const githubEnabled = githubConnections.some((c) => c.enabled && c.token)
-  const [jiraSyncing, setJiraSyncing] = useState(false)
-  const [glSyncing, setGlSyncing] = useState(false)
-  const [ghSyncing, setGhSyncing] = useState(false)
 
   const toggleNotifs = async () => {
     if (!('Notification' in window)) {
@@ -110,7 +94,6 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
         const reg = await navigator.serviceWorker.ready
         await reg.showNotification('🔔 ProgressOr — test', {
           body: 'Notifications are working! You will see this 15 min before any deadline.',
-          icon: NOTIFICATION_ICON,
           requireInteraction: true,
         })
         onFeedback('Test notification sent — it should stay visible until you dismiss it.')
@@ -126,7 +109,6 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
         const reg = await navigator.serviceWorker.ready
         await reg.showNotification('🔔 ProgressOr notifications ON', {
           body: 'You will be notified 15 min before any deadline. Click the bell again to test.',
-          icon: NOTIFICATION_ICON,
           requireInteraction: true,
         })
       } catch {}
@@ -136,37 +118,6 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
       onFeedback('Notifications denied — enable them in your browser site settings.')
     }
   }
-
-  const handleJiraSync = useCallback(async () => {
-    if (!jiraEnabled) { onJiraConfig(); return }
-    setJiraSyncing(true)
-    try { await syncJira() } catch {}
-    setJiraSyncing(false)
-  }, [jiraEnabled, syncJira, onJiraConfig])
-
-  const handleGitlabSync = useCallback(async () => {
-    if (!gitlabEnabled) { onGitlabConfig(); return }
-    setGlSyncing(true)
-    try {
-      const { linked, updated } = await syncGitlab()
-      onFeedback(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked, ${updated} already tracked`)
-    } catch (err) {
-      onFeedback(`GitLab sync failed: ${(err as Error).message}`)
-    }
-    setGlSyncing(false)
-  }, [gitlabEnabled, syncGitlab, onGitlabConfig, onFeedback])
-
-  const handleGithubSync = useCallback(async () => {
-    if (!githubEnabled) { onGithubConfig(); return }
-    setGhSyncing(true)
-    try {
-      const { linked, updated } = await syncGithub()
-      onFeedback(`GitHub synced — ${linked} PR${linked !== 1 ? 's' : ''} linked, ${updated} already tracked`)
-    } catch (err) {
-      onFeedback(`GitHub sync failed: ${(err as Error).message}`)
-    }
-    setGhSyncing(false)
-  }, [githubEnabled, syncGithub, onGithubConfig, onFeedback])
 
   const notifPerm = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
   const notifOn = notifPerm === 'granted' && notifsEnabled
@@ -288,7 +239,6 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
         {/* Row 2: Project + Dev selectors */}
         <div style={{ display: 'flex', alignItems: 'stretch', borderTop: '1px solid var(--border)', height: 40 }}>
           <ProjectSelector open={projPanelOpen} onToggle={onProjPanel} fill />
-          <DevSelector open={devPanelOpen} onToggle={onDevPanel} fill />
         </div>
       </div>
       {profileModalOpen && <ProfileModal onClose={() => setProfileModalOpen(false)} />}
@@ -311,11 +261,24 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
           <GearLogo size={26} />
         </button>
         <ProjectSelector open={projPanelOpen} onToggle={onProjPanel} />
-        <DevSelector open={devPanelOpen} onToggle={onDevPanel} />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Clock />
+        {/* Search input — replaces the clock; navigates to Search view on focus/type */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface2)', border: `1px solid ${searchQuery ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, padding: '4px 10px', transition: 'border-color .15s, width .2s', width: searchQuery ? 220 : 180 }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: searchQuery ? 'var(--accent)' : 'var(--text3)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input
+            value={searchQuery}
+            onFocus={() => setView('search')}
+            onChange={(e) => { setSearchQuery(e.target.value); setView('search') }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setSearchQuery(''); (e.target as HTMLInputElement).blur() } }}
+            placeholder="Search…"
+            style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, color: 'var(--text)', background: 'transparent', fontFamily: 'var(--mono)' }}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>
+          )}
+        </div>
 
         {urgentCount > 0 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--red)', color: '#fff', fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 10, animation: 'pulse 2s infinite' }}>
@@ -333,21 +296,6 @@ export default function TopBar({ urgentCount, onJiraConfig, onGitlabConfig, onGi
         </button>
 
         <DataDropdown onFeedback={onFeedback} />
-
-        <IntegrationsDropdown
-          jiraEnabled={jiraEnabled}
-          gitlabEnabled={gitlabEnabled}
-          githubEnabled={githubEnabled}
-          jiraSyncing={jiraSyncing}
-          glSyncing={glSyncing}
-          ghSyncing={ghSyncing}
-          onJiraConfig={onJiraConfig}
-          onGitlabConfig={onGitlabConfig}
-          onGithubConfig={onGithubConfig}
-          onJiraSync={handleJiraSync}
-          onGitlabSync={handleGitlabSync}
-          onGithubSync={handleGithubSync}
-        />
 
         <div ref={profileRef} style={{ position: 'relative' }}>
           <button

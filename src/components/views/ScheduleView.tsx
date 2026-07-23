@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useStore } from '../../store'
 import { hexRgb, initials } from '../../utils/format'
-import { daysInMonth, padDate, isAmHoliday } from '../../utils/dates'
+import { daysInMonth, padDate, isAmHoliday, formatDate, formatDateTime } from '../../utils/dates'
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 import type { EmploymentPeriod } from '../../types'
 
 const DAY_TYPES: Record<string, { label: string; color: string; bg: string; emoji: string; border: string }> = {
@@ -118,8 +120,7 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
   anchorRect: DOMRect
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const d = new Date(dateStr + 'T12:00:00')
-  const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + (amHoliday ? ' — ' + amHoliday : '')
+  const label = formatDate(dateStr) + (amHoliday ? ' — ' + amHoliday : '')
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -170,8 +171,9 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
 
 // Schedule report modal
 function ScheduleReportModal({ year, month, onClose }: { year: number; month: number; onClose: () => void }) {
-  const { developers: allDevelopers, schedule } = useStore()
-  const developers = allDevelopers.filter((d) => !d.archivedAt)
+  const { developers: allDevelopersRaw, schedule, selectedProject, projects } = useStore()
+  const proj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
+  const developers = allDevelopersRaw.filter((d) => !d.archivedAt && (proj ? proj.members.includes(d.id) : true))
   const [copied, setCopied] = useState(false)
   const days = daysInMonth(year, month)
   const daysList: string[] = []
@@ -181,7 +183,7 @@ function ScheduleReportModal({ year, month, onClose }: { year: number; month: nu
   const totalHolidays = daysList.filter((d) => !isWeekend(d) && !!isAmHoliday(d)).length
   const weekends = daysList.filter((d) => isWeekend(d)).length
 
-  const monthName = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const monthName = `${MONTHS[month]} ${year}`
 
   const devStats = developers.map((dev) => {
     const vacD: string[] = [], dayoffD: string[] = [], sickD: string[] = [], holD: string[] = []
@@ -228,7 +230,7 @@ function ScheduleReportModal({ year, month, onClose }: { year: number; month: nu
       return [`${dev.name} — ${periodDesc}`, parts.join(' / '), '']
     }),
     '─'.repeat(60),
-    `Generated: ${new Date().toLocaleString()}`,
+    `Generated: ${formatDateTime(new Date())}`,
   ]
   const textReport = lines.join('\n')
 
@@ -265,7 +267,11 @@ export default function ScheduleView() {
   const [empModal, setEmpModal] = useState<string | null>(null) // devId
   const [report, setReport] = useState(false)
 
-  const developers = useStore((s) => s.developers.filter((d) => !d.archivedAt))
+  const allDevelopers = useStore((s) => s.developers.filter((d) => !d.archivedAt))
+  const selectedProject = useStore((s) => s.selectedProject)
+  const projects = useStore((s) => s.projects)
+  const proj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
+  const developers = proj ? allDevelopers.filter((d) => proj.members.includes(d.id)) : allDevelopers
   const schedule = useStore((s) => s.schedule)
   const setScheduleDay = useStore((s) => s.setScheduleDay)
   const updateDeveloperPeriods = useStore((s) => s.updateDeveloperPeriods)

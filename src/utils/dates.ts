@@ -68,10 +68,7 @@ export function dlInfo(deadline: string, time?: string): DlInfo {
     (new Date(deadline + 'T12:00:00').getTime() - new Date(today + 'T12:00:00').getTime()) /
       86_400_000,
   )
-  const label = new Date(deadline + 'T12:00:00').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
+  const label = formatDate(deadline)
   const ts = time ? ' at ' + time : ''
   let text: string
   if (diff === 0) text = 'Today' + ts
@@ -92,6 +89,30 @@ export function latestWorkday(): string {
   const today = todayStr()
   if (!isWeekend(today) && !isAmHoliday(today)) return today
   return prevWorkDay(today)
+}
+
+/** Format a date as dd.mm.yyyy */
+export function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
+}
+
+/** Format a Date or timestamp as dd.mm.yyyy HH:MM */
+export function formatDateTime(value: Date | number | string): string {
+  const d = value instanceof Date ? value : new Date(value)
+  const date = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return `${date} ${time}`
+}
+
+/** Format a Date object as dd.mm.yyyy */
+export function formatDateObj(d: Date): string {
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
+}
+
+/** Format a timestamp (ms) as dd.mm.yyyy */
+export function formatDateMs(ms: number): string {
+  return formatDateObj(new Date(ms))
 }
 
 export function daysInMonth(year: number, month: number): number {

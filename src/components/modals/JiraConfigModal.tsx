@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
 import type { JiraConfig, JiraStatusMapping, StatusGroup, StatusGroupColor } from '../../types'
-import { fetchJiraIssues, fetchJiraStatuses, type JiraStatusInfo } from '../../utils/jira-api'
+import { fetchJiraIssues, fetchJiraStatuses, fetchJiraBoards, type JiraStatusInfo, type JiraBoardInfo } from '../../utils/jira-api'
 import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX } from '../../utils/status-groups'
 import Modal from '../ui/Modal'
 import { formatDateTime } from '../../utils/dates'
 
-interface Props { onClose: () => void }
+interface Props { onClose: () => void; projectId?: string }
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)',
@@ -20,11 +20,12 @@ const labelStyle: React.CSSProperties = {
 
 const COLOR_OPTIONS: StatusGroupColor[] = ['gray', 'blue', 'amber', 'red', 'purple', 'green', 'teal', 'pink', 'orange']
 
-function makeEmptyConn(): JiraConfig {
+function makeEmptyConn(projectId?: string): JiraConfig {
   return {
     id: 'j_' + Date.now().toString(36),
     name: '', enabled: true, baseUrl: '', email: '', token: '',
     projectKeys: [], syncInterval: 5,
+    ...(projectId ? { projectId } : {}),
   }
 }
 
@@ -169,32 +170,23 @@ function parseJiraUrl(raw: string): { baseUrl: string; projectKey: string | null
 }
 
 function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProps) {
-  // mode: 'project' = global project sync, 'board' = board-scoped sync
-  const syncMode: 'project' | 'board' = conn.boardId ? 'board' : 'project'
-
+  const [syncMode, setSyncModeState] = useState<'project' | 'board'>(conn.boardId ? 'board' : 'project')
   const [projectKeysRaw, setProjectKeysRaw] = useState(conn.projectKeys.join(', '))
-  const [baseUrlRaw, setBaseUrlRaw] = useState(conn.baseUrl)
-  const [boardUrlRaw, setBoardUrlRaw] = useState(
-    conn.boardId ? `${conn.baseUrl}/jira/software/projects/_/boards/${conn.boardId}` : ''
-  )
   const [showToken, setShowToken] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [fetchingStatuses, setFetchingStatuses] = useState(false)
+  const [boards, setBoards] = useState<JiraBoardInfo[]>([])
+  const [fetchingBoards, setFetchingBoards] = useState(false)
   const [statuses, setStatuses] = useState<JiraStatusInfo[]>(() =>
     conn.statusMappings?.map((m) => ({ name: m.jiraStatus, categoryKey: 'new' })) ?? []
   )
-
   const groups = conn.statusGroups?.length ? conn.statusGroups : DEFAULT_STATUS_GROUPS
 
   function setSyncMode(mode: 'project' | 'board') {
-    if (mode === 'project') {
-      onChange({ ...conn, boardId: undefined })
-    } else {
-      // switching to board — clear projectKeys since board sync is self-contained
-      onChange({ ...conn, projectKeys: [] })
-      setProjectKeysRaw('')
-    }
+    setSyncModeState(mode)
+    if (mode === 'project') onChange({ ...conn, boardId: undefined })
+    else { onChange({ ...conn, projectKeys: [] }); setProjectKeysRaw('') }
   }
 
   function patch<K extends keyof JiraConfig>(key: K, value: JiraConfig[K]) {
@@ -204,8 +196,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: '' } })
   }
   function removeDev(devId: string) {
-    const emails = { ...(conn.developerEmails ?? {}) }
-    delete emails[devId]
+    const emails = { ...(conn.developerEmails ?? {}) }; delete emails[devId]
     onChange({ ...conn, developerEmails: emails })
   }
   function setDevEmail(devId: string, email: string) {
@@ -215,12 +206,9 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     setProjectKeysRaw(raw)
     onChange({ ...conn, projectKeys: raw.split(',').map((k) => k.trim()).filter(Boolean) })
   }
-
   function handleBoardUrlChange(raw: string) {
-    setBoardUrlRaw(raw)
-    const { baseUrl, boardId } = parseJiraUrl(raw)
-    if (baseUrl) onChange({ ...conn, baseUrl, boardId: boardId ?? undefined, projectKeys: [] })
-    else if (boardId) onChange({ ...conn, boardId })
+    const { baseUrl, boardId } = parseJiraUrl(raw.trim())
+    onChange({ ...conn, baseUrl: baseUrl || conn.baseUrl, boardId: boardId ?? undefined, projectKeys: [] })
   }
 
   async function testConnection() {
@@ -230,6 +218,23 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       setTestResult({ ok: true, msg: 'Connection successful ✓' })
     } catch (err) { setTestResult({ ok: false, msg: (err as Error).message }) }
     setTesting(false)
+  }
+
+  async function loadBoards() {
+    setFetchingBoards(true)
+    try {
+      const fetched = await fetchJiraBoards(conn)
+      setBoards(fetched)
+    } catch (err) {
+      setTestResult({ ok: false, msg: `Failed to fetch boards: ${(err as Error).message}` })
+    }
+    setFetchingBoards(false)
+  }
+
+  function toggleAllowedBoard(id: number) {
+    const current = conn.allowedBoardIds ?? []
+    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
+    onChange({ ...conn, allowedBoardIds: next })
   }
 
   async function fetchStatuses() {
@@ -254,62 +259,58 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   }
 
   function updateMapping(idx: number, m: JiraStatusMapping) {
-    const updated = [...(conn.statusMappings ?? [])]
-    updated[idx] = m
+    const updated = [...(conn.statusMappings ?? [])]; updated[idx] = m
     onChange({ ...conn, statusMappings: updated })
   }
 
   const mappings = conn.statusMappings ?? []
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
-      {/* header */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '14px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+
+      {/* Row 1: name + enabled + delete */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <input style={{ ...inputStyle, flex: 1, fontWeight: 600 }} placeholder="Connection name" value={conn.name} onChange={(e) => patch('name', e.target.value)} />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', flexShrink: 0 }}>
-          <input type="checkbox" checked={conn.enabled} onChange={(e) => patch('enabled', e.target.checked)} style={{ width: 14, height: 14 }} />
-          <span style={{ fontSize: 11, color: 'var(--text2)' }}>Enabled</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', flexShrink: 0 }}>
+          <input type="checkbox" checked={conn.enabled} onChange={(e) => patch('enabled', e.target.checked)} style={{ width: 13, height: 13 }} />
+          <span style={{ fontSize: 11, color: 'var(--text2)', whiteSpace: 'nowrap' }}>Enabled</span>
         </label>
-        {!isOnly && <button onClick={onDelete} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 12 }}>✕</button>}
+        {!isOnly && (
+          <button onClick={onDelete} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>✕</button>
+        )}
       </div>
 
-      {/* ── Sync mode toggle ── */}
+      {/* Row 2: mode toggle */}
       <div>
         <span style={labelStyle}>Sync mode</span>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {(['project', 'board'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setSyncMode(mode)}
-              style={{
-                flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', transition: 'all .12s',
-                border: `1.5px solid ${syncMode === mode ? 'var(--accent)' : 'var(--border2)'}`,
-                background: syncMode === mode ? 'var(--accent-dim)' : 'var(--surface3)',
-                color: syncMode === mode ? 'var(--accent)' : 'var(--text3)',
-              }}
-            >
-              {mode === 'project' ? 'Project (all issues)' : 'Board (sprint only)'}
-            </button>
-          ))}
-        </div>
-        <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', marginTop: 4 }}>
-          {syncMode === 'project'
-            ? 'Syncs all issues from the Jira project assigned to your developers.'
-            : 'Syncs only issues from the selected board\'s active sprint. No other project issues shown.'}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <button
+            type="button" onClick={() => setSyncMode('project')}
+            style={{ padding: '8px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', textAlign: 'left', border: `1.5px solid ${syncMode === 'project' ? 'var(--accent)' : 'var(--border2)'}`, background: syncMode === 'project' ? 'var(--accent-dim)' : 'var(--surface3)', color: syncMode === 'project' ? 'var(--accent)' : 'var(--text3)' }}
+          >
+            <div>Project</div>
+            <div style={{ fontSize: 9, fontWeight: 400, marginTop: 2, opacity: 0.8 }}>All issues from Jira project</div>
+          </button>
+          <button
+            type="button" onClick={() => setSyncMode('board')}
+            style={{ padding: '8px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', textAlign: 'left', border: `1.5px solid ${syncMode === 'board' ? 'var(--accent)' : 'var(--border2)'}`, background: syncMode === 'board' ? 'var(--accent-dim)' : 'var(--surface3)', color: syncMode === 'board' ? 'var(--accent)' : 'var(--text3)' }}
+          >
+            <div>Board / Sprint</div>
+            <div style={{ fontSize: 9, fontWeight: 400, marginTop: 2, opacity: 0.8 }}>Only this board's active sprint</div>
+          </button>
         </div>
       </div>
 
-      {/* credentials */}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <div style={{ flex: 1 }}>
+      {/* Row 3: credentials */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div>
           <span style={labelStyle}>Email</span>
           <input style={inputStyle} placeholder="you@company.com" value={conn.email} onChange={(e) => patch('email', e.target.value)} />
         </div>
-        <div style={{ flex: 1 }}>
+        <div>
           <span style={labelStyle}>
-            API Token
-            <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', marginLeft: 4 }}>↗ create</a>
+            API Token{' '}
+            <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>↗ create</a>
           </span>
           <div style={{ position: 'relative' }}>
             <input style={{ ...inputStyle, paddingRight: 32 }} type={showToken ? 'text' : 'password'} placeholder="API token" value={conn.token} onChange={(e) => patch('token', e.target.value)} />
@@ -318,78 +319,102 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         </div>
       </div>
 
-      {/* mode-specific fields */}
+      {/* Row 4: mode-specific URL fields */}
       {syncMode === 'project' ? (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 2 }}>
-            <span style={labelStyle}>Jira base URL</span>
-            <input
-              style={inputStyle}
-              placeholder="https://company.atlassian.net"
-              value={baseUrlRaw}
-              onChange={(e) => { setBaseUrlRaw(e.target.value); patch('baseUrl', e.target.value.trim().replace(/\/$/, '')) }}
-            />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <span style={labelStyle}>Jira base URL</span>
+              <input style={inputStyle} placeholder="https://company.atlassian.net" value={conn.baseUrl} onChange={(e) => patch('baseUrl', e.target.value.trim().replace(/\/$/, ''))} />
+            </div>
+            <div>
+              <span style={labelStyle}>Project keys (comma-sep, empty = all)</span>
+              <input style={inputStyle} placeholder="PROJ, MOBILE" value={projectKeysRaw} onChange={(e) => commitKeys(e.target.value)} />
+            </div>
           </div>
-          <div style={{ flex: 2 }}>
-            <span style={labelStyle}>Project keys (comma-separated, empty = all)</span>
-            <input style={inputStyle} placeholder="PROJ, MOBILE, API" value={projectKeysRaw} onChange={(e) => commitKeys(e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <span style={labelStyle}>Auto-sync</span>
-            <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer' }}>
-              <option value={0}>Manual only</option>
-              <option value={2}>Every 2 min</option>
-              <option value={5}>Every 5 min</option>
-              <option value={10}>Every 10 min</option>
-              <option value={15}>Every 15 min</option>
-              <option value={30}>Every 30 min</option>
-            </select>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 3 }}>
-            <span style={labelStyle}>Board URL — paste your Jira board link</span>
-            <input
-              style={inputStyle}
-              placeholder="https://company.atlassian.net/jira/software/projects/KEY/boards/123"
-              value={boardUrlRaw}
-              onChange={(e) => handleBoardUrlChange(e.target.value)}
-            />
-            {conn.boardId && (
-              <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--green)', marginTop: 3 }}>
-                Board ID: <strong>#{conn.boardId}</strong> · Base: <strong>{conn.baseUrl}</strong>
+          {/* Board filter */}
+          <div style={{ background: 'var(--surface3)', border: '1px solid var(--border)', borderRadius: 6, padding: '10px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ ...labelStyle, marginBottom: 0 }}>Show only selected boards (empty = all)</span>
+              <button
+                type="button"
+                onClick={loadBoards}
+                disabled={fetchingBoards || !conn.baseUrl || !conn.token}
+                style={{ fontSize: 10, fontFamily: 'var(--mono)', background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}
+              >
+                {fetchingBoards ? '…loading' : '⟳ Load boards'}
+              </button>
+            </div>
+            {boards.length === 0 && (conn.allowedBoardIds?.length ?? 0) === 0 && (
+              <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text4)' }}>Click "Load boards" to fetch available boards and filter which ones to sync.</div>
+            )}
+            {(conn.allowedBoardIds?.length ?? 0) > 0 && boards.length === 0 && (
+              <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--accent)' }}>
+                {conn.allowedBoardIds!.length} board(s) selected · click "Load boards" to change
+              </div>
+            )}
+            {boards.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                {boards.map((b) => {
+                  const checked = (conn.allowedBoardIds ?? []).includes(b.id)
+                  return (
+                    <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '3px 2px', borderRadius: 4, background: checked ? 'var(--accent-dim)' : 'transparent' }}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleAllowedBoard(b.id)} style={{ width: 12, height: 12, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: checked ? 'var(--accent)' : 'var(--text2)', flex: 1 }}>{b.name}</span>
+                      <span style={{ fontSize: 9, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{b.type}</span>
+                    </label>
+                  )
+                })}
               </div>
             )}
           </div>
-          <div style={{ flex: 1 }}>
-            <span style={labelStyle}>Auto-sync</span>
-            <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer' }}>
-              <option value={0}>Manual only</option>
-              <option value={2}>Every 2 min</option>
-              <option value={5}>Every 5 min</option>
-              <option value={10}>Every 10 min</option>
-              <option value={15}>Every 15 min</option>
-              <option value={30}>Every 30 min</option>
-            </select>
-          </div>
+        </div>
+      ) : (
+        <div>
+          <span style={labelStyle}>Board URL — paste your Jira board link</span>
+          <input
+            style={inputStyle}
+            placeholder="https://company.atlassian.net/jira/software/projects/KEY/boards/123"
+            defaultValue={conn.boardId ? `${conn.baseUrl}/jira/software/projects/_/boards/${conn.boardId}` : ''}
+            onChange={(e) => handleBoardUrlChange(e.target.value)}
+          />
+          {conn.boardId && (
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--green)', marginTop: 3 }}>
+              Board #{conn.boardId} · {conn.baseUrl}
+            </div>
+          )}
         </div>
       )}
 
+      {/* Row 5: auto-sync */}
+      <div>
+        <span style={labelStyle}>Auto-sync interval</span>
+        <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer', width: 'auto', minWidth: 140 }}>
+          <option value={0}>Manual only</option>
+          <option value={2}>Every 2 min</option>
+          <option value={5}>Every 5 min</option>
+          <option value={10}>Every 10 min</option>
+          <option value={15}>Every 15 min</option>
+          <option value={30}>Every 30 min</option>
+        </select>
+      </div>
+
+      {/* test */}
       {testResult && (
         <div style={{ fontSize: 11, padding: '7px 10px', borderRadius: 6, background: testResult.ok ? '#dcfce7' : '#fee2e2', color: testResult.ok ? '#15803d' : '#b91c1c', border: `1px solid ${testResult.ok ? '#86efac' : '#fca5a5'}`, fontFamily: 'var(--mono)' }}>
           {testResult.msg}
         </div>
       )}
-      <button onClick={testConnection} disabled={testing || !conn.baseUrl || !conn.token} style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.5 : 1 }}>
-        {testing ? '…testing' : 'Test connection'}
-      </button>
-
-      {conn.lastSync && (
-        <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-          Last sync: {formatDateTime(conn.lastSync)}{conn.lastSyncResult ? ` — ${conn.lastSyncResult}` : ''}
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button onClick={testConnection} disabled={testing || !conn.baseUrl || !conn.token} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.5 : 1 }}>
+          {testing ? '…testing' : 'Test connection'}
+        </button>
+        {conn.lastSync && (
+          <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+            Last sync: {formatDateTime(conn.lastSync)}{conn.lastSyncResult ? ` — ${conn.lastSyncResult}` : ''}
+          </span>
+        )}
+      </div>
 
       {/* ── STATUS GROUPS ── */}
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
@@ -418,17 +443,17 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
               ))}
             </div>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', background: 'var(--surface3)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', marginTop: 8, lineHeight: 1.5 }}>
-              <strong style={{ color: 'var(--text2)' }}>hidden</strong> — synced but not shown on the dashboard. Groups marked <strong style={{ color: 'var(--text2)' }}>closed</strong> remove issues from the daily board.
+              <strong style={{ color: 'var(--text2)' }}>hidden</strong> — synced but not shown. Groups marked <strong style={{ color: 'var(--text2)' }}>closed</strong> remove issues from the daily board.
             </div>
           </>
         ) : (
           <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text4)', padding: '6px 2px' }}>
-            Click "Fetch statuses" to load your Jira board statuses and assign each one to a group.
+            Click "Fetch statuses" to load your Jira statuses and map them to display groups.
           </div>
         )}
       </div>
 
-      {/* developers */}
+      {/* ── DEVELOPERS ── */}
       {developers.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
           <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developers in this connection</div>
@@ -455,9 +480,10 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 }
 
 // ── Main Modal ─────────────────────────────────────────────────
-export default function JiraConfigModal({ onClose }: Props) {
+export default function JiraConfigModal({ onClose, projectId }: Props) {
   const { jiraConnections, developers, setJiraConnections, syncJira } = useStore()
-  const [conns, setConns] = useState<JiraConfig[]>(jiraConnections.length ? jiraConnections : [makeEmptyConn()])
+  const filteredConns = projectId ? jiraConnections.filter((c) => c.projectId === projectId) : jiraConnections
+  const [conns, setConns] = useState<JiraConfig[]>(filteredConns.length ? filteredConns : [makeEmptyConn(projectId)])
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
 
@@ -465,10 +491,25 @@ export default function JiraConfigModal({ onClose }: Props) {
     setConns((prev) => prev.map((x, i) => (i === idx ? c : x)))
   }
 
-  function save() { setJiraConnections(conns); onClose() }
+  function save() {
+    if (projectId) {
+      // Merge: keep connections not belonging to this project, replace this project's connections
+      const others = jiraConnections.filter((c) => c.projectId !== projectId)
+      setJiraConnections([...others, ...conns])
+    } else {
+      setJiraConnections(conns)
+    }
+    onClose()
+  }
 
   async function handleSyncNow() {
-    setJiraConnections(conns); setSyncing(true); setSyncResult(null)
+    if (projectId) {
+      const others = jiraConnections.filter((c) => c.projectId !== projectId)
+      setJiraConnections([...others, ...conns])
+    } else {
+      setJiraConnections(conns)
+    }
+    setSyncing(true); setSyncResult(null)
     try {
       const { added, updated, removed } = await syncJira()
       setSyncResult(`✓ Synced — ${added} added, ${updated} updated${removed ? `, ${removed} closed removed` : ''}`)
@@ -504,7 +545,7 @@ export default function JiraConfigModal({ onClose }: Props) {
             />
           ))}
         </div>
-        <button onClick={() => setConns((prev) => [...prev, makeEmptyConn()])} style={{ alignSelf: 'flex-start', background: 'var(--surface2)', border: '1px dashed var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '6px 14px', borderRadius: 6, cursor: 'pointer' }}>
+        <button onClick={() => setConns((prev) => [...prev, makeEmptyConn(projectId)])} style={{ alignSelf: 'flex-start', background: 'var(--surface2)', border: '1px dashed var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '6px 14px', borderRadius: 6, cursor: 'pointer' }}>
           + Add connection
         </button>
         {syncResult && (

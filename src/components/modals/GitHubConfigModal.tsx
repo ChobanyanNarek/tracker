@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useStore } from '../../store'
 import type { GitHubConfig } from '../../types'
 import Modal from '../ui/Modal'
+import { formatDateTime } from '../../utils/dates'
 
-interface Props { onClose: () => void }
+interface Props { onClose: () => void; projectId?: string }
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)',
@@ -15,7 +16,7 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4, display: 'block',
 }
 
-function makeEmptyConn(): GitHubConfig {
+function makeEmptyConn(projectId?: string): GitHubConfig {
   return {
     id: 'gh_' + Date.now().toString(36),
     name: '',
@@ -24,6 +25,7 @@ function makeEmptyConn(): GitHubConfig {
     orgOrUser: '',
     syncInterval: 0,
     developerUsernames: {},
+    ...(projectId ? { projectId } : {}),
   }
 }
 
@@ -163,7 +165,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {conn.lastSync && (
         <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-          Last sync: {new Date(conn.lastSync).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          Last sync: {formatDateTime(conn.lastSync)}
           {conn.lastSyncResult ? ` — ${conn.lastSyncResult}` : ''}
         </div>
       )}
@@ -205,11 +207,12 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   )
 }
 
-export default function GitHubConfigModal({ onClose }: Props) {
+export default function GitHubConfigModal({ onClose, projectId }: Props) {
   const { githubConnections, developers, setGithubConnections, syncGithub } = useStore()
 
+  const filteredConns = projectId ? githubConnections.filter((c) => c.projectId === projectId) : githubConnections
   const [conns, setConns] = useState<GitHubConfig[]>(
-    githubConnections.length ? githubConnections : [makeEmptyConn()]
+    filteredConns.length ? filteredConns : [makeEmptyConn(projectId)]
   )
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
@@ -219,7 +222,7 @@ export default function GitHubConfigModal({ onClose }: Props) {
   }
 
   function addConn() {
-    setConns((prev) => [...prev, makeEmptyConn()])
+    setConns((prev) => [...prev, makeEmptyConn(projectId)])
   }
 
   function removeConn(idx: number) {
@@ -227,12 +230,22 @@ export default function GitHubConfigModal({ onClose }: Props) {
   }
 
   function save() {
-    setGithubConnections(conns)
+    if (projectId) {
+      const others = githubConnections.filter((c) => c.projectId !== projectId)
+      setGithubConnections([...others, ...conns])
+    } else {
+      setGithubConnections(conns)
+    }
     onClose()
   }
 
   async function handleSyncNow() {
-    setGithubConnections(conns)
+    if (projectId) {
+      const others = githubConnections.filter((c) => c.projectId !== projectId)
+      setGithubConnections([...others, ...conns])
+    } else {
+      setGithubConnections(conns)
+    }
     setSyncing(true)
     setSyncResult(null)
     try {

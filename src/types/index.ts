@@ -13,6 +13,7 @@ export interface GitLabConfig {
   developerUsernames?: Record<string, string>  // devId → gitlab username for this connection
   lastSync?: string
   lastSyncResult?: string
+  projectId?: string      // if set, this connection belongs to a specific project; empty = global
 }
 
 export interface GitHubConfig {
@@ -25,6 +26,7 @@ export interface GitHubConfig {
   developerUsernames?: Record<string, string>  // devId → github username
   lastSync?: string
   lastSyncResult?: string
+  projectId?: string      // if set, this connection belongs to a specific project; empty = global
 }
 
 export type StatusGroupColor = 'blue' | 'amber' | 'red' | 'purple' | 'green' | 'teal' | 'pink' | 'orange' | 'gray'
@@ -53,9 +55,11 @@ export interface JiraConfig {
   developerEmails?: Record<string, string>  // devId → jira email for this connection
   statusGroups?: StatusGroup[]              // user-defined display groups
   statusMappings?: JiraStatusMapping[]      // jiraStatus → groupId mapping
-  boardId?: number                          // if set, sync only issues from this board (Agile API)
+  boardId?: number                          // board mode: sync only issues from this one board (Agile API)
+  allowedBoardIds?: number[]               // project mode: show only issues from these boards (empty = all)
   lastSync?: string
   lastSyncResult?: string
+  projectId?: string                        // if set, this connection belongs to a specific project; empty = global
 }
 
 export interface PrEntry {
@@ -154,6 +158,7 @@ export interface Project {
   nonWorkingDays?: number[]  // 0=Sun 1=Mon … 6=Sat; defaults to [0,6] when absent
   mode?: 'kanban' | 'scrum'
   jiraBoardId?: number
+  jiraConnectionId?: string  // links this project to a specific Jira connection
 }
 
 export interface DeadlineItem {

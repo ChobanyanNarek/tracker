@@ -1,5 +1,7 @@
 import { useStore } from '../../store'
 import { todayStr, dlInfo, daysInMonth, padDate, isAmHoliday } from '../../utils/dates'
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 import { getJiras } from '../../utils/format'
 
 export default function Calendar() {
@@ -11,9 +13,7 @@ export default function Calendar() {
   const month = selD.getMonth()
   const total = daysInMonth(year, month)
 
-  const monthLabel = new Date(year, month, 1)
-    .toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-    .toUpperCase()
+  const monthLabel = `${MONTHS[month].slice(0, 3).toUpperCase()} ${year}`
 
   // Build alert dot map
   const dlMap: Record<string, 'over' | 'warn'> = {}

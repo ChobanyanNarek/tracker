@@ -1019,7 +1019,19 @@ export const useStore = create<Store>((set, get) => {
         for (const { dev, email } of connDevs) {
           let devIssues: JiraIssueRaw[]
           if (conn.boardId) {
+            // Board mode: single board, active sprint only
             devIssues = await fetchJiraBoardIssues(conn, conn.boardId, email)
+          } else if (conn.allowedBoardIds?.length) {
+            // Project mode with board filter: fetch from each allowed board and union
+            const perBoard = await Promise.all(
+              conn.allowedBoardIds.map((bid) => fetchJiraBoardIssues(conn, bid, email).catch(() => [] as JiraIssueRaw[]))
+            )
+            const seen = new Set<string>()
+            devIssues = perBoard.flat().filter((issue) => {
+              if (seen.has(issue.key)) return false
+              seen.add(issue.key)
+              return true
+            })
           } else {
             const statusFilter = buildJqlStatusFilter(conn.statusMappings)
             const devJql = projList
@@ -1130,7 +1142,7 @@ export const useStore = create<Store>((set, get) => {
               newTasks.push({
                 id: makeId('t'),
                 devId,
-                projectId: '',
+                projectId: conn.projectId ?? '',
                 title: 'Jira Issues',
                 status: 'inprogress',
                 jira: '',
