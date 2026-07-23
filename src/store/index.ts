@@ -966,7 +966,7 @@ export const useStore = create<Store>((set, get) => {
     setJiraConnections: (jiraConnections) => set((s) => withSave({ ...s, jiraConnections })),
 
     syncJira: async () => {
-      const { jiraConnections, developers, tasks } = get()
+      const { jiraConnections, developers, tasks, projects } = get()
       const enabledConns = jiraConnections.filter((c) => c.enabled && c.baseUrl && c.token)
       if (!enabledConns.length) throw new Error('No Jira connections configured')
 
