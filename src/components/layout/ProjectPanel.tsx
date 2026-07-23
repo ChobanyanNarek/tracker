@@ -27,8 +27,8 @@ const DAY_FULL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const DOW_NAME = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const SCHED_DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
-const PANEL_W = 340
-const EDIT_W = 380
+const PANEL_W = 280
+const EDIT_W = 320
 
 // ── Icons ───────────────────────────────────────────────────────────────────
 
