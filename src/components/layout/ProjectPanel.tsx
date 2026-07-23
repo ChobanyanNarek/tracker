@@ -64,13 +64,13 @@ const IcoChevronLeft = () => (
 // ── Shared field styles ──────────────────────────────────────────────────────
 
 const field: React.CSSProperties = {
-  padding: '9px 12px', fontSize: 13, background: 'var(--surface)',
-  border: '1.5px solid var(--border)', borderRadius: 9, color: 'var(--text)',
+  padding: '6px 10px', fontSize: 12, background: 'var(--surface)',
+  border: '1.5px solid var(--border)', borderRadius: 7, color: 'var(--text)',
   width: '100%', boxSizing: 'border-box', outline: 'none',
 }
 const label: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: '.5px',
-  textTransform: 'uppercase', marginBottom: 5, display: 'block',
+  fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: '.5px',
+  textTransform: 'uppercase', marginBottom: 4, display: 'block',
 }
 const section: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5 }
 
@@ -212,24 +212,24 @@ function SortableDevRow({ dev, schedulingId, archivingId, schedDraft, archiveDat
 
 function ConnCard({ enabled, label, onSync }: { enabled: boolean; label: string; onSync: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: `1.5px solid ${enabled ? 'var(--border)' : 'var(--border)'}`, background: enabled ? 'var(--surface)' : 'var(--surface3)', marginBottom: 6 }}>
-      <div style={{ width: 9, height: 9, borderRadius: '50%', background: enabled ? '#22c55e' : 'var(--text4)', flexShrink: 0, boxShadow: enabled ? '0 0 7px #22c55e99' : 'none' }} />
-      <span style={{ fontSize: 13, fontWeight: 500, color: enabled ? 'var(--text)' : 'var(--text3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: `1.5px solid var(--border)`, background: enabled ? 'var(--surface)' : 'var(--surface3)', marginBottom: 4 }}>
+      <div style={{ width: 7, height: 7, borderRadius: '50%', background: enabled ? '#22c55e' : 'var(--text4)', flexShrink: 0, boxShadow: enabled ? '0 0 5px #22c55e99' : 'none' }} />
+      <span style={{ fontSize: 12, fontWeight: 500, color: enabled ? 'var(--text)' : 'var(--text3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       <span style={{ fontSize: 10, fontWeight: 700, color: enabled ? '#22c55e' : 'var(--text4)', letterSpacing: '.5px', flexShrink: 0 }}>{enabled ? 'ON' : 'OFF'}</span>
-      <button onClick={onSync} title="Sync now" style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', borderRadius: 6, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14, flexShrink: 0 }}>⟳</button>
+      <button onClick={onSync} title="Sync now" style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', borderRadius: 5, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>⟳</button>
     </div>
   )
 }
 
 function UnassignedConnCard({ enabled, label, onAssign }: { enabled: boolean; label: string; onAssign: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: '1.5px dashed var(--border)', background: 'var(--surface3)', marginBottom: 6 }}>
-      <div style={{ width: 9, height: 9, borderRadius: '50%', background: enabled ? '#22c55e' : 'var(--text4)', flexShrink: 0 }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: '1.5px dashed var(--border)', background: 'var(--surface3)', marginBottom: 4 }}>
+      <div style={{ width: 7, height: 7, borderRadius: '50%', background: enabled ? '#22c55e' : 'var(--text4)', flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+        <div style={{ fontSize: 12, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
         <div style={{ fontSize: 10, color: 'var(--text4)', marginTop: 1 }}>Not assigned to any project</div>
       </div>
-      <button onClick={onAssign} style={{ fontSize: 11, fontWeight: 600, background: 'var(--accent-dim)', border: '1.5px solid var(--accent)', color: 'var(--accent)', borderRadius: 7, padding: '5px 12px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>Assign here</button>
+      <button onClick={onAssign} style={{ fontSize: 10, fontWeight: 600, background: 'var(--accent-dim)', border: '1.5px solid var(--accent)', color: 'var(--accent)', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>Assign here</button>
     </div>
   )
 }
@@ -238,9 +238,9 @@ function UnassignedConnCard({ enabled, label, onAssign }: { enabled: boolean; la
 
 function SectionHeader({ title, onAdd }: { title: string; onAdd: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px' }}>{title}</span>
-      <button onClick={onAdd} style={{ fontSize: 12, fontWeight: 600, background: 'var(--accent-dim)', border: '1.5px solid var(--accent)', color: 'var(--accent)', borderRadius: 7, padding: '5px 12px', cursor: 'pointer' }}>+ Add</button>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px' }}>{title}</span>
+      <button onClick={onAdd} style={{ fontSize: 10, fontWeight: 600, background: 'var(--accent-dim)', border: '1.5px solid var(--accent)', color: 'var(--accent)', borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>+ Add</button>
     </div>
   )
 }
@@ -505,17 +505,17 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}>
           {/* Drawer header */}
-          <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: 'var(--surface2)' }}>
-            <button onClick={() => setEditingProjId(null)} style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, background: 'var(--surface2)' }}>
+            <button onClick={() => setEditingProjId(null)} style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 26, height: 26, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text3)' }}
             ><IcoChevronLeft /></button>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{editingProj?.name ?? '…'}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Edit project</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{editingProj?.name ?? '…'}</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 1 }}>Edit project</div>
             </div>
             {editTab === 'settings' && (
-              <button onClick={handleSaveEdit} style={{ background: 'var(--accent)', border: 'none', color: '#fff', borderRadius: 8, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+              <button onClick={handleSaveEdit} style={{ background: 'var(--accent)', border: 'none', color: '#fff', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Save</button>
             )}
           </div>
 
@@ -523,21 +523,21 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--surface3)', flexShrink: 0 }}>
             {(['settings', 'team', 'integrations'] as const).map(tab => (
               <button key={tab} onClick={() => setEditTab(tab)} style={{
-                flex: 1, padding: '12px 0', fontSize: 11, fontWeight: 700,
-                border: 'none', borderBottom: `2.5px solid ${editTab === tab ? 'var(--accent)' : 'transparent'}`,
+                flex: 1, padding: '8px 0', fontSize: 10, fontWeight: 700,
+                border: 'none', borderBottom: `2px solid ${editTab === tab ? 'var(--accent)' : 'transparent'}`,
                 background: editTab === tab ? 'var(--accent-dim)' : 'none',
                 color: editTab === tab ? 'var(--accent)' : 'var(--text3)',
-                cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.7px',
+                cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.6px',
               }}>{tab}</button>
             ))}
           </div>
 
           {/* Tab content */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
 
             {/* ── Settings ── */}
             {editTab === 'settings' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={section}>
                   <label style={label}>Name</label>
                   <input style={field} autoFocus value={editName} onChange={e => setEditName(e.target.value)} placeholder="Project name" />
@@ -549,7 +549,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                 <div style={section}>
                   <label style={label}>Color</label>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {PALETTE.map(c => <div key={c} onClick={() => setEditColor(c)} style={{ width: 26, height: 26, borderRadius: 7, background: c, cursor: 'pointer', border: `3px solid ${c === editColor ? '#1e293b' : 'transparent'}`, transform: c === editColor ? 'scale(1.2)' : '', transition: 'all .15s' }} />)}
+                    {PALETTE.map(c => <div key={c} onClick={() => setEditColor(c)} style={{ width: 20, height: 20, borderRadius: 5, background: c, cursor: 'pointer', border: `2px solid ${c === editColor ? '#1e293b' : 'transparent'}`, transform: c === editColor ? 'scale(1.2)' : '', transition: 'all .15s' }} />)}
                   </div>
                 </div>
                 <div style={section}>
@@ -561,7 +561,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                   <div style={{ display: 'flex', gap: 8 }}>
                     {(['kanban', 'scrum'] as const).map(m => (
                       <button key={m} type="button" onClick={() => setEditMode(m)} style={{
-                        flex: 1, padding: '10px 0', fontSize: 13, fontWeight: 600, borderRadius: 9,
+                        flex: 1, padding: '7px 0', fontSize: 12, fontWeight: 600, borderRadius: 7,
                         border: `1.5px solid ${editMode === m ? 'var(--accent)' : 'var(--border2)'}`,
                         background: editMode === m ? 'var(--accent-dim)' : 'var(--surface)',
                         color: editMode === m ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', textTransform: 'capitalize',
