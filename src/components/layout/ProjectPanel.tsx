@@ -210,41 +210,6 @@ function SortableDevRow({ dev, schedulingId, archivingId, schedDraft, archiveDat
 
 // ── Connection card ──────────────────────────────────────────────────────────
 
-function ConnCard({ enabled, label, onSync }: { enabled: boolean; label: string; onSync: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: '1.5px solid var(--border)', background: enabled ? 'var(--surface)' : 'var(--surface3)', marginBottom: 6 }}>
-      <div style={{ width: 9, height: 9, borderRadius: '50%', background: enabled ? '#22c55e' : 'var(--text4)', flexShrink: 0, boxShadow: enabled ? '0 0 7px #22c55e99' : 'none' }} />
-      <span style={{ fontSize: 13, fontWeight: 500, color: enabled ? 'var(--text)' : 'var(--text3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      <span style={{ fontSize: 10, fontWeight: 700, color: enabled ? '#22c55e' : 'var(--text4)', letterSpacing: '.5px', flexShrink: 0 }}>{enabled ? 'ON' : 'OFF'}</span>
-      <button onClick={onSync} title="Sync now" style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>⟳</button>
-    </div>
-  )
-}
-
-function UnassignedConnCard({ enabled, label, onAssign }: { enabled: boolean; label: string; onAssign: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: '1.5px dashed var(--border)', background: 'var(--surface3)', marginBottom: 4 }}>
-      <div style={{ width: 7, height: 7, borderRadius: '50%', background: enabled ? '#22c55e' : 'var(--text4)', flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
-        <div style={{ fontSize: 10, color: 'var(--text4)', marginTop: 1 }}>Not assigned to any project</div>
-      </div>
-      <button onClick={onAssign} style={{ fontSize: 10, fontWeight: 600, background: 'var(--accent-dim)', border: '1.5px solid var(--accent)', color: 'var(--accent)', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>Assign here</button>
-    </div>
-  )
-}
-
-// ── Section header ───────────────────────────────────────────────────────────
-
-function SectionHeader({ title, onAdd }: { title: string; onAdd: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px' }}>{title}</span>
-      <button onClick={onAdd} style={{ fontSize: 10, fontWeight: 600, background: 'var(--accent-dim)', border: '1.5px solid var(--accent)', color: 'var(--accent)', borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>+ Add</button>
-    </div>
-  )
-}
-
 // ── Main panel ──────────────────────────────────────────────────────────────
 
 export default function ProjectPanel({ open, onClose, topOffset }: Props) {
@@ -291,7 +256,6 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
     developers, addProject, updateProject, deleteProject, setSelectedProject,
     addDeveloper, archiveDeveloper, unarchiveDeveloper, removeDeveloper, reorderDeveloper,
     syncJira, syncGitlab, syncGithub,
-    setJiraConnections, setGitlabConnections, setGithubConnections,
   } = useStore()
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
@@ -354,11 +318,6 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
     reorderDeveloper(String(active.id), String(over.id))
   }
 
-  const assignToProject = (projId: string, type: 'jira' | 'gitlab' | 'github', connId: string) => {
-    if (type === 'jira') setJiraConnections(jiraConnections.map(c => c.id === connId ? { ...c, projectId: projId } : c))
-    else if (type === 'gitlab') setGitlabConnections(gitlabConnections.map(c => c.id === connId ? { ...c, projectId: projId } : c))
-    else setGithubConnections(githubConnections.map(c => c.id === connId ? { ...c, projectId: projId } : c))
-  }
 
   useEffect(() => {
     if (!open) setEditingProjId(null)
