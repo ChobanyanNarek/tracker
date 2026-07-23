@@ -489,18 +489,14 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
         </div>
       </div>
 
-      {/* Edit drawer — slides in on top of the panel */}
+      {/* Edit drawer — slides in next to the panel */}
       <div style={{
-        position: 'fixed', top: topOffset, left: 0, width: PANEL_W + EDIT_W,
+        position: 'fixed', top: topOffset, left: PANEL_W, width: EDIT_W,
         height: `calc(100vh - ${topOffset}px)`,
         zIndex: 210, pointerEvents: editDrawerOpen ? 'all' : 'none',
-        transform: editDrawerOpen ? 'translateX(0)' : `translateX(-${PANEL_W + EDIT_W}px)`,
+        transform: editDrawerOpen ? 'translateX(0)' : `translateX(-${EDIT_W}px)`,
         transition: 'transform .24s cubic-bezier(.4,0,.2,1)',
-        display: 'flex',
       }}>
-        {/* Spacer = panel width */}
-        <div style={{ width: PANEL_W, flexShrink: 0 }} />
-
         {/* Drawer body */}
         <div style={{
           width: EDIT_W, height: '100%', background: 'var(--surface)',
