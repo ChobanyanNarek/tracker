@@ -212,11 +212,11 @@ function SortableDevRow({ dev, schedulingId, archivingId, schedDraft, archiveDat
 
 function ConnCard({ enabled, label, onSync }: { enabled: boolean; label: string; onSync: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: `1.5px solid var(--border)`, background: enabled ? 'var(--surface)' : 'var(--surface3)', marginBottom: 4 }}>
-      <div style={{ width: 7, height: 7, borderRadius: '50%', background: enabled ? '#22c55e' : 'var(--text4)', flexShrink: 0, boxShadow: enabled ? '0 0 5px #22c55e99' : 'none' }} />
-      <span style={{ fontSize: 12, fontWeight: 500, color: enabled ? 'var(--text)' : 'var(--text3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: '1.5px solid var(--border)', background: enabled ? 'var(--surface)' : 'var(--surface3)', marginBottom: 6 }}>
+      <div style={{ width: 9, height: 9, borderRadius: '50%', background: enabled ? '#22c55e' : 'var(--text4)', flexShrink: 0, boxShadow: enabled ? '0 0 7px #22c55e99' : 'none' }} />
+      <span style={{ fontSize: 13, fontWeight: 500, color: enabled ? 'var(--text)' : 'var(--text3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       <span style={{ fontSize: 10, fontWeight: 700, color: enabled ? '#22c55e' : 'var(--text4)', letterSpacing: '.5px', flexShrink: 0 }}>{enabled ? 'ON' : 'OFF'}</span>
-      <button onClick={onSync} title="Sync now" style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', borderRadius: 5, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>⟳</button>
+      <button onClick={onSync} title="Sync now" style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>⟳</button>
     </div>
   )
 }
