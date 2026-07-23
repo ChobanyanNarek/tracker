@@ -514,9 +514,6 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{editingProj?.name ?? '…'}</div>
               <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 1 }}>Edit project</div>
             </div>
-            {editTab === 'settings' && (
-              <button onClick={handleSaveEdit} style={{ background: 'var(--accent)', border: 'none', color: '#fff', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Save</button>
-            )}
           </div>
 
           {/* Tabs */}
