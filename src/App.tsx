@@ -42,9 +42,13 @@ export default function App() {
   const [adminOpen, setAdminOpen] = useState(false)
 
   useEffect(() => {
-    if (authed && localStorage.getItem('pm_open_admin')) {
-      localStorage.removeItem('pm_open_admin')
-      setAdminOpen(true)
+    if (authed) {
+      if (localStorage.getItem('pm_open_admin')) {
+        localStorage.removeItem('pm_open_admin')
+        setAdminOpen(true)
+      } else if (window.location.pathname === '/admin') {
+        setAdminOpen(true)
+      }
     }
   }, [authed])
 
