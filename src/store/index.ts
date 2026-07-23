@@ -1015,12 +1015,16 @@ export const useStore = create<Store>((set, get) => {
           .map((d) => ({ dev: d, email: conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '' }))
           .filter((x) => x.email)
 
+        // Resolve effective board ID: project's jiraBoardId takes priority over conn.boardId
+        const linkedProj = conn.projectId ? projects.find((p) => p.id === conn.projectId) : null
+        const effectiveBoardId = linkedProj?.jiraBoardId ?? conn.boardId
+
         const byDev = new Map<string, JiraIssueRaw[]>()
         for (const { dev, email } of connDevs) {
           let devIssues: JiraIssueRaw[]
-          if (conn.boardId) {
+          if (effectiveBoardId) {
             // Board mode: single board, active sprint only
-            devIssues = await fetchJiraBoardIssues(conn, conn.boardId, email)
+            devIssues = await fetchJiraBoardIssues(conn, effectiveBoardId, email)
           } else if (conn.allowedBoardIds?.length) {
             // Project mode with board filter: fetch from each allowed board and union
             const perBoard = await Promise.all(
