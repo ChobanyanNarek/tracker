@@ -360,6 +360,10 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
     else setGithubConnections(githubConnections.map(c => c.id === connId ? { ...c, projectId: projId } : c))
   }
 
+  useEffect(() => {
+    if (!open) setEditingProjId(null)
+  }, [open])
+
   const editDrawerOpen = open && !!editingProjId
 
   return (
