@@ -1,14 +1,14 @@
 import { create } from 'zustand'
-import type { AppState, Developer, Project, Sprint, Task, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry } from '../types'
+import type { AppState, Developer, Project, Sprint, Task, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
 import { loadCloudState, saveCloudState } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
-import { fetchJiraIssues, fetchJiraBoardIssues, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
+import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
-import { isClosedGroup } from '../utils/status-groups'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
+import { isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
 
 function makeId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 6)
@@ -38,11 +38,10 @@ function normalizeTask(t: Task): Task {
 }
 
 function freshState(): AppState {
-  const today = todayStr()
   return {
     selectedDev: 'ALL',
     selectedProject: 'ALL',
-    selectedDate: today,
+    selectedDate: latestWorkday(),
     view: 'daily',
     highlightedTaskId: null,
     schedule: {},
@@ -55,6 +54,8 @@ function freshState(): AppState {
     projects: [],
     sprints: [],
     tasks: [],
+    releaseNoteColumns: [],
+    releaseNoteData: {},
   }
 }
 
@@ -72,6 +73,11 @@ function persistState(state: AppState): void {
     gitlabConnections: state.gitlabConnections,
     githubConnections: state.githubConnections,
     trackerTimezone: state.trackerTimezone,
+    selectedProject: state.selectedProject,
+    selectedDev: state.selectedDev,
+    selectedDate: state.selectedDate,
+    releaseNoteColumns: state.releaseNoteColumns,
+    releaseNoteData: state.releaseNoteData,
   }
   void saveCloudState(payload as Record<string, unknown>)
 }
@@ -124,6 +130,7 @@ interface StoreActions {
   setTrackerTimezone: (tz: string | undefined) => void
   setJiraConnections: (connections: JiraConfig[]) => void
   syncJira: () => Promise<{ added: number; updated: number; removed: number }>
+  refreshBoardIssueKeys: (projectId: string) => Promise<void>
   setGitlabConnections: (connections: GitLabConfig[]) => void
   syncGitlab: () => Promise<{ linked: number; updated: number; noKey: number; noIssue: number; noKeyList: string[]; noIssueList: string[] }>
   setGithubConnections: (connections: GitHubConfig[]) => void
@@ -134,6 +141,10 @@ interface StoreActions {
   searchQuery: string
   setSearchQuery: (q: string) => void
   cloudSyncing: boolean
+
+  setReleaseNoteColumns: (cols: ReleaseNoteColumn[]) => void
+  setReleaseNoteData: (data: Record<string, ReleaseNoteIssueData>) => void
+  updateReleaseNoteIssue: (key: string, patch: Partial<ReleaseNoteIssueData>) => void
 }
 
 type Store = AppState & StoreActions
@@ -157,9 +168,9 @@ export const useStore = create<Store>((set, get) => {
     searchQuery: '',
 
     setView: (view) => set({ view }),
-    setSelectedDate: (selectedDate) => set({ selectedDate }),
-    setSelectedDev: (selectedDev) => set({ selectedDev }),
-    setSelectedProject: (selectedProject) => set({ selectedProject, selectedDev: 'ALL' }),
+    setSelectedDate: (selectedDate) => set((s) => withSave({ ...s, selectedDate })),
+    setSelectedDev: (selectedDev) => set((s) => withSave({ ...s, selectedDev })),
+    setSelectedProject: (selectedProject) => set((s) => withSave({ ...s, selectedProject, selectedDev: 'ALL' })),
     setHighlightedTaskId: (highlightedTaskId) => set({ highlightedTaskId }),
     setSearchQuery: (searchQuery) => set({ searchQuery }),
 
@@ -511,7 +522,10 @@ export const useStore = create<Store>((set, get) => {
 
     autoCarryOverdue: () => {
       let { tasks, projects } = get()
-      const today = todayStr()
+      const todayRaw = todayStr()
+      const lastWorkday = latestWorkday()
+      // On weekends/holidays, carry forward to next workday so issues appear on Monday
+      const today = todayRaw === lastWorkday ? todayRaw : nextWorkDay(lastWorkday)
 
       // Find the most recent date with tasks before today (up to 30 days back)
       // so we can backfill gaps when the app wasn't opened for multiple days.
@@ -961,9 +975,34 @@ export const useStore = create<Store>((set, get) => {
 
     setNotifsEnabled: (notifsEnabled) => set((s) => withSave({ ...s, notifsEnabled })),
 
+    setReleaseNoteColumns: (cols) => set((s) => withSave({ ...s, releaseNoteColumns: cols })),
+    setReleaseNoteData: (data) => set((s) => withSave({ ...s, releaseNoteData: data })),
+    updateReleaseNoteIssue: (key, patch) => set((s) => withSave({ ...s, releaseNoteData: { ...(s.releaseNoteData ?? {}), [key]: { ...(s.releaseNoteData?.[key] ?? {}), ...patch } } })),
+
     setTrackerTimezone: (trackerTimezone) => set((s) => withSave({ ...s, trackerTimezone })),
 
     setJiraConnections: (jiraConnections) => set((s) => withSave({ ...s, jiraConnections })),
+
+    // Resolve a single scrum project's exact board issue keys from Jira, on demand
+    // (e.g. right after selecting a board). Keeps board-scoped views accurate without a sync.
+    refreshBoardIssueKeys: async (projectId: string) => {
+      const { projects, jiraConnections, developers } = get()
+      const proj = projects.find((p) => p.id === projectId)
+      if (!proj || proj.mode !== 'scrum' || !proj.jiraBoardId) return
+      const conn = (proj.jiraConnectionId ? jiraConnections.find((c) => c.id === proj.jiraConnectionId && c.enabled) : undefined)
+        ?? jiraConnections.find((c) => c.projectId === proj.id && c.enabled)
+        ?? jiraConnections.find((c) => c.enabled && c.token)
+      if (!conn) return
+      const members = proj.members ?? []
+      const emails = [...new Set(developers
+        .filter((d) => members.length === 0 || members.includes(d.id))
+        .map((d) => conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '')
+        .filter(Boolean))]
+      try {
+        const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
+        set((s) => ({ ...s, projects: s.projects.map((p) => p.id === projectId ? { ...p, boardIssueKeys: keys } : p) }))
+      } catch { /* keep existing on failure */ }
+    },
 
     syncJira: async () => {
       const { jiraConnections, developers, tasks, projects } = get()
@@ -1020,8 +1059,13 @@ export const useStore = create<Store>((set, get) => {
         const effectiveBoardId = linkedProj?.jiraBoardId ?? conn.boardId
 
         const byDev = new Map<string, JiraIssueRaw[]>()
+        // Track devs whose fetch succeeded, and the full set of issue keys Jira returned
+        // for each. Used to prune issues that were deleted/reassigned away in Jira.
+        const fetchedDevs = new Set<string>()
+        const returnedKeysByDev = new Map<string, Set<string>>()
         for (const { dev, email } of connDevs) {
           let devIssues: JiraIssueRaw[]
+          try {
           if (effectiveBoardId) {
             // Board mode: single board, active sprint only
             devIssues = await fetchJiraBoardIssues(conn, effectiveBoardId, email)
@@ -1038,11 +1082,25 @@ export const useStore = create<Store>((set, get) => {
             })
           } else {
             const statusFilter = buildJqlStatusFilter(conn.statusMappings)
-            const devJql = projList
-              ? `project in (${projList}) AND assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
-              : `assignee = "${email}" AND ${statusFilter} ORDER BY updated DESC`
+            // Match assignee by both the full email AND the username (local-part before @).
+            // Some Jira instances identify users by username, not email, so `assignee = "email"`
+            // alone silently misses those issues.
+            const localPart = email.includes('@') ? email.slice(0, email.indexOf('@')) : email
+            const assigneeVals = [...new Set([email, localPart])].map((v) => `"${v}"`).join(', ')
+            const clauses = [
+              projList ? `project in (${projList})` : '',
+              `assignee in (${assigneeVals})`,
+              statusFilter,
+            ].filter(Boolean)
+            const devJql = `${clauses.join(' AND ')} ORDER BY updated DESC`
             devIssues = await fetchJiraIssues(conn, devJql)
           }
+          } catch {
+            // Fetch failed for this dev — skip pruning to avoid wiping issues on a transient error.
+            continue
+          }
+          fetchedDevs.add(dev.id)
+          returnedKeysByDev.set(dev.id, new Set(devIssues.map((i) => i.key)))
           if (devIssues.length) byDev.set(dev.id, devIssues)
         }
 
@@ -1055,23 +1113,11 @@ export const useStore = create<Store>((set, get) => {
             dedupedTasks.find((t) => t.devId === devId && t.date === today && t.jiraSync) ??
             dedupedTasks.find((t) => t.devId === devId && t.date === today)
 
-          const isClosedRaw = (raw: JiraIssueRaw) => {
-            const statusName = raw.fields.status.name
-            // If mappings exist, check if the mapped group is marked isClosed
-            if (conn.statusMappings?.length) {
-              const m = conn.statusMappings.find((m) => m.jiraStatus.toLowerCase() === statusName.toLowerCase())
-              if (m) return isClosedGroup(m.groupId, conn)
-            }
-            return statusName.toLowerCase() === 'closed' || statusName.toLowerCase() === 'done'
-          }
+          // The tracker mirrors Jira: every assigned issue is synced with its real status,
+          // including Done/closed and statuses mapped to the 'hidden' group. Nothing is
+          // dropped at sync — the Daily view decides visibility from the group mapping.
           const closedKeys = new Set<string>()
-          devIssues.forEach((raw) => {
-            if (!isClosedRaw(raw)) return
-            const url = `${conn.baseUrl.replace(/\/$/, '')}/browse/${raw.key}`
-            const k = jiraDedupeKey(url, raw.fields.summary)
-            if (k && k !== 'name:') closedKeys.add(k)
-          })
-          const incoming = devIssues.filter((raw) => !isClosedRaw(raw)).map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings))
+          const incoming = devIssues.map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings, effectiveBoardId))
           const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today)
 
           if (closedKeys.size) {
@@ -1099,10 +1145,17 @@ export const useStore = create<Store>((set, get) => {
           })
 
           const trulyNew: typeof incoming = []
-          const deletedUrls = new Set(syncTask?.deletedJiraUrls ?? [])
+          // If Jira returns an issue that was previously removed, it's genuinely assigned
+          // and active again — clear it from the deleted list so it comes back. (deletedJiraUrls
+          // must not be a permanent blocklist against Jira re-adding an active issue.)
+          const incomingUrls = new Set(incoming.map((nj) => nj.url))
+          dedupedTasks.forEach((t) => {
+            if (t.devId !== devId || !t.deletedJiraUrls?.length) return
+            const kept = t.deletedJiraUrls.filter((u) => !incomingUrls.has(u))
+            if (kept.length !== t.deletedJiraUrls.length) t.deletedJiraUrls = kept
+          })
 
           incoming.forEach((nj) => {
-            if (deletedUrls.has(nj.url)) return
             const njKey = jiraDedupeKey(nj.url, nj.name)
 
             if (syncTask) {
@@ -1112,11 +1165,10 @@ export const useStore = create<Store>((set, get) => {
               })
               if (existIdx >= 0) {
                 const ex = syncTask.jiras[existIdx]
-                const usesManual = !!ex.manualStatus && nj.status !== 'done'
-                const resolvedStatus = nj.status === 'done' ? 'done' : (ex.manualStatus ?? nj.status)
-                const resolvedManual = nj.status === 'done' ? undefined : ex.manualStatus
-                const resolvedGroupId = usesManual ? ex.groupId : nj.groupId
-                syncTask.jiras[existIdx] = { ...ex, status: resolvedStatus, groupId: resolvedGroupId, manualStatus: resolvedManual, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory) }
+                // Jira is the source of truth on sync: take the fresh Jira status and
+                // clear any manual override (manualStatus is only an optimistic hint
+                // between syncs — it must never permanently mask the real Jira status).
+                syncTask.jiras[existIdx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent }
                 connUpdated++
                 return
               }
@@ -1125,16 +1177,14 @@ export const useStore = create<Store>((set, get) => {
             if (njKey && njKey !== 'name:' && keyToTask.has(njKey)) {
               const { task, idx } = keyToTask.get(njKey)!
               const ex = task.jiras[idx]
-              const usesManual2 = !!ex.manualStatus && nj.status !== 'done'
-              const resolvedStatus2 = nj.status === 'done' ? 'done' : (ex.manualStatus ?? nj.status)
-              const resolvedManual2 = nj.status === 'done' ? undefined : ex.manualStatus
-              const resolvedGroupId2 = usesManual2 ? ex.groupId : nj.groupId
-              task.jiras[idx] = { ...ex, status: resolvedStatus2, groupId: resolvedGroupId2, manualStatus: resolvedManual2, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory) }
+              // Jira is the source of truth on sync — take fresh status, clear manual override.
+              task.jiras[idx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent }
               connUpdated++
               return
             }
 
-            if (nj.status !== 'done') trulyNew.push(nj)
+            // Add all fresh issues, including Done/closed — the tracker mirrors Jira.
+            trulyNew.push(nj)
           })
 
           if (trulyNew.length > 0) {
@@ -1169,6 +1219,45 @@ export const useStore = create<Store>((set, get) => {
           }
         })
 
+        // Prune issues Jira no longer returns (deleted in Jira, or reassigned away).
+        // Runs across ALL tasks (every date) for devs whose fetch succeeded, so a deleted
+        // issue disappears from every dashboard — not just today's board.
+        const connKeys = conn.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)
+        const keyPrefix = (j: JiraIssue): string | undefined => {
+          const dk = jiraDedupeKey(j.url, j.name)
+          const m = dk.match(/^([A-Z][A-Z0-9]+)-\d+$/)
+          return m ? m[1]!.toUpperCase() : undefined
+        }
+        const jiraTicket = (j: JiraIssue): string | undefined => {
+          const dk = jiraDedupeKey(j.url, j.name)
+          return /^[A-Z][A-Z0-9]+-\d+$/.test(dk) ? dk : undefined
+        }
+        // Union of every key Jira returned for this connection across all its devs — an
+        // issue present under ANY tracked dev is alive; only ones absent everywhere are gone.
+        const connReturnedKeys = new Set<string>()
+        fetchedDevs.forEach((dId) => returnedKeysByDev.get(dId)?.forEach((k) => connReturnedKeys.add(k)))
+        if (fetchedDevs.size) {
+          dedupedTasks.forEach((t) => {
+            if (!fetchedDevs.has(t.devId) || !t.jiras?.length) return
+            const keep = t.jiras.filter((j) => {
+              const ticket = jiraTicket(j)
+              if (!ticket) return true                  // manual / non-key issue — never prune
+              // Only prune ACTIVE issues (non-done). The sync query returns all non-done
+              // issues, so an active issue Jira didn't return is genuinely deleted/reassigned.
+              // Done issues may be legitimately absent (query excludes Done >30d old) — keep them.
+              if (j.status === 'done') return true
+              const pfx = keyPrefix(j)
+              // If this connection restricts to specific project keys, only consider its own
+              if (connKeys.length && (!pfx || !connKeys.includes(pfx))) return true
+              return connReturnedKeys.has(ticket)       // keep only if Jira still returns it
+            })
+            if (keep.length !== t.jiras.length) {
+              connRemoved += t.jiras.length - keep.length
+              t.jiras = keep
+            }
+          })
+        }
+
         added += connAdded
         updated += connUpdated
         removed += connRemoved
@@ -1180,6 +1269,45 @@ export const useStore = create<Store>((set, get) => {
       }
 
       const finalConns = get().jiraConnections.map((c) => syncedConns.find((s) => s.id === c.id) ?? c)
+
+      // Build a map of issueId → boardId from all synced incoming issues, for backfilling old tasks
+      const issueIdToBoardId = new Map<string, number>()
+      for (const conn of syncedConns) {
+        const linkedProj2 = conn.projectId ? get().projects.find((p) => p.id === conn.projectId) : null
+        const bId = (linkedProj2?.jiraBoardId ?? conn.boardId)
+        if (!bId) continue
+        // We already have incoming stamped — collect from dedupedTasks that now have boardId
+        for (const t of dedupedTasks) {
+          for (const j of t.jiras ?? []) {
+            if (j.boardId === bId && j.issueId) issueIdToBoardId.set(j.issueId, bId)
+          }
+        }
+        for (const t of newTasks) {
+          for (const j of t.jiras ?? []) {
+            if (j.boardId === bId && j.issueId) issueIdToBoardId.set(j.issueId, bId)
+          }
+        }
+      }
+
+      // Refresh each scrum project's exact board issue keys, so board-scoped display stays
+      // current (issues added/moved to a board appear without re-saving the project).
+      const boardKeyUpdates = new Map<string, string[]>()
+      for (const proj of projects) {
+        if (proj.mode !== 'scrum' || !proj.jiraBoardId) continue
+        const conn = (proj.jiraConnectionId ? enabledConns.find((c) => c.id === proj.jiraConnectionId) : undefined)
+          ?? enabledConns.find((c) => c.projectId === proj.id)
+          ?? enabledConns[0]
+        if (!conn) continue
+        const members = proj.members ?? []
+        const emails = [...new Set(developers
+          .filter((d) => members.length === 0 || members.includes(d.id))
+          .map((d) => conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '')
+          .filter(Boolean))]
+        try {
+          const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
+          boardKeyUpdates.set(proj.id, keys)
+        } catch { /* keep existing boardIssueKeys on failure */ }
+      }
 
       set((s) => {
         const livePrsByTask = new Map<string, Map<string, PrEntry[]>>()
@@ -1208,9 +1336,30 @@ export const useStore = create<Store>((set, get) => {
                 return toAdd.length ? { ...j, prs: [...(j.prs ?? []), ...toAdd] } : j
               })
             : (t.jiras ?? [])
-          return { ...t, jiras: sortJiraIssues(jiras) }
+          // Backfill boardId on any jira whose issueId we now know the board for
+          const stamped = jiras.map((j) => {
+            if (j.boardId != null || !j.issueId) return j
+            const bId = issueIdToBoardId.get(j.issueId)
+            return bId != null ? { ...j, boardId: bId } : j
+          })
+          return { ...t, jiras: sortJiraIssues(stamped) }
         })
-        return withSave({ ...s, tasks: [...merged, ...newTasks], jiraConnections: finalConns })
+        // Also backfill tasks NOT in dedupedTasks (i.e. tasks from other dates not touched by this sync)
+        const mergedIds = new Set(merged.map((t) => t.id))
+        const untouched = s.tasks.filter((t) => !mergedIds.has(t.id) && !newTasks.some((n) => n.id === t.id))
+        const untouchedStamped = untouched.map((t) => {
+          if (!issueIdToBoardId.size) return t
+          const jiras = (t.jiras ?? []).map((j) => {
+            if (j.boardId != null || !j.issueId) return j
+            const bId = issueIdToBoardId.get(j.issueId)
+            return bId != null ? { ...j, boardId: bId } : j
+          })
+          return { ...t, jiras }
+        })
+        const projectsUpdated = boardKeyUpdates.size
+          ? s.projects.map((p) => boardKeyUpdates.has(p.id) ? { ...p, boardIssueKeys: boardKeyUpdates.get(p.id) } : p)
+          : s.projects
+        return withSave({ ...s, tasks: [...merged, ...untouchedStamped, ...newTasks], jiraConnections: finalConns, projects: projectsUpdated })
       })
       return { added, updated, removed }
     },
@@ -1555,6 +1704,10 @@ function applyCloudState(cloud: Record<string, unknown> | null) {
               : {}),
           ...(cloud.githubConnections ? { githubConnections: cloud.githubConnections as AppState['githubConnections'] } : {}),
           ...(cloud.trackerTimezone !== undefined ? { trackerTimezone: cloud.trackerTimezone as string | undefined } : {}),
+          ...(cloud.selectedProject ? { selectedProject: cloud.selectedProject as string } : {}),
+          ...(cloud.selectedDev ? { selectedDev: cloud.selectedDev as string } : {}),
+          ...(cloud.releaseNoteColumns ? { releaseNoteColumns: cloud.releaseNoteColumns as ReleaseNoteColumn[] } : {}),
+          ...(cloud.releaseNoteData ? { releaseNoteData: cloud.releaseNoteData as Record<string, ReleaseNoteIssueData> } : {}),
         }
       : {}),
   }))
@@ -1587,15 +1740,139 @@ export function getVisibleDevIds(state: AppState): string[] {
     : []
 }
 
+export function getActiveBoardId(state: AppState): number | undefined {
+  if (state.selectedProject === 'ALL') return undefined
+  const proj = state.projects.find((p) => p.id === state.selectedProject)
+  return proj?.mode === 'scrum' && proj.jiraBoardId ? proj.jiraBoardId : undefined
+}
+
+// The Jira project-key prefixes the selected board covers, resolved & stored on the
+// project when the board was saved. undefined = no board selected (no filtering).
+// [] = board resolved but has zero issues (show nothing jira-related).
+export function getActiveBoardProjectKeys(state: AppState): string[] | undefined {
+  if (state.selectedProject === 'ALL') return undefined
+  const proj = state.projects.find((p) => p.id === state.selectedProject)
+  if (!proj?.jiraBoardId) return undefined
+  if (proj.boardProjectKeys === undefined) return undefined  // not resolved yet
+  return proj.boardProjectKeys.map((k) => k.trim().toUpperCase())  // may be [] (resolved, empty)
+}
+
+// The EXACT set of Jira issue keys on the selected scrum board — the accurate
+// board-membership signal. undefined = no board selected OR not yet resolved (no filtering
+// by exact key). A resolved-but-empty board yields an empty set (show nothing).
+export function getActiveBoardIssueKeys(state: AppState): Set<string> | undefined {
+  if (state.selectedProject === 'ALL') return undefined
+  const proj = state.projects.find((p) => p.id === state.selectedProject)
+  if (!proj?.jiraBoardId) return undefined
+  if (proj.boardIssueKeys === undefined) return undefined  // not resolved yet
+  return new Set(proj.boardIssueKeys.map((k) => k.trim().toUpperCase()))
+}
+
+export function taskMatchesBoard(t: Task, boardId: number): boolean {
+  return (t.jiras ?? []).some((j) => j.boardId === boardId)
+}
+
+// The Jira connection that owns the status-group mappings used for display.
+export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
+  return state.jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
+}
+
+// Single source of truth for board visibility, shared by Daily AND Deadlines.
+// An issue shows on the board unless its status group is 'hidden' or marked isClosed
+// (per the integration settings). Falls back to legacy status for issues with no group.
+export function issueShowsOnBoard(j: JiraIssue, conn: JiraConfig | undefined): boolean {
+  const gid = j.groupId
+  if (gid === 'hidden') return false
+  if (gid ? isClosedGroup(gid, conn) : j.status === 'done') return false
+  return true
+}
+
+// A sprint belongs to the selected project & board. When a board is selected:
+//  - Jira-synced sprints (jiraSprintId set) must match that exact board.
+//  - Manual sprints (no jiraSprintId) are project-scoped and always shown.
+export function sprintMatchesBoard(s: Sprint, selectedProject: string, boardId: number | undefined): boolean {
+  if (s.projectId !== selectedProject) return false
+  if (!boardId) return true
+  if (s.jiraSprintId == null) return true  // manual sprint — not board-specific
+  return s.jiraBoardId === boardId
+}
+
+// A task passes the board filter when at least one of its Jira issues belongs to the
+// board. Board membership is determined by the issue key prefix matching the board's
+// resolved project keys. When a board is selected but has no known keys ([]), no
+// jira-bearing task passes. Tasks with no jira issues always pass (manual tasks).
+// The full Jira key (e.g. "COM-826") of an issue. The real key lives in the URL/name;
+// issueId can be a synthetic id, so try it last.
+export function jiraFullKey(j: JiraIssue): string | undefined {
+  const dk = jiraDedupeKey(j.url, j.name)
+  if (/^[A-Z][A-Z0-9]+-\d+$/.test(dk)) return dk.toUpperCase()
+  if (j.issueId && /^[A-Z][A-Z0-9]+-\d+$/.test(j.issueId)) return j.issueId.toUpperCase()
+  return undefined
+}
+
+// The project-key prefix (e.g. "CS") of an issue.
+export function jiraKeyPrefix(j: JiraIssue): string | undefined {
+  const full = jiraFullKey(j)
+  return full ? full.split('-')[0] : undefined
+}
+
+// Board scope for the current selection. issueKeys = exact keys on the board (accurate);
+// prefixes = coarse fallback. `active` is false in kanban / ALL / no-board (no filtering).
+export interface BoardScope {
+  active: boolean
+  issueKeys?: Set<string>       // exact keys, when resolved
+  prefixes?: string[]           // prefix fallback, when exact keys unavailable
+}
+
+export function getBoardScope(state: AppState): BoardScope {
+  const activeBoardId = getActiveBoardId(state)
+  if (!activeBoardId) return { active: false }
+  return {
+    active: true,
+    issueKeys: getActiveBoardIssueKeys(state),
+    prefixes: getActiveBoardProjectKeys(state),
+  }
+}
+
+// Is a single jira issue on the selected board?
+//  - Board not active (kanban / ALL) → always true.
+//  - Exact issue keys resolved → the issue's key must be in that set (precise).
+//  - Only prefixes available → prefix must match (coarse fallback).
+//  - Nothing resolved yet → true (don't hide until resolution completes).
+export function jiraOnBoard(j: JiraIssue, scope: BoardScope): boolean {
+  if (!scope.active) return true
+  if (scope.issueKeys) {
+    const full = jiraFullKey(j)
+    return full ? scope.issueKeys.has(full) : false
+  }
+  if (scope.prefixes) {
+    const pfx = jiraKeyPrefix(j)
+    return pfx ? scope.prefixes.includes(pfx) : false
+  }
+  return true  // board active but unresolved — show pending next resolve
+}
+
+// A task passes the board filter when at least one of its jiras is on the board.
+// Tasks with no jiras always pass (manual tasks).
+export function taskPassesBoardFilter(t: Task, scope: BoardScope): boolean {
+  if (!scope.active) return true
+  const jiras = t.jiras ?? []
+  if (jiras.length === 0) return true
+  return jiras.some((j) => jiraOnBoard(j, scope))
+}
+
 export function getVisibleTasks(state: AppState, devId?: string): Task[] {
   const selectedDayOfWeek = new Date(state.selectedDate + 'T12:00:00').getDay()
+  const boardScope = getBoardScope(state)
   const base = state.tasks.filter((t) => {
     const dv = devId ? t.devId === devId : state.selectedDev === 'ALL' || t.devId === state.selectedDev
     const pj = state.selectedProject === 'ALL' || t.projectId === state.selectedProject
     if (!dv || !pj || t.date !== state.selectedDate) return false
     const proj = state.projects.find((p) => p.id === t.projectId)
     const nwd = proj?.nonWorkingDays ?? [0, 6]
-    return !nwd.includes(selectedDayOfWeek)
+    if (nwd.includes(selectedDayOfWeek)) return false
+    if (!taskPassesBoardFilter(t, boardScope)) return false
+    return true
   })
 
   const ordered = [...base].sort((a, b) => {
@@ -1627,9 +1904,21 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
   const seenJira = new Set<string>()
   const result: Task[] = []
 
+  // Keep only jiras belonging to the selected board.
+  const jiraBelongsToBoard = (j: JiraIssue): boolean => jiraOnBoard(j, boardScope)
+
+  // Integration settings are the source of truth for board visibility (shared by Daily
+  // and Deadlines): hide any issue whose status group is 'hidden' OR marked isClosed.
+  const jiraConn = getActiveJiraConn(state)
+  const showsOnBoard = (j: JiraIssue): boolean => {
+    return issueShowsOnBoard(j, jiraConn)
+  }
+
   for (const t of ordered) {
     if (Array.isArray(t.jiras) && t.jiras.length > 0) {
       const freshJiras = t.jiras
+        .filter(jiraBelongsToBoard)
+        .filter(showsOnBoard)
         .filter((j) => {
           const dk = jiraDedupeKey(j.url, j.name)
           const identity = dk && dk !== 'name:' ? dk : j.issueId
@@ -1672,33 +1961,44 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
 export function countUrgentDeadlines(
   tasks: AppState['tasks'],
   developers: AppState['developers'],
+  boardScope?: BoardScope,
 ): number {
   const today = todayStr()
-  const yesterday = new Date(new Date(today + 'T12:00:00').getTime() - 86_400_000)
-    .toISOString()
-    .slice(0, 10)
   const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
+  const scope = boardScope ?? { active: false }
 
-  const jiraMap = new Map<string, { status: string; taskDate: string }>()
-
+  // Count OVERDUE live issues: on today's synced board, In Progress/Blocked, with a
+  // deadline in the past. Mirrors the Deadlines dashboard's live set so the badge is
+  // always accurate. Deduped by dev+issue-key.
+  const isOverdue = (deadline: string, time: string): boolean => {
+    if (!deadline) return false
+    const due = new Date(deadline + 'T' + (time || '23:59')).getTime()
+    return due < Date.now()
+  }
+  const seen = new Set<string>()
+  let count = 0
   tasks.forEach((t) => {
     if (archivedIds.has(t.devId)) return
-    if (t.date !== today && t.date !== yesterday) return
-    const jiras = getJiras(t)
+    if (t.date !== today) return
+    const jiras = getJiras(t).filter((j) => jiraOnBoard(j, scope))
     if (jiras.length) {
       jiras.forEach((j, ji) => {
+        // Same set as the Deadlines dashboard: only the In Progress / Blocked groups.
+        const gid = j.groupId ?? legacyStatusToGroupId(j.status)
+        if (gid !== 'inprogress' && gid !== 'blocked') return
+        if (!isOverdue(j.deadline, j.deadlineTime ?? '')) return
         const k = `${t.devId}|${jiraDedupeKey(j.url, j.name) || `_anon${ji}`}`
-        const ex = jiraMap.get(k)
-        if (!ex || t.date > ex.taskDate) jiraMap.set(k, { status: j.status, taskDate: t.date })
+        if (seen.has(k)) return
+        seen.add(k)
+        count++
       })
-    } else if (t.deadline) {
+    } else if (t.deadline && (t.status === 'inprogress' || t.status === 'blocked')) {
+      if (!isOverdue(t.deadline, t.deadlineTime ?? '')) return
       const k = `${t.devId}|task-title:${t.title}`
-      const ex = jiraMap.get(k)
-      if (!ex || t.date > ex.taskDate) jiraMap.set(k, { status: t.status, taskDate: t.date })
+      if (seen.has(k)) return
+      seen.add(k)
+      count++
     }
   })
-
-  let count = 0
-  jiraMap.forEach(({ status }) => { if (status !== 'done') count++ })
   return count
 }

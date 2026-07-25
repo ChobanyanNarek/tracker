@@ -8,8 +8,9 @@ import { PALETTE } from '../../constants'
 import { hexRgb, initials } from '../../utils/format'
 import { todayStr, formatDate } from '../../utils/dates'
 import { DEFAULT_WORK_SCHEDULE, getSchedule } from '../../utils/working-hours'
-import { fetchJiraBoards, type JiraBoardInfo } from '../../utils/jira-api'
+import { fetchJiraBoards, fetchBoardProjectKeys, fetchBoardIssueKeys, type JiraBoardInfo } from '../../utils/jira-api'
 import type { Developer, WorkSchedule } from '../../types'
+import Icon, { BrandIcon, BRAND } from '../ui/Icon'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import JiraConfigModal from '../modals/JiraConfigModal'
 import GitLabConfigModal from '../modals/GitLabConfigModal'
@@ -232,6 +233,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
   const [editJiraConnectionId, setEditJiraConnectionId] = useState('')
   const [boards, setBoards] = useState<JiraBoardInfo[]>([])
   const [loadingBoards, setLoadingBoards] = useState(false)
+  const [resolvingBoard, setResolvingBoard] = useState(false)
 
   // Integration modals
   const [jiraModalOpen, setJiraModalOpen] = useState(false)
@@ -298,14 +300,45 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
     setShowDevForm(false); setSchedulingId(null); setArchivingId(null)
   }
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingProjId || !editName.trim()) return
-    updateProject(editingProjId, {
+    const projId = editingProjId
+    const boardId = editMode === 'scrum' && editJiraBoardId ? Number(editJiraBoardId) : undefined
+    const connId = editJiraConnectionId || undefined
+
+    // Save base fields immediately
+    updateProject(projId, {
       name: editName.trim(), desc: editDesc.trim(), color: editColor,
       nonWorkingDays: editNonWorkingDays, mode: editMode,
-      jiraBoardId: editMode === 'scrum' && editJiraBoardId ? Number(editJiraBoardId) : undefined,
-      jiraConnectionId: editJiraConnectionId || undefined,
+      jiraBoardId: boardId,
+      jiraConnectionId: connId,
     })
+
+    // Resolve the EXACT issue keys on this board so display filtering is precise
+    // (a board holds a specific subset of issues; prefix alone is too coarse).
+    if (boardId) {
+      const editingProjNow = projects.find(p => p.id === projId)
+      const conn = jiraConnections.find(c => c.id === connId && c.enabled) ?? jiraConnections.find(c => c.enabled)
+      if (conn) {
+        setResolvingBoard(true)
+        try {
+          const members = editingProjNow?.members ?? []
+          const emails = developers
+            .filter(d => members.length === 0 || members.includes(d.id))
+            .map(d => conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '')
+            .filter(Boolean)
+          const [issueKeys, prefixes] = await Promise.all([
+            fetchBoardIssueKeys(conn, boardId, [...new Set(emails)]),
+            fetchBoardProjectKeys(conn, boardId, [...new Set(emails)]),
+          ])
+          updateProject(projId, { boardIssueKeys: issueKeys, boardProjectKeys: prefixes })
+        } catch { /* leave undefined — filter falls back to prefix / no-op */ }
+        finally { setResolvingBoard(false) }
+      }
+    } else {
+      updateProject(projId, { boardIssueKeys: undefined, boardProjectKeys: undefined })
+    }
+
     setEditingProjId(null)
   }
 
@@ -553,7 +586,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <button className="btn-soft" style={{ flex: 1, justifyContent: 'center', padding: '10px 0', fontSize: 13 }} onClick={handleSaveEdit}>Save changes</button>
+                  <button className="btn-soft" style={{ flex: 1, justifyContent: 'center', padding: '10px 0', fontSize: 13 }} onClick={handleSaveEdit} disabled={resolvingBoard}>{resolvingBoard ? 'Resolving board…' : 'Save changes'}</button>
                   <button className="btn-secondary" style={{ flex: 1, padding: '10px 0', fontSize: 13 }} onClick={() => setEditingProjId(null)}>Cancel</button>
                 </div>
               </div>
@@ -678,37 +711,33 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
               const gitlabEnabled = gitlabConns.some(c => c.enabled)
               const githubEnabled = githubConns.some(c => c.enabled)
               const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px', borderBottom: '1px solid var(--border)' }
-              const iconBtnStyle: React.CSSProperties = { background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text3)', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }
-              const GearIcon = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14M12 2v2m0 16v2M2 12h2m16 0h2"/></svg>
-              const SyncIcon = ({ spinning }: { spinning: boolean }) => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: spinning ? 'spin .7s linear infinite' : 'none' }}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-              const JiraIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              const GitLabIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill={gitlabEnabled ? '#fc6d26' : 'var(--text3)'}><path d="M4.845.904c-.435 0-.82.28-.955.692L.31 13.16a1.352 1.352 0 0 0 .477 1.492L12 23.25l11.213-8.598a1.352 1.352 0 0 0 .477-1.492L20.11 1.596A.999.999 0 0 0 19.155.904h-.002a.998.998 0 0 0-.952.69l-2.49 7.647H8.29L5.8 1.594A.999.999 0 0 0 4.845.904z"/></svg>
-              const GitHubIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill={githubEnabled ? '#6e40c9' : 'var(--text3)'}><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+              const iconBtnStyle: React.CSSProperties = { background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--r)', color: 'var(--text3)', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }
+              const badge = (color: string): React.CSSProperties => ({ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color, padding: '2px 6px', border: `1px solid ${color}40`, borderRadius: 8, background: `${color}14` })
               return (
-                <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--rl)', overflow: 'hidden' }}>
                   {/* Jira */}
                   <div style={rowStyle}>
-                    <JiraIcon />
-                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: jiraEnabled ? '#60a5fa' : 'var(--text2)' }}>Jira</span>
-                    {jiraEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#60a5fa', padding: '2px 6px', border: '1px solid #60a5fa40', borderRadius: 8, background: '#eff6ff' }}>on</span>}
-                    <button style={iconBtnStyle} title="Jira settings" onClick={() => setJiraModalOpen(true)}><GearIcon /></button>
-                    <button style={{ ...iconBtnStyle, color: jiraEnabled ? '#60a5fa' : 'var(--text3)', borderColor: jiraEnabled ? '#60a5fa50' : 'var(--border)', opacity: jiraSyncing ? 0.5 : 1 }} title="Sync from Jira" disabled={jiraSyncing} onClick={async () => { setJiraSyncing(true); try { await syncJira() } catch {} finally { setJiraSyncing(false) } }}><SyncIcon spinning={jiraSyncing} /></button>
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill={jiraEnabled ? BRAND.jira : 'var(--text3)'} style={{ flexShrink: 0 }} aria-hidden="true"><path d="M11.53 2 6.77 6.76a1 1 0 0 0 0 1.42l4.76 4.76 4.77-4.76a1 1 0 0 0 0-1.42L11.53 2zM6.76 6.77 2 11.53l4.76 4.76 4.77-4.76-4.77-4.76zM16.29 6.77l-4.76 4.76 4.76 4.76L21.05 11.53l-4.76-4.76z"/></svg>
+                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: jiraEnabled ? BRAND.jira : 'var(--text2)' }}>Jira</span>
+                    {jiraEnabled && <span style={badge(BRAND.jira)}>on</span>}
+                    <button style={iconBtnStyle} title="Jira settings" onClick={() => setJiraModalOpen(true)}><Icon name="gear" size={12} /></button>
+                    <button style={{ ...iconBtnStyle, color: jiraEnabled ? BRAND.jira : 'var(--text3)', borderColor: jiraEnabled ? `${BRAND.jira}50` : 'var(--border)', opacity: jiraSyncing ? 0.5 : 1 }} title="Sync from Jira" disabled={jiraSyncing} onClick={async () => { setJiraSyncing(true); try { await syncJira() } catch {} finally { setJiraSyncing(false) } }}><Icon name="sync" size={12} spinning={jiraSyncing} /></button>
                   </div>
                   {/* GitLab */}
                   <div style={rowStyle}>
-                    <GitLabIcon />
-                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: gitlabEnabled ? '#fc6d26' : 'var(--text2)' }}>GitLab</span>
-                    {gitlabEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#fc6d26', padding: '2px 6px', border: '1px solid #fc6d2640', borderRadius: 8, background: '#fff7ed' }}>on</span>}
-                    <button style={iconBtnStyle} title="GitLab settings" onClick={() => setGitlabModalOpen(true)}><GearIcon /></button>
-                    <button style={{ ...iconBtnStyle, color: gitlabEnabled ? '#fc6d26' : 'var(--text3)', borderColor: gitlabEnabled ? '#fc6d2650' : 'var(--border)', opacity: glSyncing ? 0.5 : 1 }} title="Sync MRs" disabled={glSyncing} onClick={async () => { setGlSyncing(true); try { await syncGitlab() } catch {} finally { setGlSyncing(false) } }}><SyncIcon spinning={glSyncing} /></button>
+                    <BrandIcon brand="gitlab" size={14} color={gitlabEnabled ? BRAND.gitlab : 'var(--text3)'} />
+                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: gitlabEnabled ? BRAND.gitlab : 'var(--text2)' }}>GitLab</span>
+                    {gitlabEnabled && <span style={badge(BRAND.gitlab)}>on</span>}
+                    <button style={iconBtnStyle} title="GitLab settings" onClick={() => setGitlabModalOpen(true)}><Icon name="gear" size={12} /></button>
+                    <button style={{ ...iconBtnStyle, color: gitlabEnabled ? BRAND.gitlab : 'var(--text3)', borderColor: gitlabEnabled ? `${BRAND.gitlab}50` : 'var(--border)', opacity: glSyncing ? 0.5 : 1 }} title="Sync MRs" disabled={glSyncing} onClick={async () => { setGlSyncing(true); try { await syncGitlab() } catch {} finally { setGlSyncing(false) } }}><Icon name="sync" size={12} spinning={glSyncing} /></button>
                   </div>
                   {/* GitHub */}
                   <div style={{ ...rowStyle, borderBottom: 'none' }}>
-                    <GitHubIcon />
-                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: githubEnabled ? '#6e40c9' : 'var(--text2)' }}>GitHub</span>
-                    {githubEnabled && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: '#6e40c9', padding: '2px 6px', border: '1px solid #6e40c940', borderRadius: 8, background: '#f5f3ff' }}>on</span>}
-                    <button style={iconBtnStyle} title="GitHub settings" onClick={() => setGithubModalOpen(true)}><GearIcon /></button>
-                    <button style={{ ...iconBtnStyle, color: githubEnabled ? '#6e40c9' : 'var(--text3)', borderColor: githubEnabled ? '#6e40c950' : 'var(--border)', opacity: ghSyncing ? 0.5 : 1 }} title="Sync PRs" disabled={ghSyncing} onClick={async () => { setGhSyncing(true); try { await syncGithub() } catch {} finally { setGhSyncing(false) } }}><SyncIcon spinning={ghSyncing} /></button>
+                    <BrandIcon brand="github" size={14} color={githubEnabled ? BRAND.github : 'var(--text3)'} />
+                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: githubEnabled ? BRAND.github : 'var(--text2)' }}>GitHub</span>
+                    {githubEnabled && <span style={badge(BRAND.github)}>on</span>}
+                    <button style={iconBtnStyle} title="GitHub settings" onClick={() => setGithubModalOpen(true)}><Icon name="gear" size={12} /></button>
+                    <button style={{ ...iconBtnStyle, color: githubEnabled ? BRAND.github : 'var(--text3)', borderColor: githubEnabled ? `${BRAND.github}50` : 'var(--border)', opacity: ghSyncing ? 0.5 : 1 }} title="Sync PRs" disabled={ghSyncing} onClick={async () => { setGhSyncing(true); try { await syncGithub() } catch {} finally { setGhSyncing(false) } }}><Icon name="sync" size={12} spinning={ghSyncing} /></button>
                   </div>
                 </div>
               )

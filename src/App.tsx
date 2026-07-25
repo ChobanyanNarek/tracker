@@ -2,10 +2,11 @@ import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import { isAuthenticated, getUserInfo } from './utils/auth'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
-import { useStore, countUrgentDeadlines, syncCloudToStore } from './store'
+import { useStore, countUrgentDeadlines, syncCloudToStore, sprintMatchesBoard, getBoardScope } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useAutoSync } from './hooks/useAutoSync'
 import TopBar from './components/layout/TopBar'
+import Icon from './components/ui/Icon'
 
 import ProjectPanel from './components/layout/ProjectPanel'
 import Calendar from './components/calendar/Calendar'
@@ -15,23 +16,27 @@ import SearchView from './components/views/SearchView'
 import PerformanceView from './components/views/PerformanceView'
 import ScheduleView from './components/views/ScheduleView'
 import SprintView from './components/views/SprintView'
+import TimelineView from './components/views/TimelineView'
 import SprintBand from './components/sprint/SprintBand'
-import StandupModal from './components/modals/StandupModal'
-import GanttModal from './components/modals/GanttModal'
+import ReportView from './components/views/ReportView'
 
 const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
   deadlines: 'Deadlines',
   performance: 'Performance',
   schedule: 'Schedule',
+  timeline: 'Timeline',
+  report: 'Report',
 }
 
 const VIEW_ICONS: Record<string, ReactNode> = {
-  daily: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
-  deadlines: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
-  performance: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
-  schedule: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="8" y2="18"/><line x1="12" y1="18" x2="12" y2="18"/></svg>,
-  sprint: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>,
+  daily: <Icon name="daily" size={14} />,
+  deadlines: <Icon name="deadlines" size={14} />,
+  performance: <Icon name="performance" size={14} />,
+  schedule: <Icon name="schedule" size={14} />,
+  sprint: <Icon name="sprint" size={14} />,
+  timeline: <Icon name="timeline" size={14} />,
+  report: <Icon name="chart" size={14} />,
 }
 
 export default function App() {
@@ -69,7 +74,15 @@ export default function App() {
 }
 
 function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
-  const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing } = useStore()
+  const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
+
+  // When a scrum board is selected, resolve its exact issue set from Jira so board-scoped
+  // views fill in immediately (no hard refresh needed after switching boards).
+  const selProj = projects.find((p) => p.id === selectedProject)
+  const selBoardId = selProj?.mode === 'scrum' ? selProj.jiraBoardId : undefined
+  useEffect(() => {
+    if (!cloudSyncing && selectedProject !== 'ALL' && selBoardId) void refreshBoardIssueKeys(selectedProject)
+  }, [cloudSyncing, selectedProject, selBoardId, refreshBoardIssueKeys])
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
@@ -77,15 +90,14 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
     return () => window.removeEventListener('resize', check)
   }, [])
   const [toast, setToast] = useState<string | null>(null)
-  const [standupOpen, setStandupOpen] = useState(false)
-  const [ganttOpen, setGanttOpen] = useState(false)
   const [openPanel, setOpenPanel] = useState<'proj' | null>(null)
   const togglePanel = (which: 'proj') => setOpenPanel((p) => (p === which ? null : which))
 
   const urgentProj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
   const filteredTasks = urgentProj ? tasks.filter((t) => t.projectId === selectedProject) : tasks
   const filteredDevs = urgentProj ? developers.filter((d) => urgentProj.members.includes(d.id)) : developers
-  const urgentCount = countUrgentDeadlines(filteredTasks, filteredDevs)
+  const urgentState = useStore.getState()
+  const urgentCount = countUrgentDeadlines(filteredTasks, filteredDevs, getBoardScope(urgentState))
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showToast = useCallback((msg: string) => {
@@ -101,6 +113,10 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
   useEffect(() => {
     if (isSyncingRef.current && !cloudSyncing) {
       showToast('✓ Data loaded from cloud')
+      migrateIssueIds()
+      deduplicateJiras()
+      autoCarryOverdue()
+      mergeSameDayTasks()
     }
     isSyncingRef.current = cloudSyncing
   }, [cloudSyncing, showToast])
@@ -148,10 +164,12 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
     setView('daily')
   }
   const activeSprint = isScrumProject
-    ? sprints.filter((s) => s.projectId === selectedProject).find((s) => {
+    ? (() => {
         const today = new Date().toISOString().slice(0, 10)
-        return today >= s.startDate && today <= s.endDate
-      }) ?? sprints.filter((s) => s.projectId === selectedProject).slice(-1)[0]
+        const boardId = proj?.jiraBoardId
+        const projectSprints = sprints.filter((s) => sprintMatchesBoard(s, selectedProject, boardId))
+        return projectSprints.find((s) => today >= s.startDate && today <= s.endDate) ?? projectSprints.slice(-1)[0]
+      })()
     : undefined
 
   if (cloudSyncing) {
@@ -228,12 +246,14 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
           )}
 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {view === 'daily' && <DailyView onToast={showToast} onStandup={() => setStandupOpen(true)} onGantt={() => setGanttOpen(true)} />}
+            {view === 'daily' && <DailyView onToast={showToast} />}
             {view === 'deadlines' && <DeadlinesView />}
             {view === 'search' && <SearchView />}
             {view === 'performance' && <PerformanceView />}
             {view === 'schedule' && <ScheduleView />}
             {view === 'sprint' && <SprintView />}
+            {view === 'timeline' && <TimelineView />}
+            {view === 'report' && <ReportView />}
           </div>
         </div>
 
@@ -247,8 +267,6 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
         </div>
       )}
 
-      {standupOpen && <StandupModal onClose={() => setStandupOpen(false)} />}
-      {ganttOpen && <GanttModal onClose={() => setGanttOpen(false)} />}
     </div>
   )
 }

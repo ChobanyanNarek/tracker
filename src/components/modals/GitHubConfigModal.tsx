@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store'
 import type { GitHubConfig } from '../../types'
 import Modal from '../ui/Modal'
+import Icon from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
 
 interface Props { onClose: () => void; projectId?: string }
@@ -103,8 +104,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
           <button
             onClick={onDelete}
             title="Remove connection"
-            style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}
-          >✕</button>
+            style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 'var(--r)', padding: '5px', cursor: 'pointer', flexShrink: 0 }}
+          ><Icon name="close" size={12} /></button>
         )}
       </div>
 
@@ -112,7 +113,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       <div>
         <span style={labelStyle}>
           Personal Access Token (PAT)
-          <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', marginLeft: 4 }}>↗ create</a>
+          <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: 'var(--accent)', textDecoration: 'none', marginLeft: 4 }}><Icon name="external" size={11} />create</a>
         </span>
         <div style={{ position: 'relative' }}>
           <input
@@ -122,8 +123,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
             value={conn.token}
             onChange={(e) => patch('token', e.target.value)}
           />
-          <button onClick={() => setShowToken((s) => !s)} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text3)' }}>
-            {showToken ? '🙈' : '👁'}
+          <button onClick={() => setShowToken((s) => !s)} title={showToken ? 'Hide token' : 'Show token'} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', display: 'flex', alignItems: 'center' }}>
+            <Icon name={showToken ? 'eye-off' : 'eye'} size={14} />
           </button>
         </div>
         <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Needs <code>repo</code> (or <code>public_repo</code>) scope for PR search</div>
@@ -185,7 +186,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
                   onChange={(e) => setDevUsername(d.id, e.target.value)}
                   autoFocus={conn.developerUsernames?.[d.id] === ''}
                 />
-                <button onClick={() => removeDev(d.id)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: '0 2px', flexShrink: 0 }}>✕</button>
+                <button onClick={() => removeDev(d.id)} title="Remove" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}><Icon name="close" size={13} /></button>
               </div>
             ))}
             {developers.some((d) => !(d.id in (conn.developerUsernames ?? {}))) && (
@@ -303,7 +304,7 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
         </button>
 
         {syncResult && (
-          <div style={{ fontSize: 11, padding: '7px 11px', borderRadius: 6, background: syncResult.startsWith('✓') ? '#dcfce7' : '#fee2e2', color: syncResult.startsWith('✓') ? '#15803d' : '#b91c1c', fontFamily: 'var(--mono)', whiteSpace: 'pre-wrap' }}>
+          <div style={{ fontSize: 11, padding: '7px 11px', borderRadius: 'var(--r)', background: syncResult.startsWith('✓') ? 'var(--green-dim)' : 'var(--red-dim)', color: syncResult.startsWith('✓') ? 'var(--green)' : 'var(--red)', border: `1px solid ${syncResult.startsWith('✓') ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)', whiteSpace: 'pre-wrap' }}>
             {syncResult}
           </div>
         )}

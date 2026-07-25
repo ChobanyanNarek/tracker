@@ -1,7 +1,7 @@
 export type Status = 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
 export type Priority = 'low' | 'medium' | 'high' | 'critical'
 export type ScheduleType = 'work' | 'vacation' | 'dayoff' | 'sick' | 'holiday'
-export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule' | 'sprint'
+export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule' | 'sprint' | 'timeline' | 'report'
 
 export interface GitLabConfig {
   id: string
@@ -75,6 +75,7 @@ export interface StatusHistoryEntry {
 
 export interface JiraIssue {
   issueId?: string   // stable identity — same across all days this issue appears on
+  boardId?: number   // board this issue was synced from (set when conn uses board mode)
   url: string
   name: string
   status: Status
@@ -87,6 +88,9 @@ export interface JiraIssue {
   groupId?: string        // display group id from status mapping (drives label + color on card)
   manualStatus?: Status  // set when user manually changes status; overrides Jira sync
   statusHistory?: StatusHistoryEntry[]
+  storyPoints?: number              // from Jira customfield_10016 or customfield_10028
+  timeOriginalEstimate?: number     // seconds, from Jira fields.timeoriginalestimate
+  timeSpent?: number                // seconds, from Jira fields.timespent
   _srcIdx?: number
 }
 
@@ -147,6 +151,7 @@ export interface Sprint {
   startDate: string  // YYYY-MM-DD
   endDate: string    // YYYY-MM-DD
   jiraSprintId?: number  // Jira sprint ID for dedup on re-sync
+  jiraBoardId?: number   // board this sprint was synced from
 }
 
 export interface Project {
@@ -159,6 +164,8 @@ export interface Project {
   mode?: 'kanban' | 'scrum'
   jiraBoardId?: number
   jiraConnectionId?: string  // links this project to a specific Jira connection
+  boardProjectKeys?: string[]  // Jira project key prefixes the selected board covers (e.g. ['COM']); resolved when board is saved. Empty array = board resolved but has no issues.
+  boardIssueKeys?: string[]    // EXACT Jira issue keys on the selected board (e.g. ['COM-826','COM-813']); the accurate board-membership signal. Resolved on board save and refreshed each sync.
 }
 
 export interface DeadlineItem {
@@ -167,11 +174,23 @@ export interface DeadlineItem {
   deadlineTime: string
   title: string
   status: Status
+  groupId?: string   // display group from status mapping — same source as the Daily board
   jiraUrl: string
   taskDate: string
   _key: string
   _daysStuck: number
   _sinceDate: string
+}
+
+export interface ReleaseNoteColumn {
+  id: string
+  label: string
+}
+
+export interface ReleaseNoteIssueData {
+  hidden?: boolean
+  selected?: boolean
+  customFields?: Record<string, string>  // colId → value
 }
 
 export interface AppState {
@@ -191,4 +210,6 @@ export interface AppState {
   githubConnections: GitHubConfig[]
   highlightedTaskId: string | null
   trackerTimezone?: string  // single IANA zone for Performance calc; falls back to browser zone
+  releaseNoteColumns?: ReleaseNoteColumn[]
+  releaseNoteData?: Record<string, ReleaseNoteIssueData>  // key = jiraDedupeKey or issueId
 }

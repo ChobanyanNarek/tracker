@@ -6,6 +6,7 @@ import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../util
 import { dlInfo } from '../../utils/dates'
 import type { Status, Task, JiraIssue, Developer, Project } from '../../types'
 import EmptyState from '../ui/EmptyState'
+import Icon from '../ui/Icon'
 
 type StatusFilter = 'ALL' | Status
 
@@ -120,7 +121,7 @@ export default function SearchView() {
     if (!q) return safe
     return safe.replace(
       new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'),
-      '<mark style="background:#fef9c3;color:var(--text);border-radius:2px;padding:0 2px">$1</mark>',
+      '<mark style="background:var(--amber-dim);color:var(--text);border-radius:2px;padding:0 2px">$1</mark>',
     )
   }
 
@@ -138,7 +139,7 @@ export default function SearchView() {
     <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* search bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--surface)', border: `1px solid ${q ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 'var(--rl)', padding: '8px 14px', boxShadow: 'var(--shadow)', transition: 'border-color .15s' }}>
-        <span style={{ color: 'var(--text3)', fontSize: 16, flexShrink: 0 }}>🔍</span>
+        <Icon name="search" size={15} color={q ? 'var(--accent)' : 'var(--text3)'} />
         <input
           autoFocus
           value={searchQuery}
@@ -173,14 +174,14 @@ export default function SearchView() {
 
       {/* results */}
       {totalCount === 0 ? (
-        <EmptyState icon="🔍" title="No results" hint="Try different keywords or filters" />
+        <EmptyState icon="search" title="No results" hint="Try different keywords or filters" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {/* Jira issue cards */}
           {issueResults.map((r) => {
             const { issue, task, dev, proj, issueKey } = r
             const rgb = dev ? hexRgb(dev.color) : '37,99,235'
-            const devColor = dev?.color ?? '#2563eb'
+            const devColor = dev?.color ?? 'var(--accent)'
             const dl = issue.deadline ? dlInfo(issue.deadline) : null
             const { label: issueStatusLabel, text: statusColor } = resolveIssueDisplay(issue, conn)
 
@@ -245,7 +246,7 @@ export default function SearchView() {
           {/* Plain task cards (no jiras) */}
           {plainResults.map(({ task, dev, proj }) => {
             const rgb = dev ? hexRgb(dev.color) : '37,99,235'
-            const devColor = dev?.color ?? '#2563eb'
+            const devColor = dev?.color ?? 'var(--accent)'
             return (
               <div
                 key={task.id}

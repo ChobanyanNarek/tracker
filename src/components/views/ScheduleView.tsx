@@ -1,17 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { useStore } from '../../store'
 import { hexRgb, initials } from '../../utils/format'
-import { daysInMonth, padDate, isAmHoliday, formatDate, formatDateTime } from '../../utils/dates'
-
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+import { daysInMonth, padDate, isAmHoliday, formatDate } from '../../utils/dates'
+import Icon, { type IconName } from '../ui/Icon'
 import type { EmploymentPeriod } from '../../types'
 
-const DAY_TYPES: Record<string, { label: string; color: string; bg: string; emoji: string; border: string }> = {
-  work:    { label: 'Work',           color: 'var(--green)',  bg: '#dcfce7', emoji: '💼', border: '#86efac' },
-  vacation:{ label: 'Vacation',       color: '#7c3aed',       bg: '#ede9fe', emoji: '🏖️', border: '#d8b4fe' },
-  dayoff:  { label: 'Day Off',        color: 'var(--amber)',  bg: '#fef9c3', emoji: '☀️', border: '#fde047' },
-  sick:    { label: 'Sick Leave',     color: 'var(--red)',    bg: '#fee2e2', emoji: '🤒', border: '#fca5a5' },
-  holiday: { label: 'Public Holiday', color: '#0891b2',       bg: '#cffafe', emoji: '🎉', border: '#67e8f9' },
+const DAY_TYPES: Record<string, { label: string; color: string; bg: string; icon: IconName; border: string }> = {
+  work:    { label: 'Work',           color: 'var(--green)',  bg: 'var(--green-dim)',  icon: 'briefcase',    border: 'var(--green-border)' },
+  vacation:{ label: 'Vacation',       color: 'var(--teal)',   bg: 'var(--teal-dim)',   icon: 'palm',         border: 'var(--teal-border)' },
+  dayoff:  { label: 'Day Off',        color: 'var(--amber)',  bg: 'var(--amber-dim)',  icon: 'sun',          border: 'var(--amber-border)' },
+  sick:    { label: 'Sick Leave',     color: 'var(--red)',    bg: 'var(--red-dim)',    icon: 'thermometer',  border: 'var(--red-border)' },
+  holiday: { label: 'Public Holiday', color: 'var(--pink)',   bg: 'var(--pink-dim)',   icon: 'flag',         border: 'var(--pink-border)' },
 }
 
 function isWeekend(dateStr: string) {
@@ -30,30 +29,6 @@ function getDevHoursForDate(dev: { periods?: EmploymentPeriod[] }, dateStr: stri
 }
 
 // dates: sorted 'dd.mm' strings from a single year; returns "01.06 – 15.06, 20.06 – 25.06"
-function collapseRanges(dates: string[], year: number): string {
-  if (!dates.length) return ''
-  // Build full ISO strings using the month embedded in each "dd.mm" entry
-  const full = dates.map((d) => `${year}-${d.slice(3)}-${d.slice(0, 2)}`)
-  const ranges: string[] = []
-  let start = full[0], prev = full[0]
-  for (let i = 1; i <= full.length; i++) {
-    const cur = full[i]
-    const prevD = new Date(prev + 'T12:00:00')
-    const nextD = new Date(prevD)
-    do { nextD.setDate(nextD.getDate() + 1) } while (nextD.getDay() === 0 || nextD.getDay() === 6)
-    const nextStr = nextD.toISOString().split('T')[0]
-    if (cur && cur === nextStr) {
-      prev = cur
-    } else {
-      const s = start.slice(8) + '.' + start.slice(5, 7)
-      const e = prev.slice(8) + '.' + prev.slice(5, 7)
-      ranges.push(s === e ? s : `${s} – ${e}`)
-      start = cur; prev = cur
-    }
-  }
-  return ranges.join(', ')
-}
-
 // Employment period modal
 function EmploymentModal({ dev, onClose, onSave }: {
   dev: { id: string; name: string; periods?: EmploymentPeriod[] }
@@ -138,20 +113,20 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
       <div style={{ padding: '7px 12px', fontSize: 11, fontWeight: 600, color: 'var(--text3)', borderBottom: '1px solid var(--border)', fontFamily: 'var(--mono)' }}>{label}</div>
       {(['work', 'dayoff', 'sick', 'holiday'] as const).map((k) => (
         <div key={k} onClick={() => onSelect(k)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer', background: current === k ? 'var(--accent-dim)' : undefined, borderLeft: current === k ? '3px solid var(--accent)' : '3px solid transparent', transition: 'background .1s' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = current === k ? 'var(--accent-dim)' : '' }}>
-          <span style={{ fontSize: 14 }}>{DAY_TYPES[k].emoji}</span>
+          <Icon name={DAY_TYPES[k].icon} size={14} color={DAY_TYPES[k].color} />
           <span style={{ fontSize: 12, fontWeight: 600 }}>{DAY_TYPES[k].label}</span>
         </div>
       ))}
       <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
       <div onClick={() => onSelect('vacation')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = '' }}>
-        <span style={{ fontSize: 14 }}>🏖️</span>
+        <Icon name="palm" size={14} color="var(--teal)" />
         <div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>Vacation</div>
           <div style={{ fontSize: 10, color: 'var(--text3)' }}>Single day</div>
         </div>
       </div>
       <div onClick={onRange} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = '' }}>
-        <span style={{ fontSize: 14 }}>🏖️</span>
+        <Icon name="palm" size={14} color="var(--teal)" />
         <div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>Vacation — range</div>
           <div style={{ fontSize: 10, color: 'var(--accent)' }}>Click start → click end date</div>
@@ -169,94 +144,6 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
   )
 }
 
-// Schedule report modal
-function ScheduleReportModal({ year, month, onClose }: { year: number; month: number; onClose: () => void }) {
-  const { developers: allDevelopersRaw, schedule, selectedProject, projects } = useStore()
-  const proj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
-  const developers = allDevelopersRaw.filter((d) => !d.archivedAt && (proj ? proj.members.includes(d.id) : true))
-  const [copied, setCopied] = useState(false)
-  const days = daysInMonth(year, month)
-  const daysList: string[] = []
-  for (let d = 1; d <= days; d++) daysList.push(padDate(year, month, d))
-
-  const totalWorkdays = daysList.filter((d) => !isWeekend(d) && !isAmHoliday(d)).length
-  const totalHolidays = daysList.filter((d) => !isWeekend(d) && !!isAmHoliday(d)).length
-  const weekends = daysList.filter((d) => isWeekend(d)).length
-
-  const monthName = `${MONTHS[month]} ${year}`
-
-  const devStats = developers.map((dev) => {
-    const vacD: string[] = [], dayoffD: string[] = [], sickD: string[] = [], holD: string[] = []
-    let worked = 0, totalHours = 0
-    daysList.forEach((ds) => {
-      if (isWeekend(ds)) return
-      const amHol = isAmHoliday(ds)
-      const entry = schedule[dev.id]?.[ds]
-      const ddmm = ds.slice(8) + '.' + ds.slice(5, 7)
-      if (entry === 'vacation') vacD.push(ddmm)
-      else if (entry === 'dayoff') dayoffD.push(ddmm)
-      else if (entry === 'sick') sickD.push(ddmm)
-      else if (entry === 'holiday' || (amHol && !entry)) holD.push(ddmm)
-      else { worked++; totalHours += getDevHoursForDate(dev, ds) }
-    })
-
-    const periods = dev.periods ?? []
-    const monthStart = padDate(year, month, 1)
-    const monthEnd = padDate(year, month, days)
-    const activePeriods = periods.filter((p) => (p.from || '0000-01-01') <= monthEnd && (p.to || '9999-12-31') >= monthStart)
-    const periodDesc = activePeriods.length === 0
-      ? 'Full time (8h/day)'
-      : activePeriods.map((p) => {
-          const typeLabel = p.type === 'part' ? `Part time (${p.hours || 4}h/day)` : 'Full time (8h/day)'
-          const fromFmt = p.from ? p.from.slice(8) + '.' + p.from.slice(5, 7) : ''
-          const toFmt = p.to ? p.to.slice(8) + '.' + p.to.slice(5, 7) : 'present'
-          return typeLabel + (fromFmt ? ` from ${fromFmt} to ${toFmt}` : '')
-        }).join(', ')
-
-    return { dev, worked, totalHours, periodDesc, vacation: vacD.length, vacationStr: collapseRanges(vacD, year), dayoff: dayoffD.length, dayoffStr: dayoffD.join(', '), sick: sickD.length, sickStr: sickD.join(', '), holidays: holD.length, holidayStr: holD.join(', ') }
-  })
-
-  const lines = [
-    `MONTHLY WORKING DAYS REPORT — ${monthName.toUpperCase()}`,
-    '═'.repeat(60),
-    `Total: ${days} days  |  ${totalWorkdays} workdays  |  ${totalHolidays} public holidays  |  ${weekends} weekends`,
-    '',
-    ...devStats.flatMap(({ dev, worked, periodDesc, vacation, vacationStr, dayoff, dayoffStr, sick, sickStr, holidays, holidayStr }) => {
-      const parts = [`${worked} working days`]
-      if (holidays) parts.push(`${holidays} public holiday${holidays !== 1 ? 's' : ''} (${holidayStr})`)
-      if (vacation) parts.push(`${vacation} vacation day${vacation !== 1 ? 's' : ''} (${vacationStr})`)
-      if (dayoff) parts.push(`${dayoff} day off${dayoff !== 1 ? 's' : ''} (${dayoffStr})`)
-      if (sick) parts.push(`${sick} sick day${sick !== 1 ? 's' : ''} (${sickStr})`)
-      return [`${dev.name} — ${periodDesc}`, parts.join(' / '), '']
-    }),
-    '─'.repeat(60),
-    `Generated: ${formatDateTime(new Date())}`,
-  ]
-  const textReport = lines.join('\n')
-
-  const copy = async () => {
-    await navigator.clipboard.writeText(textReport)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', width: '100%', maxWidth: 700, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '13px 18px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>📊 Monthly Report — {monthName}</span>
-          <button onClick={onClose} className="icon-btn" style={{ fontSize: 16 }}>✕</button>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 18px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <button onClick={copy} style={{ background: copied ? '#dcfce7' : 'var(--surface2)', border: `1px solid ${copied ? '#86efac' : 'var(--border)'}`, color: copied ? 'var(--green)' : 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 12, padding: '5px 14px', borderRadius: 6, cursor: 'pointer' }}>
-            {copied ? '✓ Copied!' : '📋 Copy as text'}
-          </button>
-        </div>
-        <pre style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', margin: 0, fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text)', background: 'var(--surface2)', whiteSpace: 'pre', lineHeight: 1.7 }}>{textReport}</pre>
-      </div>
-    </div>
-  )
-}
 
 export default function ScheduleView() {
   const now = new Date()
@@ -265,7 +152,6 @@ export default function ScheduleView() {
   const [menu, setMenu] = useState<{ devId: string; dateStr: string; rect: DOMRect } | null>(null)
   const [rangeStart, setRangeStart] = useState<{ devId: string; date: string } | null>(null)
   const [empModal, setEmpModal] = useState<string | null>(null) // devId
-  const [report, setReport] = useState(false)
 
   const allDevelopers = useStore((s) => s.developers.filter((d) => !d.archivedAt))
   const selectedProject = useStore((s) => s.selectedProject)
@@ -322,18 +208,15 @@ export default function ScheduleView() {
         {rangeStart && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: 'var(--accent-dim)', border: '1px solid var(--accent)', borderRadius: 8, fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--accent)' }}>
             📍 Start: {rangeStart.date} — click end date
-            <button onClick={() => setRangeStart(null)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 13, padding: 0 }}>✕</button>
+            <button onClick={() => setRangeStart(null)} style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: 0 }}><Icon name="close" size={13} /></button>
           </div>
         )}
 
         <div style={{ flex: 1 }} />
-        <button onClick={() => setReport(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer' }}>
-          📊 Monthly Report
-        </button>
 
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
           {Object.entries(DAY_TYPES).map(([k, v]) => (
-            <span key={k} style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '2px 8px', borderRadius: 8, background: v.bg, color: v.color, border: `1px solid ${v.border}` }}>{v.emoji} {v.label}</span>
+            <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'var(--mono)', fontSize: 10, padding: '2px 8px', borderRadius: 8, background: v.bg, color: v.color, border: `1px solid ${v.border}` }}><Icon name={v.icon} size={11} color={v.color} /> {v.label}</span>
           ))}
         </div>
       </div>
@@ -401,15 +284,15 @@ export default function ScheduleView() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                           <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>{dev.name}</span>
-                          <button onClick={() => setEmpModal(dev.id)} title="Edit employment periods" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 11, padding: '0 2px', flexShrink: 0 }}>✎</button>
+                          <button onClick={() => setEmpModal(dev.id)} title="Edit employment periods" style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', padding: '0 2px', flexShrink: 0 }}><Icon name="edit" size={11} /></button>
                         </div>
                         {empSlash && <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--accent)', marginBottom: 2 }}>{empSlash}</div>}
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {worked > 0 && <span title="Worked" style={{ fontSize: 9, color: 'var(--green)', fontFamily: 'var(--mono)' }}>💼{worked}d</span>}
-                          {(counts['vacation'] ?? 0) > 0 && <span title="Vacation" style={{ fontSize: 9, color: '#7c3aed', fontFamily: 'var(--mono)' }}>🏖️{counts['vacation']}</span>}
-                          {(counts['dayoff'] ?? 0) > 0 && <span title="Day off" style={{ fontSize: 9, color: 'var(--amber)', fontFamily: 'var(--mono)' }}>☀️{counts['dayoff']}</span>}
-                          {(counts['sick'] ?? 0) > 0 && <span title="Sick" style={{ fontSize: 9, color: 'var(--red)', fontFamily: 'var(--mono)' }}>🤒{counts['sick']}</span>}
-                          {(counts['holiday'] ?? 0) > 0 && <span title="Holidays" style={{ fontSize: 9, color: '#0891b2', fontFamily: 'var(--mono)' }}>🎉{counts['holiday']}</span>}
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {worked > 0 && <span title="Worked" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--green)', fontFamily: 'var(--mono)' }}><Icon name="briefcase" size={10} color="var(--green)" />{worked}d</span>}
+                          {(counts['vacation'] ?? 0) > 0 && <span title="Vacation" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--teal)', fontFamily: 'var(--mono)' }}><Icon name="palm" size={10} color="var(--teal)" />{counts['vacation']}</span>}
+                          {(counts['dayoff'] ?? 0) > 0 && <span title="Day off" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--amber)', fontFamily: 'var(--mono)' }}><Icon name="sun" size={10} color="var(--amber)" />{counts['dayoff']}</span>}
+                          {(counts['sick'] ?? 0) > 0 && <span title="Sick" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--red)', fontFamily: 'var(--mono)' }}><Icon name="thermometer" size={10} color="var(--red)" />{counts['sick']}</span>}
+                          {(counts['holiday'] ?? 0) > 0 && <span title="Holidays" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--pink)', fontFamily: 'var(--mono)' }}><Icon name="flag" size={10} color="var(--pink)" />{counts['holiday']}</span>}
                         </div>
                       </div>
                     </div>
@@ -425,12 +308,12 @@ export default function ScheduleView() {
                     const hours = getDevHoursForDate(dev, ds)
                     const isPartial = !effective && !isWe && hours !== 8
 
-                    const cellBg = isRS ? '#bfdbfe'
+                    const cellBg = isRS ? 'var(--accent-border)'
                       : dt ? dt.bg
                       : isWe ? 'var(--surface3)'
-                      : amHol ? '#cffafe'
-                      : (isPartial && !isWe) ? '#eff6ff'
-                      : isTodayCol ? 'rgba(37,99,235,0.05)'
+                      : amHol ? 'var(--pink-dim)'
+                      : (isPartial && !isWe) ? 'var(--accent-dim)'
+                      : isTodayCol ? 'var(--accent-dim)'
                       : undefined
 
                     return (
@@ -456,11 +339,11 @@ export default function ScheduleView() {
                         onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
                       >
                         {dt && (
-                          <div style={{ width: 22, height: 22, borderRadius: 4, background: dt.bg, border: `1px solid ${dt.border}`, margin: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>
-                            {dt.emoji}
+                          <div style={{ width: 22, height: 22, borderRadius: 4, background: dt.bg, border: `1px solid ${dt.border}`, margin: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Icon name={dt.icon} size={12} color={dt.color} />
                           </div>
                         )}
-                        {!dt && amHol && <div style={{ fontSize: 11 }}>🎉</div>}
+                        {!dt && amHol && <Icon name="flag" size={12} color="var(--pink)" />}
                         {!dt && !amHol && isPartial && !isWe && (
                           <div style={{
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -505,8 +388,6 @@ export default function ScheduleView() {
         />
       )}
 
-      {/* report modal */}
-      {report && <ScheduleReportModal year={year} month={month} onClose={() => setReport(false)} />}
     </div>
   )
 }

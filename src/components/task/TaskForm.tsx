@@ -4,6 +4,7 @@ import { useStore } from '../../store'
 import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
 import { todayStr } from '../../utils/dates'
 import { loadPresets, savePresets, loadJiraPresets, saveJiraPresets } from '../../utils/format'
+import DatePicker from '../ui/DatePicker'
 
 interface JiraFormRow {
   url: string
@@ -38,7 +39,7 @@ function PrRow({ value, onChange, onRemove }: { value: PrEntry; onChange: (v: Pr
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 6, alignItems: 'center', marginBottom: 4 }}>
       <input className="field" type="url" placeholder="https://github.com/..." value={value.url} onChange={(e) => autoFill(e.target.value)} />
-      <input className="field" type="date" value={value.date} onChange={(e) => onChange({ ...value, date: e.target.value })} style={{ width: 'auto' }} />
+      <DatePicker value={value.date} onChange={(d) => onChange({ ...value, date: d })} placeholder="Date" />
       <input className="field" type="time" value={value.time} onChange={(e) => onChange({ ...value, time: e.target.value })} style={{ width: 'auto' }} />
       <button className="icon-btn del" onClick={onRemove} title="Remove PR">✕</button>
     </div>
@@ -115,7 +116,7 @@ function JiraRow({ value, onChange, onRemove }: { value: JiraFormRow; onChange: 
         </select>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <input className="field" type="date" value={value.deadline} onChange={(e) => onChange({ ...value, deadline: e.target.value })} title="Deadline" />
+          <DatePicker value={value.deadline ?? ''} onChange={(d) => onChange({ ...value, deadline: d })} placeholder="Deadline" />
           <button type="button" onClick={() => onChange({ ...value, deadline: todayStr() })} style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 9, padding: '2px 7px', borderRadius: 4, cursor: 'pointer', lineHeight: 1.4, whiteSpace: 'nowrap' }}>Today</button>
         </div>
 

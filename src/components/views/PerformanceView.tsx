@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { useStore } from '../../store'
+import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard } from '../../store'
 import { computeTeamPerformance } from '../../utils/performance'
 import type { IssuePerf, DevPerf, Verdict, PerfRange } from '../../utils/performance'
 import type { Developer } from '../../types'
 import { fmtWorkHours, tzDateTimeLabel } from '../../utils/working-hours'
 import { hexRgb, initials } from '../../utils/format'
 import { STATUS_LABEL, STATUS_COLOR } from '../../constants'
+import EmptyState from '../ui/EmptyState'
 
 type RangeKey = 'month' | '30d' | 'quarter' | 'all'
 
@@ -347,17 +348,25 @@ function DevCharts({ d }: { d: DevPerf }) {
 
 // ─── Main view ────────────────────────────────────────────────────────────────
 export default function PerformanceView() {
-  const allDevelopers = useStore((s) => s.developers)
-  const allTasks = useStore((s) => s.tasks)
-  const schedule = useStore((s) => s.schedule)
-  const scheduleHours = useStore((s) => s.scheduleHours)
-  const selectedDev = useStore((s) => s.selectedDev)
-  const selectedProject = useStore((s) => s.selectedProject)
-  const projects = useStore((s) => s.projects)
+  const store = useStore()
+  const allDevelopers = store.developers
+  const allTasks = store.tasks
+  const schedule = store.schedule
+  const scheduleHours = store.scheduleHours
+  const selectedDev = store.selectedDev
+  const selectedProject = store.selectedProject
+  const projects = store.projects
 
   const proj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
   const developers = proj ? allDevelopers.filter((d) => proj.members.includes(d.id)) : allDevelopers
-  const tasks = proj ? allTasks.filter((t) => t.projectId === selectedProject) : allTasks
+  const boardScope = getBoardScope(store)
+  const tasks = (proj ? allTasks.filter((t) => t.projectId === selectedProject) : allTasks)
+    .filter((t) => taskPassesBoardFilter(t, boardScope))
+    .map((t) => {
+      if (!boardScope.active || !(t.jiras ?? []).length) return t
+      const jiras = t.jiras.filter((j) => jiraOnBoard(j, boardScope))
+      return { ...t, jiras }
+    })
 
   const [rangeKey, setRangeKey] = useState<RangeKey>('month')
   const [selected, setSelected] = useState<{ issue: IssuePerf; dev: Developer } | null>(null)
@@ -457,12 +466,7 @@ export default function PerformanceView() {
           </div>
         )}
 
-        {team.devs.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text3)' }}>
-            <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.35 }}>📊</div>
-            <div style={{ fontSize: 14, color: 'var(--text2)' }}>No developers</div>
-          </div>
-        )}
+        {team.devs.length === 0 && <EmptyState icon="chart" title="No developers" />}
 
         {/* per-developer blocks */}
         {visibleDevs.map((d) => {

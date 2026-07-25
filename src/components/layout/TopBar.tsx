@@ -7,6 +7,7 @@ import ProjectSelector from './ProjectSelector'
 
 import DataDropdown from './DataDropdown'
 import ProfileModal from '../modals/ProfileModal'
+import Icon from '../ui/Icon'
 
 interface TopBarProps {
   urgentCount: number
@@ -30,22 +31,70 @@ const GearLogo = ({ size = 26 }: { size?: number }) => (
   </svg>
 )
 
-const BellOn = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-  </svg>
-)
+const BellOn = () => <Icon name="bell" size={14} />
+const BellOff = () => <Icon name="bell-off" size={14} />
 
-const BellOff = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-    <path d="M18.63 13A17.89 17.89 0 0 1 18 8"/>
-    <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/>
-    <path d="M18 8a6 6 0 0 0-9.33-5"/>
-    <line x1="1" y1="1" x2="23" y2="23"/>
-  </svg>
-)
+function DevSelector() {
+  const { developers, selectedDev, setSelectedDev, selectedProject, projects } = useStore()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const proj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
+  const visibleDevs = developers.filter((d) => {
+    if (d.archivedAt) return false
+    if (proj) return proj.members?.includes(d.id)
+    return true
+  })
+
+  const activeDev = selectedDev !== 'ALL' ? developers.find((d) => d.id === selectedDev) : null
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 10px', background: 'var(--surface)', border: `1px solid ${open ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text)', maxWidth: 160, flexShrink: 0, transition: 'border-color .15s' }}
+      >
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: activeDev ? activeDev.color : 'var(--text4)', flexShrink: 0 }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeDev ? activeDev.name : 'All Devs'}</span>
+        <span style={{ color: 'var(--text4)', fontSize: 10, marginLeft: 'auto', flexShrink: 0 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 400, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-xl)', minWidth: 160, overflow: 'hidden', padding: '4px 0' }}>
+          <button
+            onClick={() => { setSelectedDev('ALL'); setOpen(false) }}
+            style={{ width: '100%', padding: '7px 12px', background: selectedDev === 'ALL' ? 'var(--accent-dim)' : 'none', border: 'none', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 12, color: selectedDev === 'ALL' ? 'var(--accent)' : 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}
+            onMouseEnter={(e) => { if (selectedDev !== 'ALL') e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={(e) => { if (selectedDev !== 'ALL') e.currentTarget.style.background = 'none' }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--text4)', flexShrink: 0 }} />
+            All Devs
+          </button>
+          {visibleDevs.map((d) => (
+            <button
+              key={d.id}
+              onClick={() => { setSelectedDev(d.id); setOpen(false) }}
+              style={{ width: '100%', padding: '7px 12px', background: selectedDev === d.id ? 'var(--accent-dim)' : 'none', border: 'none', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 12, color: selectedDev === d.id ? 'var(--accent)' : 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}
+              onMouseEnter={(e) => { if (selectedDev !== d.id) e.currentTarget.style.background = 'var(--surface2)' }}
+              onMouseLeave={(e) => { if (selectedDev !== d.id) e.currentTarget.style.background = 'none' }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
   const { setNotifsEnabled, notifsEnabled, setView, setSelectedDate, searchQuery, setSearchQuery } = useStore()
@@ -160,7 +209,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
           onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
         >
           <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--surface3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--text2)' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+            <Icon name="user" size={13} />
           </div>
           Profile Settings
         </button>
@@ -172,7 +221,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
             onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
           >
             <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--surface3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--text2)' }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/></svg>
+              <Icon name="gear" size={13} />
             </div>
             Admin Panel
           </button>
@@ -185,7 +234,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
           onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
         >
           <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--red-dim)', border: '1px solid var(--red-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--red)' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <Icon name="logout" size={13} />
           </div>
           Sign out
         </button>
@@ -239,6 +288,9 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
         {/* Row 2: Project + Dev selectors */}
         <div style={{ display: 'flex', alignItems: 'stretch', borderTop: '1px solid var(--border)', height: 40 }}>
           <ProjectSelector open={projPanelOpen} onToggle={onProjPanel} fill />
+          <div style={{ display: 'flex', alignItems: 'center', padding: '0 8px', borderLeft: '1px solid var(--border)' }}>
+            <DevSelector />
+          </div>
         </div>
       </div>
       {profileModalOpen && <ProfileModal onClose={() => setProfileModalOpen(false)} />}
@@ -261,12 +313,15 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
           <GearLogo size={26} />
         </button>
         <ProjectSelector open={projPanelOpen} onToggle={onProjPanel} />
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px', borderLeft: '1px solid var(--border)', height: '100%' }}>
+          <DevSelector />
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         {/* Search input — replaces the clock; navigates to Search view on focus/type */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface2)', border: `1px solid ${searchQuery ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, padding: '4px 10px', transition: 'border-color .15s, width .2s', width: searchQuery ? 220 : 180 }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: searchQuery ? 'var(--accent)' : 'var(--text3)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <Icon name="search" size={12} style={{ color: searchQuery ? 'var(--accent)' : 'var(--text3)' }} />
           <input
             value={searchQuery}
             onFocus={() => setView('search')}
@@ -282,7 +337,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
 
         {urgentCount > 0 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--red)', color: '#fff', fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 10, animation: 'pulse 2s infinite' }}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <Icon name="info" size={10} />
             {urgentCount} urgent
           </span>
         )}

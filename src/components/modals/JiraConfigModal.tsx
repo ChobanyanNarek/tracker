@@ -4,6 +4,7 @@ import type { JiraConfig, JiraStatusMapping, StatusGroup, StatusGroupColor } fro
 import { fetchJiraIssues, fetchJiraStatuses, fetchJiraBoards, type JiraStatusInfo, type JiraBoardInfo } from '../../utils/jira-api'
 import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX } from '../../utils/status-groups'
 import Modal from '../ui/Modal'
+import Icon from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
 
 interface Props { onClose: () => void; projectId?: string }
@@ -83,7 +84,7 @@ function GroupManager({ groups, onChange }: GroupManagerProps) {
               <span style={{ fontSize: 9, fontFamily: 'var(--mono)', fontWeight: 600, padding: '2px 7px', borderRadius: 10, background: tokens.bg, color: tokens.text, border: `1px solid ${tokens.border}`, whiteSpace: 'nowrap' }}>
                 {g.label || 'Group'}
               </span>
-              <button onClick={() => removeGroup(i)} title="Remove group" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: '0 2px', flexShrink: 0 }}>✕</button>
+              <button onClick={() => removeGroup(i)} title="Remove group" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}><Icon name="close" size={13} /></button>
             </div>
           </div>
         )
@@ -276,7 +277,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
           <span style={{ fontSize: 11, color: 'var(--text2)', whiteSpace: 'nowrap' }}>Enabled</span>
         </label>
         {!isOnly && (
-          <button onClick={onDelete} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>✕</button>
+          <button onClick={onDelete} title="Remove connection" style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 'var(--r)', padding: '5px', cursor: 'pointer', flexShrink: 0 }}><Icon name="close" size={12} /></button>
         )}
       </div>
 
@@ -310,11 +311,11 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         <div>
           <span style={labelStyle}>
             API Token{' '}
-            <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>↗ create</a>
+            <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: 'var(--accent)', textDecoration: 'none' }}><Icon name="external" size={11} />create</a>
           </span>
           <div style={{ position: 'relative' }}>
             <input style={{ ...inputStyle, paddingRight: 32 }} type={showToken ? 'text' : 'password'} placeholder="API token" value={conn.token} onChange={(e) => patch('token', e.target.value)} />
-            <button onClick={() => setShowToken((s) => !s)} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text3)' }}>{showToken ? '🙈' : '👁'}</button>
+            <button onClick={() => setShowToken((s) => !s)} title={showToken ? 'Hide token' : 'Show token'} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name={showToken ? 'eye-off' : 'eye'} size={14} /></button>
           </div>
         </div>
       </div>
@@ -463,7 +464,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
                 <span style={{ fontSize: 12, color: 'var(--text)', width: 110, flexShrink: 0 }}>{d.name}</span>
                 <input style={{ ...inputStyle, flex: 1 }} placeholder="jira@company.com" value={conn.developerEmails?.[d.id] ?? ''} onChange={(e) => setDevEmail(d.id, e.target.value)} />
-                <button onClick={() => removeDev(d.id)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: '0 2px' }}>✕</button>
+                <button onClick={() => removeDev(d.id)} title="Remove" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px' }}><Icon name="close" size={13} /></button>
               </div>
             ))}
             {developers.some((d) => !(d.id in (conn.developerEmails ?? {}))) && (
@@ -549,7 +550,7 @@ export default function JiraConfigModal({ onClose, projectId }: Props) {
           + Add connection
         </button>
         {syncResult && (
-          <div style={{ fontSize: 11, padding: '7px 11px', borderRadius: 6, background: syncResult.startsWith('✓') ? '#dcfce7' : '#fee2e2', color: syncResult.startsWith('✓') ? '#15803d' : '#b91c1c', fontFamily: 'var(--mono)', whiteSpace: 'pre-wrap' }}>
+          <div style={{ fontSize: 11, padding: '7px 11px', borderRadius: 'var(--r)', background: syncResult.startsWith('✓') ? 'var(--green-dim)' : 'var(--red-dim)', color: syncResult.startsWith('✓') ? 'var(--green)' : 'var(--red)', border: `1px solid ${syncResult.startsWith('✓') ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)', whiteSpace: 'pre-wrap' }}>
             {syncResult}
           </div>
         )}

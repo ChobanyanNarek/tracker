@@ -1,4 +1,4 @@
-import { useStore } from '../../store'
+import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard } from '../../store'
 import type { Sprint } from '../../types'
 
 function diffDays(a: string, b: string): number {
@@ -14,7 +14,8 @@ interface Props {
 }
 
 export default function SprintBand({ sprint }: Props) {
-  const { tasks, selectedProject } = useStore()
+  const store = useStore()
+  const { tasks, selectedProject } = store
   const today = todayStr()
 
   const totalDays = Math.max(1, diffDays(sprint.startDate, sprint.endDate))
@@ -22,9 +23,9 @@ export default function SprintBand({ sprint }: Props) {
   const daysLeft = Math.max(0, diffDays(today, sprint.endDate))
   const progress = Math.round((elapsed / totalDays) * 100)
 
-  // Count jira issues for this project
-  const projectTasks = tasks.filter((t) => t.projectId === selectedProject)
-  const allJiras = projectTasks.flatMap((t) => t.jiras ?? [])
+  const boardScope = getBoardScope(store)
+  const projectTasks = tasks.filter((t) => t.projectId === selectedProject && taskPassesBoardFilter(t, boardScope))
+  const allJiras = projectTasks.flatMap((t) => (t.jiras ?? []).filter((j) => jiraOnBoard(j, boardScope)))
 
   const todo = allJiras.filter((j) => j.status === 'todo' && !j.hidden).length
   const active = allJiras.filter((j) => j.status === 'inprogress' && !j.hidden).length

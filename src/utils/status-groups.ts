@@ -61,12 +61,16 @@ export function groupForJiraStatus(
   return m?.groupId
 }
 
-// Build JQL status filter from mappings — exclude only statuses explicitly mapped to 'hidden'
+// Build JQL status filter from mappings.
+// Bounds the result so a developer's full closed-issue history doesn't blow past the
+// API's 100-issue page cap: fetch everything not Done, PLUS Done issues updated recently
+// (last 30 days). Statuses mapped to the 'hidden' group are always excluded.
+// The tracker mirrors Jira; visibility (e.g. hiding done in Daily) is a display concern.
 export function buildJqlFromMappings(mappings: JiraStatusMapping[] | undefined): string | null {
-  if (!mappings?.length) return null
-  const hidden = mappings.filter((m) => m.groupId === 'hidden').map((m) => `"${m.jiraStatus}"`)
-  if (!hidden.length) return `statusCategory != Done`
-  return `statusCategory != Done AND status not in (${hidden.join(', ')})`
+  const base = `(statusCategory != Done OR updated >= -30d)`
+  const hidden = (mappings ?? []).filter((m) => m.groupId === 'hidden').map((m) => `"${m.jiraStatus}"`)
+  if (!hidden.length) return base
+  return `${base} AND status not in (${hidden.join(', ')})`
 }
 
 // Legacy Status → groupId for backward compat (issues saved before groupId existed)

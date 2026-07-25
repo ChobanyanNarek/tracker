@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { JiraIssue, PrEntry, Status, Priority } from '../../types'
 import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
 import { todayStr } from '../../utils/dates'
+import DatePicker from '../ui/DatePicker'
 
 interface Props {
   issue: JiraIssue
@@ -82,7 +83,7 @@ export default function IssueEditForm({ issue, onSave, onCancel }: Props) {
         <div>
           <label className="field-label">Deadline</label>
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <input className="field" type="date" style={{ width: 'auto' }} value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+            <DatePicker value={deadline} onChange={setDeadline} placeholder="No deadline" />
             <button type="button" onClick={() => setDeadline(todayStr())} style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 9, padding: '3px 7px', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>Today</button>
           </div>
         </div>
@@ -105,7 +106,7 @@ export default function IssueEditForm({ issue, onSave, onCancel }: Props) {
         {prs.map((pr, i) => (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 6, alignItems: 'center', marginBottom: 4 }}>
             <input className="field" type="url" placeholder="https://gitlab.com/…/merge_requests/1" value={pr.url} onChange={(e) => prUrlChange(i, e.target.value)} />
-            <input className="field" type="date" style={{ width: 'auto' }} value={pr.date} onChange={(e) => setPr(i, { ...pr, date: e.target.value })} />
+            <DatePicker value={pr.date} onChange={(d) => setPr(i, { ...pr, date: d })} placeholder="Date" />
             <input className="field" type="time" style={{ width: 'auto' }} value={pr.time} onChange={(e) => setPr(i, { ...pr, time: e.target.value })} />
             <button className="icon-btn del" title="Remove PR" onClick={() => setPrs((list) => list.filter((_, j) => j !== i))}>✕</button>
           </div>

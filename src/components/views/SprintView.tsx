@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useStore } from '../../store'
+import { useStore, getBoardScope, taskPassesBoardFilter, sprintMatchesBoard, jiraOnBoard } from '../../store'
 import type { Sprint } from '../../types'
 import { initials, hexRgb } from '../../utils/format'
 import { fetchJiraSprints } from '../../utils/jira-api'
 import SprintModal from '../sprint/SprintModal'
+import Icon from '../ui/Icon'
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -17,30 +18,13 @@ function fmtDate(d: string) {
   return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-const IcoPlus = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-  </svg>
-)
-
-const IcoPencil = () => (
-  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-  </svg>
-)
-
-const IcoTrash = () => (
-  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="3 6 5 6 21 6"/>
-    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-    <path d="M10 11v6M14 11v6"/>
-    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-  </svg>
-)
+const IcoPlus = () => <Icon name="plus" size={12} />
+const IcoPencil = () => <Icon name="edit" size={12} />
+const IcoTrash = () => <Icon name="trash" size={12} />
 
 function SprintCard({ sprint, onEdit, onDelete }: { sprint: Sprint; onEdit: () => void; onDelete: () => void }) {
-  const { tasks, developers, selectedProject } = useStore()
+  const store = useStore()
+  const { tasks, developers, selectedProject } = store
   const today = todayStr()
 
   const totalDays = Math.max(1, diffDays(sprint.startDate, sprint.endDate))
@@ -50,8 +34,9 @@ function SprintCard({ sprint, onEdit, onDelete }: { sprint: Sprint; onEdit: () =
   const isOver = today > sprint.endDate
   const isActive = today >= sprint.startDate && today <= sprint.endDate
 
-  const projectTasks = tasks.filter((t) => t.projectId === selectedProject)
-  const allJiras = projectTasks.flatMap((t) => t.jiras ?? [])
+  const boardScope = getBoardScope(store)
+  const projectTasks = tasks.filter((t) => t.projectId === selectedProject && taskPassesBoardFilter(t, boardScope))
+  const allJiras = projectTasks.flatMap((t) => (t.jiras ?? []).filter((j) => jiraOnBoard(j, boardScope)))
 
   const todo = allJiras.filter((j) => j.status === 'todo' && !j.hidden).length
   const active = allJiras.filter((j) => j.status === 'inprogress' && !j.hidden).length
@@ -159,7 +144,7 @@ function SprintCard({ sprint, onEdit, onDelete }: { sprint: Sprint; onEdit: () =
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {blocked_issues.slice(0, 5).map((j, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 7px', background: 'rgba(239,68,68,.07)', borderRadius: 5, border: '1px solid rgba(239,68,68,.2)' }}>
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                  <Icon name="blocked" size={10} color="var(--red)" />
                   {j.url ? (
                     <a href={j.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: 'var(--text2)', textDecoration: 'none', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.name || j.url}</a>
                   ) : (
@@ -177,7 +162,7 @@ function SprintCard({ sprint, onEdit, onDelete }: { sprint: Sprint; onEdit: () =
 }
 
 export default function SprintView() {
-  const { selectedProject, sprints, projects, jiraConnections, addSprint, deleteSprint } = useStore()
+  const { selectedProject, sprints, projects, jiraConnections, addSprint, updateSprint, deleteSprint } = useStore()
   const [modalSprint, setModalSprint] = useState<Sprint | null | 'new'>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
@@ -190,20 +175,32 @@ export default function SprintView() {
     setSyncError(null)
     try {
       const jiraSprints = await fetchJiraSprints(conn, proj.jiraBoardId)
-      const existingJiraIds = new Set(sprints.filter((s) => s.projectId === selectedProject && s.jiraSprintId).map((s) => s.jiraSprintId))
+      const existingByJiraId = new Map(
+        sprints.filter((s) => s.projectId === selectedProject && s.jiraSprintId != null).map((s) => [s.jiraSprintId, s]),
+      )
       let added = 0
+      let updated = 0
       for (const js of jiraSprints) {
-        if (existingJiraIds.has(js.id)) continue
+        const existing = existingByJiraId.get(js.id)
+        if (existing) {
+          // Backfill board tag / dates on already-imported sprints
+          if (existing.jiraBoardId !== proj.jiraBoardId) {
+            updateSprint(existing.id, { jiraBoardId: proj.jiraBoardId })
+            updated++
+          }
+          continue
+        }
         addSprint({
           projectId: selectedProject,
           name: js.name,
           startDate: js.startDate ?? new Date().toISOString().slice(0, 10),
           endDate: js.endDate ?? new Date().toISOString().slice(0, 10),
           jiraSprintId: js.id,
+          jiraBoardId: proj.jiraBoardId,
         })
         added++
       }
-      if (added === 0) setSyncError('All sprints already imported')
+      if (added === 0 && updated === 0) setSyncError('All sprints already imported')
     } catch (e) {
       setSyncError(e instanceof Error ? e.message : 'Sync failed')
     } finally {
@@ -212,7 +209,7 @@ export default function SprintView() {
   }
 
   const proj = projects.find((p) => p.id === selectedProject)
-  const projectSprints = sprints.filter((s) => s.projectId === selectedProject)
+  const projectSprints = sprints.filter((s) => sprintMatchesBoard(s, selectedProject, proj?.jiraBoardId))
 
   if (selectedProject === 'ALL' || !proj) {
     return (
@@ -243,7 +240,7 @@ export default function SprintView() {
               disabled={syncing}
               style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid var(--border2)', background: 'var(--surface2)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 7, cursor: syncing ? 'default' : 'pointer', opacity: syncing ? 0.6 : 1 }}
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={syncing ? { animation: 'spin 1s linear infinite' } : {}}><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <Icon name="sync" size={11} spinning={syncing} />
               {syncing ? 'Syncing…' : 'Sync from Jira'}
             </button>
           )}
@@ -260,7 +257,7 @@ export default function SprintView() {
 
       {projectSprints.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 20px', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12, gap: 10 }}>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3 }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <Icon name="calendar" size={32} style={{ opacity: 0.3 }} />
           <span>No sprints yet — click New sprint to create one</span>
         </div>
       ) : (

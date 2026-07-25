@@ -1,17 +1,18 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, type AdminUser } from '../../utils/cloud-api'
+import Icon, { BRAND } from '../ui/Icon'
 
 interface Props {
   onBack: () => void
 }
 
-// ── SVG icons ──────────────────────────────────────────────────────
-const IcoBack    = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-const IcoRefresh = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12A9 9 0 1 1 15 4"/><path d="M15 1v4h4"/></svg>
-const IcoKey     = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-const IcoWipe    = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>
-const IcoTrash   = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6m4-6v6"/><path d="M9 6V4h6v2"/></svg>
-const IcoPhone   = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.06 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z"/></svg>
+// ── SVG icons (shared Icon system) ─────────────────────────────────
+const IcoBack    = () => <Icon name="back" size={14} />
+const IcoRefresh = () => <Icon name="refresh" size={12} />
+const IcoKey     = () => <Icon name="key" size={12} />
+const IcoWipe    = () => <Icon name="wipe" size={12} />
+const IcoTrash   = () => <Icon name="trash" size={12} />
+const IcoPhone   = () => <Icon name="phone" size={12} />
 
 // ── Helpers ────────────────────────────────────────────────────────
 function initials(u: AdminUser) {
@@ -59,9 +60,9 @@ function RoleBadge({ u }: { u: AdminUser }) {
 
 function ConnPill({ on, cls, label }: { on: boolean; cls: string; label: string }) {
   const styles: Record<string, { bg: string; color: string; dot: string }> = {
-    jira: { bg: '#e8f0fe', color: '#1a56db', dot: '#1a56db' },
-    gl:   { bg: '#fff1e6', color: '#e24329', dot: '#e24329' },
-    gh:   { bg: 'var(--surface3, #eceef6)', color: 'var(--text2, #4a5178)', dot: 'var(--text2, #4a5178)' },
+    jira: { bg: `${BRAND.jira}14`, color: BRAND.jira, dot: BRAND.jira },
+    gl:   { bg: `${BRAND.gitlab}14`, color: BRAND.gitlab, dot: BRAND.gitlab },
+    gh:   { bg: `${BRAND.github}14`, color: BRAND.github, dot: BRAND.github },
   }
   const s = styles[cls]
   return (

@@ -1,23 +1,29 @@
 import { useState } from 'react'
-import { useStore } from '../../store'
+import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, getActiveJiraConn } from '../../store'
 import { dlInfo, todayStr, formatDate } from '../../utils/dates'
+import DatePicker from '../ui/DatePicker'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
-import { STATUS_LABEL, STATUS_COLOR } from '../../constants'
-import type { DeadlineItem, Developer, Project } from '../../types'
+import { STATUS_COLOR } from '../../constants'
+import type { DeadlineItem, Developer, Project, JiraConfig, JiraIssue } from '../../types'
+import { resolveIssueDisplay } from '../ui/StatusBadge'
+import { legacyStatusToGroupId } from '../../utils/status-groups'
 import EmptyState from '../ui/EmptyState'
 
 type SortKey = 'urgency' | 'date-asc' | 'date-desc' | 'assignee' | 'project' | 'status'
 
 // Module-level so it isn't recreated on every DeadlinesView render (which would
 // remount every card instead of updating it).
-function DeadlineCard({ item, developers, projects, yesterday, onJump }: {
+function DeadlineCard({ item, developers, projects, yesterday, conn, onJump }: {
   item: DeadlineItem
   developers: Developer[]
   projects: Project[]
   yesterday: string
+  conn?: JiraConfig
   onJump: (item: DeadlineItem) => void
 }) {
-  const { task, deadline, deadlineTime, title, status, jiraUrl, _sinceDate } = item
+  const { task, deadline, deadlineTime, title, status, groupId, jiraUrl, _sinceDate } = item
+  // Same status label + colors as the Daily board (resolved from the status group).
+  const sd = resolveIssueDisplay({ groupId, status } as JiraIssue, conn)
   const dev = developers.find((d) => d.id === task.devId)
   const proj = projects.find((p) => p.id === task.projectId)
   const d = deadline ? dlInfo(deadline, deadlineTime) : null
@@ -47,7 +53,10 @@ function DeadlineCard({ item, developers, projects, yesterday, onJump }: {
             </div>
           )}
           {proj && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '1px 6px', borderRadius: 3, background: proj.color + '18', color: proj.color }}>{proj.name}</span>}
-          <span className={`spill s-${status}`} style={{ marginTop: 0 }}>{STATUS_LABEL[status]}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: sd.bg, color: sd.text, border: `1px solid ${sd.border}` }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: sd.text, flexShrink: 0 }} />
+            {sd.label}
+          </span>
         </div>
       </div>
       <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -71,9 +80,14 @@ function DeadlineCard({ item, developers, projects, yesterday, onJump }: {
 
 export default function DeadlinesView() {
   const [sortKey, setSortKey] = useState<SortKey>('urgency')
-  const { tasks, developers, projects, selectedDev, selectedProject, setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView } = useStore()
-
   const today = todayStr()
+  const [rangeStart, setRangeStart] = useState(today)
+  const [rangeEnd, setRangeEnd] = useState(today)
+  const store = useStore()
+  const { tasks, developers, projects, selectedDev, selectedProject, setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView } = store
+  const boardScope = getBoardScope(store)
+  const jiraConn = getActiveJiraConn(store)
+
   const yesterday = new Date(new Date(today + 'T12:00:00').getTime() - 86_400_000).toISOString().slice(0, 10)
 
   const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
@@ -106,19 +120,27 @@ export default function DeadlinesView() {
 
   tasks.forEach((task) => {
     if (archivedIds.has(task.devId)) return
+    // Only currently-live issues: the latest synced board (today). This excludes moved,
+    // deleted, or stale issues that only exist on historical dates.
+    if (task.date < rangeStart || task.date > rangeEnd) return
     if (selectedDev !== 'ALL' && task.devId !== selectedDev) return
     if (selectedProject !== 'ALL' && task.projectId !== selectedProject) return
+    if (!taskPassesBoardFilter(task, boardScope)) return
 
-    const jiras = getJiras(task)
+    const allJiras = getJiras(task)
+    const jiras = allJiras.filter((j) => jiraOnBoard(j, boardScope))
     if (jiras.length) {
       jiras.forEach((j, ji) => {
-        // Issues without a deadline only contribute from today/yesterday (the "stuck" display).
-        // Issues with a deadline are collected from any date; dedup picks the latest occurrence.
-        if (!j.deadline && task.date !== today && task.date !== yesterday) return
+        // Deadlines shows ONLY the 'In Progress' and 'Blocked' status GROUPS, and only
+        // issues with a deadline. Custom groups (e.g. 'Testing') are excluded even though
+        // they derive from an in-progress status. The badge still shows the group label.
+        if (!j.deadline) return
+        const gid = j.groupId ?? legacyStatusToGroupId(j.status)
+        if (gid !== 'inprogress' && gid !== 'blocked') return
         const jKey = `${task.devId}|${jiraDedupeKey(j.url, j.name) || `_anon${ji}`}`
         const item: DeadlineItem = {
           task, deadline: j.deadline, deadlineTime: j.deadlineTime ?? '',
-          title: j.name || jiraLabel(j.url) || 'Issue', status: j.status,
+          title: j.name || jiraLabel(j.url) || 'Issue', status: j.status, groupId: j.groupId,
           jiraUrl: j.url ?? '', taskDate: task.date,
           _key: `${task.id}-j${ji}`, _daysStuck: 0, _sinceDate: task.date,
         }
@@ -130,7 +152,8 @@ export default function DeadlinesView() {
           if (task.date < ex.minDate) ex.minDate = task.date
         }
       })
-    } else if (task.deadline && (task.date === today || task.date === yesterday)) {
+    } else if (task.deadline && (task.status === 'inprogress' || task.status === 'blocked')) {
+      // (plain non-jira tasks have no group — legacy status is the only signal)
       const tKey = `${task.devId}|task-title:${task.title}`
       const item: DeadlineItem = {
         task, deadline: task.deadline, deadlineTime: task.deadlineTime ?? '',
@@ -177,12 +200,18 @@ export default function DeadlinesView() {
     setView('daily')
   }
 
-  const SORTS: [SortKey, string][] = [['urgency', '🔴 By urgency'], ['date-asc', '↑ Soonest'], ['date-desc', '↓ Latest'], ['assignee', '👤 Assignee'], ['project', '📁 Project'], ['status', '● Status']]
+  const SORTS: [SortKey, string][] = [['urgency', 'By urgency'], ['date-asc', 'Soonest first'], ['date-desc', 'Latest first'], ['assignee', 'By assignee'], ['project', 'By project'], ['status', 'By status']]
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* sort bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', flexShrink: 0 }}>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>From:</span>
+        <DatePicker value={rangeStart} onChange={setRangeStart} />
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>To:</span>
+        <DatePicker value={rangeEnd} onChange={setRangeEnd} />
+        <button onClick={() => { setRangeStart(today); setRangeEnd(today) }} style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>Reset</button>
+        <span style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginRight: 2 }}>Sort:</span>
         {SORTS.map(([key, lbl]) => (
           <button key={key} className={`chip${sortKey === key ? ' active' : ''}`} onClick={() => setSortKey(key)}>{lbl}</button>
@@ -191,30 +220,39 @@ export default function DeadlinesView() {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
         {sorted.length === 0 ? (
-          <EmptyState icon="🎉" title="All clear" hint="No open issues" />
+          <EmptyState icon="done" title="All clear" hint="No open issues" />
         ) : sortKey === 'urgency' ? (
           (() => {
-            const groups: Record<string, DeadlineItem[]> = { '🔴 Overdue': [], '🟠 Today': [], '🟡 This week': [], '🔵 This month': [], '🟢 Later': [], '⚪ No deadline': [] }
+            const GROUP_DEFS: { key: string; label: string; color: string }[] = [
+              { key: 'overdue', label: 'Overdue', color: 'var(--red)' },
+              { key: 'today', label: 'Today', color: 'var(--amber)' },
+              { key: 'week', label: 'This week', color: '#eab308' },
+              { key: 'month', label: 'This month', color: 'var(--accent)' },
+              { key: 'later', label: 'Later', color: 'var(--green)' },
+              { key: 'none', label: 'No deadline', color: 'var(--text4)' },
+            ]
+            const groups: Record<string, DeadlineItem[]> = { overdue: [], today: [], week: [], month: [], later: [], none: [] }
             sorted.forEach((item) => {
-              if (!item.deadline) { groups['⚪ No deadline'].push(item); return }
+              if (!item.deadline) { groups.none.push(item); return }
               const d = dlInfo(item.deadline, item.deadlineTime)
-              if (d.diff < 0) groups['🔴 Overdue'].push(item)
-              else if (d.diff === 0) groups['🟠 Today'].push(item)
-              else if (d.diff <= 7) groups['🟡 This week'].push(item)
-              else if (d.diff <= 31) groups['🔵 This month'].push(item)
-              else groups['🟢 Later'].push(item)
+              if (d.diff < 0) groups.overdue.push(item)
+              else if (d.diff === 0) groups.today.push(item)
+              else if (d.diff <= 7) groups.week.push(item)
+              else if (d.diff <= 31) groups.month.push(item)
+              else groups.later.push(item)
             })
-            return Object.entries(groups).filter(([, items]) => items.length > 0).map(([label, items]) => (
-              <div key={label} style={{ marginBottom: 20 }}>
+            return GROUP_DEFS.filter((g) => groups[g.key].length > 0).map((g) => (
+              <div key={g.key} style={{ marginBottom: 20 }}>
                 <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 7, padding: '4px 0' }}>
-                  {label} <span style={{ background: 'var(--surface3)', color: 'var(--text3)', padding: '1px 7px', borderRadius: 8, fontSize: 10 }}>{items.length}</span>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
+                  {g.label} <span style={{ background: 'var(--surface3)', color: 'var(--text3)', padding: '1px 7px', borderRadius: 8, fontSize: 10 }}>{groups[g.key].length}</span>
                 </div>
-                {items.map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} onJump={jumpTo} />)}
+                {groups[g.key].map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} conn={jiraConn} onJump={jumpTo} />)}
               </div>
             ))
           })()
         ) : (
-          sorted.map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} onJump={jumpTo} />)
+          sorted.map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} conn={jiraConn} onJump={jumpTo} />)
         )}
       </div>
     </div>

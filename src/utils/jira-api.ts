@@ -10,6 +10,10 @@ export interface JiraIssueRaw {
     duedate?: string | null
     assignee?: { emailAddress: string; displayName: string } | null
     created?: string | null
+    timeoriginalestimate?: number | null
+    timespent?: number | null
+    customfield_10016?: number | null   // story points (most common)
+    customfield_10028?: number | null   // story points (alt field)
   }
   changelog?: {
     histories: Array<{
@@ -140,6 +144,37 @@ export async function fetchJiraBoardIssues(config: JiraConfig, boardId: number, 
   return data.issues ?? []
 }
 
+// Resolve which Jira project-key prefixes a board covers (e.g. ['COM']).
+// Fetches the board's issues across the given assignee emails and collects distinct
+// key prefixes. Returns [] if the board resolves but has no issues.
+export async function fetchBoardProjectKeys(config: JiraConfig, boardId: number, assigneeEmails: string[]): Promise<string[]> {
+  const emails = assigneeEmails.length ? assigneeEmails : ['']
+  const results = await Promise.all(
+    emails.map((email) => fetchJiraBoardIssues(config, boardId, email).catch(() => [] as JiraIssueRaw[])),
+  )
+  const prefixes = new Set<string>()
+  for (const issues of results) {
+    for (const issue of issues) {
+      const prefix = issue.key?.split('-')[0]?.toUpperCase()
+      if (prefix) prefixes.add(prefix)
+    }
+  }
+  return [...prefixes]
+}
+
+// Resolve the EXACT Jira issue keys on a board (e.g. ['COM-826','COM-813']) across the
+// given assignee emails. This is the accurate board-membership signal — a board holds a
+// specific subset of issues, which project-key prefix alone cannot express.
+export async function fetchBoardIssueKeys(config: JiraConfig, boardId: number, assigneeEmails: string[]): Promise<string[]> {
+  const emails = assigneeEmails.length ? assigneeEmails : ['']
+  const results = await Promise.all(
+    emails.map((email) => fetchJiraBoardIssues(config, boardId, email).catch(() => [] as JiraIssueRaw[])),
+  )
+  const keys = new Set<string>()
+  for (const issues of results) for (const issue of issues) if (issue.key) keys.add(issue.key.toUpperCase())
+  return [...keys]
+}
+
 export async function fetchJiraBoards(config: JiraConfig): Promise<JiraBoardInfo[]> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-boards`, {
     method: 'POST',
@@ -227,14 +262,13 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
   return data.issues ?? []
 }
 
+// Returns a JQL status clause, or '' to fetch ALL assigned issues regardless of status.
+// The tracker mirrors Jira (including Done/closed); only 'hidden'-group statuses are excluded.
 export function buildJqlStatusFilter(mappings: JiraStatusMapping[] | undefined): string {
-  const custom = buildJqlFromMappings(mappings)
-  if (custom) return custom
-  // No mappings configured — fetch everything that isn't done/closed
-  return `statusCategory != Done`
+  return buildJqlFromMappings(mappings) ?? ''
 }
 
-export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: JiraStatusMapping[]): JiraIssue {
+export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: JiraStatusMapping[], boardId?: number): JiraIssue {
   const jiraStatusName = issue.fields.status.name
   const categoryKey = issue.fields.status.statusCategory.key
   const groupId = groupForJiraStatus(jiraStatusName, mappings)
@@ -242,6 +276,8 @@ export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: J
 
   return {
     url: `${baseUrl.replace(/\/$/, '')}/browse/${issue.key}`,
+    issueId: issue.key,
+    boardId,
     name: issue.fields.summary,
     status,
     groupId: groupId && groupId !== 'hidden' ? groupId : undefined,
@@ -251,5 +287,8 @@ export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: J
     prs: [],
     comment: '',
     statusHistory: buildStatusHistory(issue, mappings),
+    storyPoints: issue.fields.customfield_10016 ?? issue.fields.customfield_10028 ?? undefined,
+    timeOriginalEstimate: issue.fields.timeoriginalestimate ?? undefined,
+    timeSpent: issue.fields.timespent ?? undefined,
   }
 }

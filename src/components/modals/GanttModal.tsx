@@ -3,6 +3,7 @@ import { useStore } from '../../store'
 import type { Status } from '../../types'
 import { STATUS_COLOR, STATUS_LABEL } from '../../constants'
 import { formatDateMs } from '../../utils/dates'
+import Icon from '../ui/Icon'
 
 // ── constants ─────────────────────────────────────────────────────────────────
 const LABEL_W   = 260
@@ -188,9 +189,7 @@ export default function GanttModal({ onClose }: Props) {
         gap: 10, flexWrap: 'wrap', flexShrink: 0,
       }}>
         <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="3" rx="1"/><rect x="3" y="10.5" width="12" height="3" rx="1"/><rect x="3" y="17" width="15" height="3" rx="1"/>
-          </svg>
+          <Icon name="list" size={13} color="var(--accent)" />
           Timeline
         </span>
 
@@ -260,7 +259,7 @@ export default function GanttModal({ onClose }: Props) {
             height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexDirection: 'column', gap: 10, color: 'var(--text3)', fontSize: 13,
           }}>
-            <span style={{ fontSize: 32 }}>📭</span>
+            <Icon name="deadlines" size={32} strokeWidth={1.5} style={{ opacity: 0.35 }} />
             <span>No issues match the current filters</span>
           </div>
         ) : (

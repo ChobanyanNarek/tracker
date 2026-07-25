@@ -2,6 +2,7 @@ import { useState, useRef, type CSSProperties } from 'react'
 import { useStore } from '../../store'
 import { useClickOutside } from '../../hooks/useClickOutside'
 import ConfirmDialog from '../ui/ConfirmDialog'
+import Icon from '../ui/Icon'
 
 interface Props {
   onFeedback: (msg: string) => void
@@ -66,7 +67,7 @@ export default function DataDropdown({ onFeedback, compact }: Props) {
           transition: 'all .15s', whiteSpace: 'nowrap',
         }}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        <Icon name="database" size={11} />
         {!compact && 'Data'}
       </button>
 
@@ -81,7 +82,7 @@ export default function DataDropdown({ onFeedback, compact }: Props) {
             onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = '')}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <Icon name="download" size={12} color="var(--accent)" />
             <div>
               <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>Backup</div>
               <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>Download all data as JSON</div>
@@ -93,7 +94,7 @@ export default function DataDropdown({ onFeedback, compact }: Props) {
             onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = '')}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 14 12 9 17 14"/><line x1="12" y1="9" x2="12" y2="21"/></svg>
+            <Icon name="upload" size={12} color="var(--amber)" />
             <div>
               <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>Restore</div>
               <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>Replace data from a file</div>
