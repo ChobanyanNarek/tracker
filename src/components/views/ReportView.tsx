@@ -818,7 +818,6 @@ function KanbanReleaseNotes() {
                         <th style={thStyle}>Key</th>
                         <th style={thStyle}>Title</th>
                         <th style={thStyle}>Assignee</th>
-                        <th style={thStyle}>Created</th>
                         <th style={thStyle}>Due Date</th>
                         <th style={thStyle}>Orig Est</th>
                         <th style={thStyle}>Time Spent</th>
@@ -854,7 +853,6 @@ function KanbanReleaseNotes() {
                             </td>
                             <td style={{ ...tdStyle, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name || '—'}</td>
                             <td style={{ ...tdStyle, color: 'var(--text2)' }}>{assignee}</td>
-                            <td style={{ ...tdStyle, color: 'var(--text3)' }}>{(j as any).jiraCreatedAt ? formatDate((j as any).jiraCreatedAt) : '—'}</td>
                             <td style={{ ...tdStyle, color: 'var(--text3)' }}>{j.deadline ? formatDate(j.deadline) : '—'}</td>
                             <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate, hpd)}</td>
                             <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent, hpd)}</td>
