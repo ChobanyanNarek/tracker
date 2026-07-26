@@ -1242,12 +1242,15 @@ export const useStore = create<Store>((set, get) => {
             const keep = t.jiras.filter((j) => {
               const ticket = jiraTicket(j)
               if (!ticket) return true                  // manual / non-key issue — never prune
-              // In board mode we get exact board membership — prune done issues too (they may
-              // have moved to another board with a new key). In project/JQL mode, keep done
-              // issues because the query may not return old done issues (age filters, etc).
-              if (j.status === 'done' && !effectiveBoardId) return true
+              // In board mode: prune any issue (including done) not returned by this board.
+              // The board API returns exact membership — absent = moved/deleted.
+              if (effectiveBoardId) {
+                return connReturnedKeys.has(ticket)
+              }
+              // Project/JQL mode: keep done issues (query may not return old done issues).
+              if (j.status === 'done') return true
               const pfx = keyPrefix(j)
-              // If this connection restricts to specific project keys, only consider its own
+              // Only prune issues whose prefix belongs to this connection's project keys.
               if (connKeys.length && (!pfx || !connKeys.includes(pfx))) return true
               return connReturnedKeys.has(ticket)       // keep only if Jira still returns it
             })
