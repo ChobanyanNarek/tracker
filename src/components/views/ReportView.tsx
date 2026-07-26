@@ -586,6 +586,8 @@ function KanbanReleaseNotes() {
   const [endDate, setEndDate] = useState(today)
   const [copied, setCopied] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string[]>([])   // empty = all statuses
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [addingCol, setAddingCol] = useState(false)
   const [newColLabel, setNewColLabel] = useState('')
   const [editingColId, setEditingColId] = useState<string | null>(null)
@@ -603,8 +605,10 @@ function KanbanReleaseNotes() {
       getJiras(t).forEach((j) => {
         if (j.hidden) return
         if (!jiraOnBoard(j, boardScope)) return
-        const created = (j as any).jiraCreatedAt as string | undefined
-        if (created && (created < startDate || created > endDate)) return
+        // Filter by Jira issue creation date. Fall back to the tracker task date
+        // for issues synced before jiraCreatedAt existed, so the range still applies.
+        const created = ((j as any).jiraCreatedAt as string | undefined) || t.date
+        if (created < startDate || created > endDate) return
         const key = jiraDedupeKey(j.url, j.name)
         // keep the most recent task snapshot for each issue
         const existing = map.get(key)
@@ -629,13 +633,15 @@ function KanbanReleaseNotes() {
       const key = jiraDedupeKey(r.j.url, r.j.name)
       if (rnData[key]?.hidden) { hidden.push(r); return }
       const gid = r.j.groupId
+      // status filter: when set, keep only issues whose group is selected
+      if (statusFilter.length && (!gid || !statusFilter.includes(gid))) return
       if (!gid || gid === 'hidden') { ungrouped.push(r); return }
       const arr = byGroup.get(gid) ?? []
       arr.push(r)
       byGroup.set(gid, arr)
     })
     return { byGroup, ungrouped, hidden }
-  }, [allRows, rnData])
+  }, [allRows, rnData, statusFilter])
 
   const hiddenCount = groupedRows.hidden.length
   const isSelected = (key: string) => rnData[key]?.selected !== false
@@ -733,9 +739,45 @@ function KanbanReleaseNotes() {
       {/* toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <label style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>From</label>
-        <DatePicker value={startDate} onChange={(d) => { setStartDate(d); if (endDate && d > endDate) setEndDate(d) }} maxDate={endDate || undefined} />
+        <DatePicker value={startDate} onChange={(d) => { if (!d) return; setStartDate(d); if (endDate && d > endDate) setEndDate(d) }} maxDate={endDate || undefined} />
         <label style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>To</label>
-        <DatePicker value={endDate} onChange={(d) => { setEndDate(d); if (startDate && d < startDate) setStartDate(d) }} minDate={startDate || undefined} />
+        <DatePicker value={endDate} onChange={(d) => { if (!d) return; if (startDate && d < startDate) { setEndDate(startDate) } else { setEndDate(d) } }} minDate={startDate || undefined} />
+
+        {/* status filter */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setStatusMenuOpen((v) => !v)}
+            style={{ ...btnBase, border: `1px solid ${statusFilter.length ? 'var(--accent)' : 'var(--border)'}`, background: statusFilter.length ? 'var(--accent-dim)' : 'var(--surface2)', color: statusFilter.length ? 'var(--accent)' : 'var(--text2)' }}
+          >
+            <Icon name="list" size={12} /> {statusFilter.length ? `${statusFilter.length} status${statusFilter.length > 1 ? 'es' : ''}` : 'All statuses'}
+          </button>
+          {statusMenuOpen && (
+            <>
+              <div onClick={() => setStatusMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+              <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 41, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow)', padding: 6, minWidth: 180 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text2)' }}>
+                  <input type="checkbox" checked={statusFilter.length === 0} onChange={() => setStatusFilter([])} style={{ cursor: 'pointer' }} />
+                  All statuses
+                </label>
+                {statusGroups.map((g) => {
+                  const checked = statusFilter.includes(g.id)
+                  return (
+                    <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text)' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => setStatusFilter((prev) => checked ? prev.filter((x) => x !== g.id) : [...prev, g.id])}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: `var(--${g.color === 'gray' ? 'text3' : g.color})` }} />
+                      {g.label}
+                    </label>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
 
         {hiddenCount > 0 && (
           <button
@@ -781,8 +823,8 @@ function KanbanReleaseNotes() {
         </div>
       </div>
 
-      {allRows.length === 0 ? (
-        <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No issues found in this date range.</div>
+      {(groupedRows.byGroup.size === 0 && groupedRows.ungrouped.length === 0) ? (
+        <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No issues found for this date range and status filter.</div>
       ) : (
         <>
           {/* render each status group as its own table */}
