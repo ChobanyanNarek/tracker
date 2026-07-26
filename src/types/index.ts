@@ -57,6 +57,7 @@ export interface JiraConfig {
   statusMappings?: JiraStatusMapping[]      // jiraStatus → groupId mapping
   boardId?: number                          // board mode: sync only issues from this one board (Agile API)
   allowedBoardIds?: number[]               // project mode: show only issues from these boards (empty = all)
+  hoursPerDay?: number                       // Jira working hours per day (default 8); used to format time estimates
   lastSync?: string
   lastSyncResult?: string
   projectId?: string                        // if set, this connection belongs to a specific project; empty = global

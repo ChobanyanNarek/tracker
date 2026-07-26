@@ -547,11 +547,19 @@ function ReleaseNotesSection() {
 
 type IssueRow = { j: JiraIssue; task: Task; devId: string }
 
-function fmtSeconds(s: number | undefined): string {
+function fmtSeconds(s: number | undefined, hoursPerDay = 8): string {
   if (!s) return '—'
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`
+  const totalMin = Math.round(s / 60)
+  const minPerDay = hoursPerDay * 60
+  const d = Math.floor(totalMin / minPerDay)
+  const rem = totalMin % minPerDay
+  const h = Math.floor(rem / 60)
+  const m = rem % 60
+  const parts: string[] = []
+  if (d > 0) parts.push(`${d}d`)
+  if (h > 0) parts.push(`${h}h`)
+  if (m > 0) parts.push(`${m}m`)
+  return parts.length ? parts.join(' ') : '—'
 }
 
 function genColId(): string {
@@ -567,6 +575,7 @@ function KanbanReleaseNotes() {
   // @ts-ignore
   const { tasks, developers, selectedProject, selectedDev, jiraConnections, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = useStore() as any
   const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
+  const hpd = conn?.hoursPerDay ?? 8
 
   const today = new Date().toISOString().split('T')[0]
   const defaultStart = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
@@ -642,8 +651,8 @@ function KanbanReleaseNotes() {
       const keyLabel = jiraLabel(j.url) || key
       const assignee = developers.find((d: Developer) => d.id === devId)?.name ?? '—'
       const dueDate = j.deadline ? formatDate(j.deadline) : '—'
-      const origEst = fmtSeconds((j as any).timeOriginalEstimate)
-      const timeSpent = fmtSeconds((j as any).timeSpent)
+      const origEst = fmtSeconds((j as any).timeOriginalEstimate, hpd)
+      const timeSpent = fmtSeconds((j as any).timeSpent, hpd)
       const sp = (j as any).storyPoints ?? '—'
       const status = resolveIssueDisplay(j, conn).label
       const customCells = cols.map((c) => rnData[key]?.customFields?.[c.id] ?? '').join(' | ')
@@ -833,8 +842,8 @@ function KanbanReleaseNotes() {
                     <td style={{ ...tdStyle, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name || '—'}</td>
                     <td style={{ ...tdStyle, color: 'var(--text2)' }}>{assignee}</td>
                     <td style={{ ...tdStyle, color: 'var(--text3)' }}>{j.deadline ? formatDate(j.deadline) : '—'}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate)}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent)}</td>
+                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate, hpd)}</td>
+                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent, hpd)}</td>
                     <td style={{ ...tdStyle, color: 'var(--text2)' }}>{(j as any).storyPoints ?? '—'}</td>
                     <td style={tdStyle}><span style={{ color: statusColor, fontWeight: 600 }}>{statusLabel}</span></td>
                     {cols.map((col) => (
@@ -881,6 +890,7 @@ function ScrumReleaseNotes() {
   // @ts-ignore
   const { tasks, developers, sprints, selectedProject, selectedDev, jiraConnections, releaseNoteData, updateReleaseNoteIssue, releaseNoteColumns, setReleaseNoteColumns } = useStore() as any
   const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
+  const hpd = conn?.hoursPerDay ?? 8
 
   const projectSprints = useMemo((): Sprint[] =>
     sprints
@@ -1114,8 +1124,8 @@ function ScrumReleaseNotes() {
                     <td style={{ ...tdStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name || '—'}</td>
                     <td style={{ ...tdStyle, color: 'var(--text2)' }}>{assignee}</td>
                     <td style={{ ...tdStyle, color: 'var(--text3)' }}>{j.deadline ? formatDate(j.deadline) : '—'}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate)}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent)}</td>
+                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate, hpd)}</td>
+                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent, hpd)}</td>
                     <td style={{ ...tdStyle, color: 'var(--text2)' }}>{(j as any).storyPoints ?? '—'}</td>
                     <td style={tdStyle}><span style={{ color: statusColor, fontWeight: 600 }}>{statusLabel}</span></td>
                     {cols.map((col) => (

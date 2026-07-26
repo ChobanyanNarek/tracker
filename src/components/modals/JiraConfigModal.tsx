@@ -387,17 +387,25 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         </div>
       )}
 
-      {/* Row 5: auto-sync */}
-      <div>
-        <span style={labelStyle}>Auto-sync interval</span>
-        <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer', width: 'auto', minWidth: 140 }}>
-          <option value={0}>Manual only</option>
-          <option value={2}>Every 2 min</option>
-          <option value={5}>Every 5 min</option>
-          <option value={10}>Every 10 min</option>
-          <option value={15}>Every 15 min</option>
-          <option value={30}>Every 30 min</option>
-        </select>
+      {/* Row 5: auto-sync + hours per day */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <span style={labelStyle}>Auto-sync interval</span>
+          <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer', width: 'auto', minWidth: 140 }}>
+            <option value={0}>Manual only</option>
+            <option value={2}>Every 2 min</option>
+            <option value={5}>Every 5 min</option>
+            <option value={10}>Every 10 min</option>
+            <option value={15}>Every 15 min</option>
+            <option value={30}>Every 30 min</option>
+          </select>
+        </div>
+        <div>
+          <span style={labelStyle}>Working hours/day</span>
+          <select value={conn.hoursPerDay ?? 8} onChange={(e) => patch('hoursPerDay', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer', width: 'auto', minWidth: 80 }}>
+            {[6, 7, 7.5, 8].map((h) => <option key={h} value={h}>{h}h</option>)}
+          </select>
+        </div>
       </div>
 
       {/* test */}
