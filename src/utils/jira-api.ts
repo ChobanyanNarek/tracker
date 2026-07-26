@@ -147,32 +147,44 @@ export async function fetchJiraBoardIssues(config: JiraConfig, boardId: number, 
 // Resolve which Jira project-key prefixes a board covers (e.g. ['COM']).
 // Fetches the board's issues across the given assignee emails and collects distinct
 // key prefixes. Returns [] if the board resolves but has no issues.
-export async function fetchBoardProjectKeys(config: JiraConfig, boardId: number, assigneeEmails: string[]): Promise<string[]> {
-  const emails = assigneeEmails.length ? assigneeEmails : ['']
-  const results = await Promise.all(
-    emails.map((email) => fetchJiraBoardIssues(config, boardId, email).catch(() => [] as JiraIssueRaw[])),
-  )
+export async function fetchBoardProjectKeys(config: JiraConfig, boardId: number, _assigneeEmails?: string[]): Promise<string[]> {
+  // Derive prefixes from the full, assignee-agnostic board key set so the coarse fallback
+  // isn't limited to member-assigned / open-sprint issues.
+  const keys = await fetchBoardIssueKeys(config, boardId).catch(() => [] as string[])
   const prefixes = new Set<string>()
-  for (const issues of results) {
-    for (const issue of issues) {
-      const prefix = issue.key?.split('-')[0]?.toUpperCase()
-      if (prefix) prefixes.add(prefix)
-    }
+  for (const key of keys) {
+    const prefix = key.split('-')[0]?.toUpperCase()
+    if (prefix) prefixes.add(prefix)
   }
   return [...prefixes]
 }
 
-// Resolve the EXACT Jira issue keys on a board (e.g. ['COM-826','COM-813']) across the
-// given assignee emails. This is the accurate board-membership signal — a board holds a
-// specific subset of issues, which project-key prefix alone cannot express.
-export async function fetchBoardIssueKeys(config: JiraConfig, boardId: number, assigneeEmails: string[]): Promise<string[]> {
-  const emails = assigneeEmails.length ? assigneeEmails : ['']
-  const results = await Promise.all(
-    emails.map((email) => fetchJiraBoardIssues(config, boardId, email).catch(() => [] as JiraIssueRaw[])),
-  )
-  const keys = new Set<string>()
-  for (const issues of results) for (const issue of issues) if (issue.key) keys.add(issue.key.toUpperCase())
-  return [...keys]
+// Resolve the EXACT Jira issue keys on a board (e.g. ['COM-826','COM-813']). This is the
+// accurate board-membership signal — a board holds a specific subset of issues, which
+// project-key prefix alone cannot express.
+//
+// Board membership is ASSIGNEE-AGNOSTIC and SPRINT-AGNOSTIC: every issue on the board
+// counts, regardless of who it's assigned to or whether it's in an open sprint / the
+// backlog. The dedicated `jira-board-keys` endpoint returns all keys, fully paginated.
+// (The `assigneeEmails` argument is retained for signature compatibility but no longer
+// used — membership must not be filtered by assignee.)
+export async function fetchBoardIssueKeys(config: JiraConfig, boardId: number, _assigneeEmails?: string[]): Promise<string[]> {
+  const res = await fetch(`${API_URL}/pm-tracker/jira-board-keys`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      baseUrl: config.baseUrl.trim(),
+      email: config.email.trim(),
+      token: config.token.trim(),
+      boardId,
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Jira ${res.status}: ${text.slice(0, 300) || res.statusText}`)
+  }
+  const data = (await res.json()) as { keys?: string[] }
+  return (data.keys ?? []).map((k) => k.toUpperCase())
 }
 
 export async function fetchJiraBoards(config: JiraConfig): Promise<JiraBoardInfo[]> {
