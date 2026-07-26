@@ -255,6 +255,7 @@ function MonthlySection() {
   const [copied, setCopied] = useState(false)
   const [reportVisible, setReportVisible] = useState(false)
   const [reportCopied, setReportCopied] = useState(false)
+  const [textOnly, setTextOnly] = useState(false)
 
   const { developers: allDevs, schedule, selectedProject, selectedDev, projects } = useStore()
   const proj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
@@ -382,6 +383,12 @@ function MonthlySection() {
         <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600, minWidth: 130, textAlign: 'center' }}>{MONTHS[month]} {year}</span>
         <button onClick={nextMonth} className="icon-btn">›</button>
         <button onClick={() => { const n = new Date(); setYear(n.getFullYear()); setMonth(n.getMonth()) }} style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer' }}>This month</button>
+        <button
+          onClick={() => { setTextOnly((v) => { const nv = !v; if (nv) setReportVisible(true); return nv }) }}
+          style={{ ...btnBase, border: `1px solid ${textOnly ? 'var(--accent)' : 'var(--border)'}`, background: textOnly ? 'var(--accent-dim)' : 'var(--surface2)', color: textOnly ? 'var(--accent)' : 'var(--text2)' }}
+        >
+          <Icon name="list" size={12} /> {textOnly ? 'Calendar view' : 'Text only'}
+        </button>
         <div style={{ marginLeft: 'auto' }}>
           <button onClick={copy} style={{ ...btnBase, border: `1px solid ${copied ? 'var(--green-border)' : 'var(--border)'}`, background: copied ? 'var(--green-dim)' : 'var(--surface2)', color: copied ? 'var(--green)' : 'var(--text2)' }}>
             <Icon name={copied ? 'check' : 'copy'} size={12} />
@@ -394,7 +401,7 @@ function MonthlySection() {
         <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No developers match the current filter.</div>
       )}
 
-      {devStats.map(({ dev, worked, vacation, dayoff, sick, holidays }, di) => {
+      {!textOnly && devStats.map(({ dev, worked, vacation, dayoff, sick, holidays }, di) => {
         const rgb = hexRgb(dev.color)
         const devSchedule = schedule[dev.id] ?? {}
 
@@ -451,7 +458,7 @@ function MonthlySection() {
         )
       })}
 
-      {devStats.length > 1 && (
+      {!textOnly && devStats.length > 1 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--text)', minWidth: 80 }}>Total</span>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -465,16 +472,18 @@ function MonthlySection() {
       )}
 
       {/* Report text section */}
-      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: reportVisible ? 12 : 0 }}>
-          <button
-            onClick={() => setReportVisible((v) => !v)}
-            style={{ ...btnBase, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)' }}
-          >
-            <Icon name="chart" size={12} />
-            {reportVisible ? 'Hide Report Text' : 'Generate Report Text'}
-          </button>
-          {reportVisible && (
+      <div style={{ borderTop: textOnly ? 'none' : '1px solid var(--border)', paddingTop: textOnly ? 0 : 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: (reportVisible || textOnly) ? 12 : 0 }}>
+          {!textOnly && (
+            <button
+              onClick={() => setReportVisible((v) => !v)}
+              style={{ ...btnBase, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)' }}
+            >
+              <Icon name="chart" size={12} />
+              {reportVisible ? 'Hide Report Text' : 'Generate Report Text'}
+            </button>
+          )}
+          {(reportVisible || textOnly) && (
             <>
               <button
                 onClick={async () => {
@@ -506,7 +515,7 @@ function MonthlySection() {
             </>
           )}
         </div>
-        {reportVisible && (
+        {(reportVisible || textOnly) && (
           <pre style={{ margin: 0, padding: '14px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text)', whiteSpace: 'pre', lineHeight: 1.7, overflowX: 'auto' }}>
             {buildTextReport()}
           </pre>
@@ -575,10 +584,18 @@ const inputStyle: React.CSSProperties = {
 function KanbanReleaseNotes() {
   // @ts-ignore
   const state = useStore() as any
-  const { tasks, developers, selectedProject, selectedDev, jiraConnections, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = state
+  const { tasks, developers, projects, selectedProject, selectedDev, jiraConnections, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = state
   const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
   const hpd = conn?.hoursPerDay ?? 8
   const boardScope = getBoardScope(state)
+
+  // Developers visible for the selected project — scopes issues to project members,
+  // matching the Daily dashboard. When a project is selected, only its members' tasks count.
+  const memberIds = useMemo<Set<string> | null>(() => {
+    if (selectedProject === 'ALL') return null
+    const p = projects.find((pr: any) => pr.id === selectedProject)
+    return p?.members?.length ? new Set<string>(p.members) : new Set<string>()
+  }, [projects, selectedProject])
 
   const today = new Date().toISOString().split('T')[0]
   const defaultStart = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
@@ -601,6 +618,7 @@ function KanbanReleaseNotes() {
     const map = new Map<string, IssueRow>()
     tasks.forEach((t: Task) => {
       if (selectedProject !== 'ALL' && t.projectId !== selectedProject) return
+      if (memberIds && !memberIds.has(t.devId)) return
       if (selectedDev !== 'ALL' && t.devId !== selectedDev) return
       getJiras(t).forEach((j) => {
         if (j.hidden) return
@@ -616,7 +634,7 @@ function KanbanReleaseNotes() {
       })
     })
     return Array.from(map.values())
-  }, [tasks, selectedProject, selectedDev, startDate, endDate, boardScope])
+  }, [tasks, selectedProject, selectedDev, startDate, endDate, boardScope, memberIds])
 
   // Status groups from integration settings, in order
   const statusGroups: { id: string; label: string; color: string }[] = useMemo(() => {
@@ -939,10 +957,16 @@ type SprintIssueRow = { j: JiraIssue; devId: string }
 function ScrumReleaseNotes() {
   // @ts-ignore
   const state = useStore() as any
-  const { tasks, developers, sprints, selectedProject, selectedDev, jiraConnections, releaseNoteData, updateReleaseNoteIssue, releaseNoteColumns, setReleaseNoteColumns } = state
+  const { tasks, developers, projects, sprints, selectedProject, selectedDev, jiraConnections, releaseNoteData, updateReleaseNoteIssue, releaseNoteColumns, setReleaseNoteColumns } = state
   const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
   const hpd = conn?.hoursPerDay ?? 8
   const boardScope = getBoardScope(state)
+
+  const memberIds = useMemo<Set<string> | null>(() => {
+    if (selectedProject === 'ALL') return null
+    const p = projects.find((pr: any) => pr.id === selectedProject)
+    return p?.members?.length ? new Set<string>(p.members) : new Set<string>()
+  }, [projects, selectedProject])
 
   const projectSprints = useMemo((): Sprint[] =>
     sprints
@@ -972,6 +996,8 @@ function ScrumReleaseNotes() {
     const issuesAfterSprint = new Set<string>()
 
     tasks.forEach((t: Task) => {
+      if (selectedProject !== 'ALL' && t.projectId !== selectedProject) return
+      if (memberIds && !memberIds.has(t.devId)) return
       if (selectedDev !== 'ALL' && t.devId !== selectedDev) return
       const jiras = getJiras(t)
       jiras.forEach((j: JiraIssue) => {
@@ -1004,7 +1030,7 @@ function ScrumReleaseNotes() {
       carriedOver: carriedOverList,
       blocked: Array.from(issuesBlocked.values()),
     }
-  }, [sprint, tasks, selectedDev])
+  }, [sprint, tasks, selectedDev, selectedProject, memberIds, boardScope])
 
   const totalIssues = completed.length + carriedOver.length
   const completionPct = totalIssues > 0 ? Math.round((completed.length / totalIssues) * 100) : 0
