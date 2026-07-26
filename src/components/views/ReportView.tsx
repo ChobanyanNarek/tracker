@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { useStore, getVisibleTasks, getVisibleDevIds } from '../../store'
+import { useStore, getVisibleTasks, getVisibleDevIds, getBoardScope, jiraOnBoard, issueShowsOnBoard } from '../../store'
 import { STATUS_EMOJI } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
@@ -573,9 +573,11 @@ const inputStyle: React.CSSProperties = {
 
 function KanbanReleaseNotes() {
   // @ts-ignore
-  const { tasks, developers, selectedProject, selectedDev, jiraConnections, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = useStore() as any
+  const state = useStore() as any
+  const { tasks, developers, selectedProject, selectedDev, jiraConnections, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = state
   const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
   const hpd = conn?.hoursPerDay ?? 8
+  const boardScope = getBoardScope(state)
 
   const today = new Date().toISOString().split('T')[0]
   const defaultStart = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
@@ -601,6 +603,8 @@ function KanbanReleaseNotes() {
       getJiras(t).forEach((j) => {
         if (j.status !== 'done') return
         if (j.hidden) return
+        if (!jiraOnBoard(j, boardScope)) return
+        if (!issueShowsOnBoard(j, conn) && j.status !== 'done') return
         const key = jiraDedupeKey(j.url, j.name)
         const existing = map.get(key)
         if (!existing || t.date > existing.task.date) map.set(key, { j, task: t, devId: t.devId })
@@ -888,9 +892,11 @@ type SprintIssueRow = { j: JiraIssue; devId: string }
 
 function ScrumReleaseNotes() {
   // @ts-ignore
-  const { tasks, developers, sprints, selectedProject, selectedDev, jiraConnections, releaseNoteData, updateReleaseNoteIssue, releaseNoteColumns, setReleaseNoteColumns } = useStore() as any
+  const state = useStore() as any
+  const { tasks, developers, sprints, selectedProject, selectedDev, jiraConnections, releaseNoteData, updateReleaseNoteIssue, releaseNoteColumns, setReleaseNoteColumns } = state
   const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
   const hpd = conn?.hoursPerDay ?? 8
+  const boardScope = getBoardScope(state)
 
   const projectSprints = useMemo((): Sprint[] =>
     sprints
@@ -923,6 +929,7 @@ function ScrumReleaseNotes() {
       if (selectedDev !== 'ALL' && t.devId !== selectedDev) return
       const jiras = getJiras(t)
       jiras.forEach((j: JiraIssue) => {
+        if (!jiraOnBoard(j, boardScope)) return
         if (j.hidden) return
         const key = jiraDedupeKey(j.url, j.name)
         if (t.date >= sprint.startDate && t.date <= sprint.endDate) {

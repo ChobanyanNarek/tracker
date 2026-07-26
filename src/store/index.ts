@@ -1113,28 +1113,8 @@ export const useStore = create<Store>((set, get) => {
             dedupedTasks.find((t) => t.devId === devId && t.date === today && t.jiraSync) ??
             dedupedTasks.find((t) => t.devId === devId && t.date === today)
 
-          // The tracker mirrors Jira: every assigned issue is synced with its real status,
-          // including Done/closed and statuses mapped to the 'hidden' group. Nothing is
-          // dropped at sync — the Daily view decides visibility from the group mapping.
-          const closedKeys = new Set<string>()
           const incoming = devIssues.map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings, effectiveBoardId))
           const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today)
-
-          if (closedKeys.size) {
-            todayTasks.forEach((t) => {
-              if (!t.jiras?.length) return
-              const hit = (j: JiraIssue) => {
-                const k = jiraDedupeKey(j.url, j.name)
-                return !!(k && k !== 'name:' && closedKeys.has(k))
-              }
-              const keep = t.jiras.filter((j) => !hit(j))
-              if (keep.length === t.jiras.length) return
-              const removedUrls = t.jiras.filter(hit).map((j) => j.url).filter(Boolean)
-              connRemoved += t.jiras.length - keep.length
-              t.jiras = keep
-              t.deletedJiraUrls = [...new Set([...(t.deletedJiraUrls ?? []), ...removedUrls])]
-            })
-          }
 
           const keyToTask = new Map<string, { task: typeof dedupedTasks[number]; idx: number }>()
           todayTasks.forEach((t) => {
@@ -1247,12 +1227,13 @@ export const useStore = create<Store>((set, get) => {
               if (effectiveBoardId) {
                 return connReturnedKeys.has(ticket)
               }
-              // Project/JQL mode: keep done issues (query may not return old done issues).
-              if (j.status === 'done') return true
               const pfx = keyPrefix(j)
               // Only prune issues whose prefix belongs to this connection's project keys.
+              // Issues from other projects are not our responsibility to prune.
               if (connKeys.length && (!pfx || !connKeys.includes(pfx))) return true
-              return connReturnedKeys.has(ticket)       // keep only if Jira still returns it
+              // For active issues: prune if Jira no longer returns them (moved/deleted).
+              // For done issues: also prune if absent — done issues from a moved key should not persist.
+              return connReturnedKeys.has(ticket)
             })
             if (keep.length !== t.jiras.length) {
               connRemoved += t.jiras.length - keep.length
