@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore } from '../../store'
+import { useStore, getBoardScope, jiraOnBoard } from '../../store'
 import { STATUS_LABEL } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
@@ -28,12 +28,23 @@ interface PlainResult {
 export default function SearchView() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
 
+  const state = useStore()
   const {
     tasks, developers, projects, selectedProject,
     searchQuery, setSearchQuery, jiraConnections,
     setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView,
-  } = useStore()
+  } = state
   const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
+
+  // Scope search to the selected project's board just like Daily / Reports:
+  // when a board is selected, only its issues appear; hidden issues are excluded.
+  const boardScope = getBoardScope(state)
+  const memberIds = selectedProject === 'ALL'
+    ? null
+    : (() => {
+        const p = projects.find((pr) => pr.id === selectedProject)
+        return p?.members?.length ? new Set(p.members) : new Set<string>()
+      })()
 
   const q = searchQuery.trim().toLowerCase()
 
@@ -49,10 +60,13 @@ export default function SearchView() {
   for (const task of tasks) {
     if (archivedIds.has(task.devId)) continue
     if (selectedProject !== 'ALL' && task.projectId !== selectedProject) continue
+    if (memberIds && !memberIds.has(task.devId)) continue
 
     const jiras = getJiras(task)
     if (jiras.length) {
       for (const issue of jiras) {
+        if (issue.hidden) continue
+        if (!jiraOnBoard(issue, boardScope)) continue
         const dk = jiraLabel(issue.url) ?? jiraDedupeKey(issue.url, issue.name)
         const key = `${task.devId}|${dk}`
         const ex = issueMap.get(key)
