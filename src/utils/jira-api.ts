@@ -309,5 +309,6 @@ export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: J
     storyPoints: issue.fields.customfield_10016 ?? issue.fields.customfield_10028 ?? undefined,
     timeOriginalEstimate: issue.fields.timeoriginalestimate ?? undefined,
     timeSpent: issue.fields.timespent ?? undefined,
+    jiraCreatedAt: issue.fields.created ? issue.fields.created.slice(0, 10) : undefined,
   }
 }

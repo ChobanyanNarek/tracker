@@ -92,6 +92,7 @@ export interface JiraIssue {
   storyPoints?: number              // from Jira customfield_10016 or customfield_10028
   timeOriginalEstimate?: number     // seconds, from Jira fields.timeoriginalestimate
   timeSpent?: number                // seconds, from Jira fields.timespent
+  jiraCreatedAt?: string            // ISO date of issue creation in Jira (YYYY-MM-DD)
   _srcIdx?: number
 }
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { useStore, getVisibleTasks, getVisibleDevIds, getBoardScope, jiraOnBoard, issueShowsOnBoard } from '../../store'
+import { useStore, getVisibleTasks, getVisibleDevIds, getBoardScope, jiraOnBoard } from '../../store'
 import { STATUS_EMOJI } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
@@ -589,68 +589,66 @@ function KanbanReleaseNotes() {
   const [newColLabel, setNewColLabel] = useState('')
   const [editingColId, setEditingColId] = useState<string | null>(null)
   const [editingColLabel, setEditingColLabel] = useState('')
-  const [hiddenStatuses, setHiddenStatuses] = useState<Set<string>>(new Set())
 
   const cols: { id: string; label: string }[] = releaseNoteColumns ?? []
   const rnData: Record<string, { hidden?: boolean; selected?: boolean; customFields?: Record<string, string> }> = releaseNoteData ?? {}
 
+  // All unique issues across all tasks, deduplicated by key, filtered by board scope + created date
   const allRows = useMemo((): IssueRow[] => {
     const map = new Map<string, IssueRow>()
     tasks.forEach((t: Task) => {
       if (selectedProject !== 'ALL' && t.projectId !== selectedProject) return
       if (selectedDev !== 'ALL' && t.devId !== selectedDev) return
-      if (!t.date || t.date < startDate || t.date > endDate) return
       getJiras(t).forEach((j) => {
-        if (j.status !== 'done') return
         if (j.hidden) return
         if (!jiraOnBoard(j, boardScope)) return
-        if (!issueShowsOnBoard(j, conn) && j.status !== 'done') return
+        const created = (j as any).jiraCreatedAt as string | undefined
+        if (created && (created < startDate || created > endDate)) return
         const key = jiraDedupeKey(j.url, j.name)
+        // keep the most recent task snapshot for each issue
         const existing = map.get(key)
         if (!existing || t.date > existing.task.date) map.set(key, { j, task: t, devId: t.devId })
       })
     })
     return Array.from(map.values())
-  }, [tasks, selectedProject, selectedDev, startDate, endDate])
+  }, [tasks, selectedProject, selectedDev, startDate, endDate, boardScope])
 
-  const visibleRows = allRows.filter((r) => {
-    const key = jiraDedupeKey(r.j.url, r.j.name)
-    const hidden = rnData[key]?.hidden === true
-    if (!showHidden && hidden) return false
-    if (hiddenStatuses.has(resolveIssueDisplay(r.j, conn).label)) return false
-    return true
-  })
-  const hiddenCount = allRows.filter((r) => rnData[jiraDedupeKey(r.j.url, r.j.name)]?.hidden === true).length
+  // Status groups from integration settings, in order
+  const statusGroups: { id: string; label: string; color: string }[] = useMemo(() => {
+    if (!conn?.statusGroups?.length) return []
+    return conn.statusGroups.filter((g: any) => g.id !== 'hidden')
+  }, [conn])
 
-  const allStatusLabels = Array.from(new Set(allRows.filter((r) => !rnData[jiraDedupeKey(r.j.url, r.j.name)]?.hidden).map((r) => resolveIssueDisplay(r.j, conn).label)))
-  const toggleStatus = (s: string) => setHiddenStatuses((prev) => {
-    const next = new Set(prev)
-    if (next.has(s)) next.delete(s); else next.add(s)
-    return next
-  })
-
-  const isSelected = (key: string) => rnData[key]?.selected !== false
-  const allVisible = visibleRows.filter((r) => !rnData[jiraDedupeKey(r.j.url, r.j.name)]?.hidden)
-  const allChecked = allVisible.length > 0 && allVisible.every((r) => isSelected(jiraDedupeKey(r.j.url, r.j.name)))
-
-  const toggleSelectAll = () => {
-    const val = !allChecked
-    allVisible.forEach((r) => {
+  // Group rows by their groupId → status group
+  const groupedRows = useMemo(() => {
+    const hidden: IssueRow[] = []
+    const byGroup = new Map<string, IssueRow[]>()
+    const ungrouped: IssueRow[] = []
+    allRows.forEach((r) => {
       const key = jiraDedupeKey(r.j.url, r.j.name)
-      updateReleaseNoteIssue(key, { selected: val })
+      if (rnData[key]?.hidden) { hidden.push(r); return }
+      const gid = r.j.groupId
+      if (!gid || gid === 'hidden') { ungrouped.push(r); return }
+      const arr = byGroup.get(gid) ?? []
+      arr.push(r)
+      byGroup.set(gid, arr)
     })
-  }
+    return { byGroup, ungrouped, hidden }
+  }, [allRows, rnData])
+
+  const hiddenCount = groupedRows.hidden.length
+  const isSelected = (key: string) => rnData[key]?.selected !== false
 
   const buildMarkdown = () => {
     const lines: string[] = []
     lines.push(`# Release Notes — ${formatDate(startDate)} to ${formatDate(endDate)}`)
     lines.push('')
     const customHeaders = cols.map((c) => c.label).join(' | ')
-    lines.push(`| Key | Title | Assignee | Due Date | Original Est | Time Spent | Story Points | Status${cols.length ? ' | ' + customHeaders : ''} |`)
-    lines.push(`|---|---|---|---|---|---|---|---${cols.map(() => '|---').join('')}|`)
-    allRows.forEach(({ j, devId }) => {
+    const headerRow = `| Key | Title | Assignee | Due Date | Original Est | Time Spent | Story Points | Status${cols.length ? ' | ' + customHeaders : ''} |`
+    const sepRow = `|---|---|---|---|---|---|---|---${cols.map(() => '|---').join('')}|`
+
+    const renderRows = (rows: IssueRow[]) => rows.forEach(({ j, devId }) => {
       const key = jiraDedupeKey(j.url, j.name)
-      if (rnData[key]?.hidden) return
       if (!isSelected(key)) return
       const keyLabel = jiraLabel(j.url) || key
       const assignee = developers.find((d: Developer) => d.id === devId)?.name ?? '—'
@@ -662,6 +660,26 @@ function KanbanReleaseNotes() {
       const customCells = cols.map((c) => rnData[key]?.customFields?.[c.id] ?? '').join(' | ')
       lines.push(`| ${keyLabel} | ${j.name || '—'} | ${assignee} | ${dueDate} | ${origEst} | ${timeSpent} | ${sp} | ${status}${cols.length ? ' | ' + customCells : ''} |`)
     })
+
+    if (statusGroups.length) {
+      statusGroups.forEach((g) => {
+        const rows = groupedRows.byGroup.get(g.id) ?? []
+        if (!rows.length) return
+        lines.push(`## ${g.label}`)
+        lines.push(headerRow); lines.push(sepRow)
+        renderRows(rows)
+        lines.push('')
+      })
+      if (groupedRows.ungrouped.length) {
+        lines.push('## Other')
+        lines.push(headerRow); lines.push(sepRow)
+        renderRows(groupedRows.ungrouped)
+        lines.push('')
+      }
+    } else {
+      lines.push(headerRow); lines.push(sepRow)
+      renderRows([...groupedRows.ungrouped, ...Array.from(groupedRows.byGroup.values()).flat()])
+    }
     return lines.join('\n')
   }
 
@@ -762,127 +780,114 @@ function KanbanReleaseNotes() {
         </div>
       </div>
 
-      {/* status filter */}
-      {allStatusLabels.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>Filter:</span>
-          {allStatusLabels.map((s) => {
-            const active = !hiddenStatuses.has(s)
+      {allRows.length === 0 ? (
+        <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No issues found in this date range.</div>
+      ) : (
+        <>
+          {/* render each status group as its own table */}
+          {(statusGroups.length
+            ? [
+                ...statusGroups.map((g) => ({ id: g.id, label: g.label, color: g.color, rows: groupedRows.byGroup.get(g.id) ?? [] })),
+                ...(groupedRows.ungrouped.length ? [{ id: '__other', label: 'Other', color: 'gray', rows: groupedRows.ungrouped }] : []),
+              ]
+            : [{ id: '__all', label: 'All Issues', color: 'gray', rows: [...groupedRows.ungrouped, ...Array.from(groupedRows.byGroup.values()).flat()] }]
+          ).map(({ id, label, color, rows }) => {
+            if (!rows.length) return null
+            const groupAllChecked = rows.every((r) => isSelected(jiraDedupeKey(r.j.url, r.j.name)))
+            const toggleGroupAll = () => {
+              const val = !groupAllChecked
+              rows.forEach((r) => updateReleaseNoteIssue(jiraDedupeKey(r.j.url, r.j.name), { selected: val }))
+            }
+            const accentVar = `var(--${color === 'gray' ? 'text3' : color})`
+            const bgVar = `var(--${color === 'gray' ? 'surface2' : color + '-dim'})`
+            const borderVar = `var(--${color === 'gray' ? 'border' : color + '-border'})`
             return (
-              <button
-                key={s}
-                onClick={() => toggleStatus(s)}
-                style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '2px 8px', borderRadius: 10, border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`, background: active ? 'var(--accent-dim)' : 'var(--surface2)', color: active ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer' }}
-              >{s}</button>
+              <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '3px 10px 3px 8px', borderRadius: 8, background: bgVar, border: `1px solid ${borderVar}`, alignSelf: 'flex-start' }}>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700, color: accentVar }}>{label}</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: accentVar, opacity: 0.7 }}>{rows.length}</span>
+                </div>
+                <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, fontFamily: 'var(--mono)' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface2)' }}>
+                        <th style={{ ...thStyle, width: 32 }}>
+                          <input type="checkbox" checked={groupAllChecked} onChange={toggleGroupAll} style={{ cursor: 'pointer' }} />
+                        </th>
+                        <th style={thStyle}>Key</th>
+                        <th style={thStyle}>Title</th>
+                        <th style={thStyle}>Assignee</th>
+                        <th style={thStyle}>Created</th>
+                        <th style={thStyle}>Due Date</th>
+                        <th style={thStyle}>Orig Est</th>
+                        <th style={thStyle}>Time Spent</th>
+                        <th style={thStyle}>SP</th>
+                        {cols.map((col) => (
+                          <th key={col.id} style={{ ...thStyle, minWidth: 110 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              {editingColId === col.id ? (
+                                <input autoFocus value={editingColLabel} onChange={(e) => setEditingColLabel(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') commitEditCol() }} onBlur={commitEditCol} style={{ ...inputStyle, width: 90, fontSize: 10 }} />
+                              ) : <span style={{ flex: 1 }}>{col.label}</span>}
+                              <button onClick={() => startEditCol(col)} title="Edit" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center' }}><Icon name="edit" size={11} /></button>
+                              <button onClick={() => deleteColumn(col.id)} title="Delete" style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
+                            </div>
+                          </th>
+                        ))}
+                        <th style={{ ...thStyle, width: 36 }} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(({ j, devId }, i) => {
+                        const issueKey = jiraDedupeKey(j.url, j.name)
+                        const keyLabel = jiraLabel(j.url) || issueKey
+                        const assignee = developers.find((d: Developer) => d.id === devId)?.name ?? '—'
+                        const selected = isSelected(issueKey)
+                        const rowBg = i % 2 === 0 ? 'var(--surface)' : 'var(--surface2)'
+                        return (
+                          <tr key={issueKey} style={{ background: rowBg }}>
+                            <td style={{ ...tdStyle, width: 32 }}>
+                              <input type="checkbox" checked={selected} onChange={() => updateReleaseNoteIssue(issueKey, { selected: !selected })} style={{ cursor: 'pointer' }} />
+                            </td>
+                            <td style={tdStyle}>
+                              {j.url ? <a href={j.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{keyLabel}</a> : <span>{keyLabel}</span>}
+                            </td>
+                            <td style={{ ...tdStyle, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name || '—'}</td>
+                            <td style={{ ...tdStyle, color: 'var(--text2)' }}>{assignee}</td>
+                            <td style={{ ...tdStyle, color: 'var(--text3)' }}>{(j as any).jiraCreatedAt ? formatDate((j as any).jiraCreatedAt) : '—'}</td>
+                            <td style={{ ...tdStyle, color: 'var(--text3)' }}>{j.deadline ? formatDate(j.deadline) : '—'}</td>
+                            <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate, hpd)}</td>
+                            <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent, hpd)}</td>
+                            <td style={{ ...tdStyle, color: 'var(--text2)' }}>{(j as any).storyPoints ?? '—'}</td>
+                            {cols.map((col) => (
+                              <td key={col.id} style={{ ...tdStyle, minWidth: 110 }}>
+                                <input value={rnData[issueKey]?.customFields?.[col.id] ?? ''} onChange={(e) => { const ex = rnData[issueKey]?.customFields ?? {}; updateReleaseNoteIssue(issueKey, { customFields: { ...ex, [col.id]: e.target.value } }) }} style={{ ...inputStyle }} />
+                              </td>
+                            ))}
+                            <td style={{ ...tdStyle, width: 36 }}>
+                              <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: true })} title="Hide" style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name="eye" size={12} /></button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )
           })}
-        </div>
-      )}
 
-      {/* table */}
-      {visibleRows.length === 0 && !showHidden ? (
-        <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No done issues in this date range.</div>
-      ) : (
-        <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border)' }}>
-          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, fontFamily: 'var(--mono)' }}>
-            <thead>
-              <tr style={{ background: 'var(--surface2)' }}>
-                <th style={{ ...thStyle, width: 32 }}>
-                  <input type="checkbox" checked={allChecked} onChange={toggleSelectAll} style={{ cursor: 'pointer' }} />
-                </th>
-                <th style={thStyle}>Key</th>
-                <th style={thStyle}>Title</th>
-                <th style={thStyle}>Assignee</th>
-                <th style={thStyle}>Due Date</th>
-                <th style={thStyle}>Orig Est</th>
-                <th style={thStyle}>Time Spent</th>
-                <th style={thStyle}>SP</th>
-                <th style={thStyle}>Status</th>
-                {cols.map((col) => (
-                  <th key={col.id} style={{ ...thStyle, minWidth: 110 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      {editingColId === col.id ? (
-                        <input
-                          autoFocus
-                          value={editingColLabel}
-                          onChange={(e) => setEditingColLabel(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') commitEditCol() }}
-                          onBlur={commitEditCol}
-                          style={{ ...inputStyle, width: 90, fontSize: 10 }}
-                        />
-                      ) : (
-                        <span style={{ flex: 1 }}>{col.label}</span>
-                      )}
-                      <button onClick={() => startEditCol(col)} title="Edit column" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center' }}><Icon name="edit" size={11} /></button>
-                      <button onClick={() => deleteColumn(col.id)} title="Delete column" style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
-                    </div>
-                  </th>
-                ))}
-                <th style={{ ...thStyle, width: 36 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRows.map(({ j, devId }, i) => {
-                const issueKey = jiraDedupeKey(j.url, j.name)
-                const keyLabel = jiraLabel(j.url) || issueKey
-                const assignee = developers.find((d: Developer) => d.id === devId)?.name ?? '—'
-                const { label: statusLabel, text: statusColor } = resolveIssueDisplay(j, conn)
-                const isHidden = rnData[issueKey]?.hidden === true
-                const selected = isSelected(issueKey)
-                const rowBg = isHidden ? 'var(--amber-dim)' : (i % 2 === 0 ? 'var(--surface)' : 'var(--surface2)')
-                return (
-                  <tr key={issueKey} style={{ background: rowBg, opacity: isHidden ? 0.6 : 1 }}>
-                    <td style={{ ...tdStyle, width: 32 }}>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => updateReleaseNoteIssue(issueKey, { selected: !selected })}
-                        style={{ cursor: 'pointer' }}
-                      />
-                    </td>
-                    <td style={tdStyle}>
-                      {j.url ? <a href={j.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{keyLabel}</a> : <span>{keyLabel}</span>}
-                    </td>
-                    <td style={{ ...tdStyle, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name || '—'}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text2)' }}>{assignee}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{j.deadline ? formatDate(j.deadline) : '—'}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate, hpd)}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent, hpd)}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text2)' }}>{(j as any).storyPoints ?? '—'}</td>
-                    <td style={tdStyle}><span style={{ color: statusColor, fontWeight: 600 }}>{statusLabel}</span></td>
-                    {cols.map((col) => (
-                      <td key={col.id} style={{ ...tdStyle, minWidth: 110 }}>
-                        <input
-                          value={rnData[issueKey]?.customFields?.[col.id] ?? ''}
-                          onChange={(e) => {
-                            const existing = rnData[issueKey]?.customFields ?? {}
-                            updateReleaseNoteIssue(issueKey, { customFields: { ...existing, [col.id]: e.target.value } })
-                          }}
-                          style={{ ...inputStyle }}
-                        />
-                      </td>
-                    ))}
-                    <td style={{ ...tdStyle, width: 36 }}>
-                      {isHidden ? (
-                        <button
-                          onClick={() => updateReleaseNoteIssue(issueKey, { hidden: false })}
-                          title="Restore"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--amber)', display: 'flex', alignItems: 'center' }}
-                        ><Icon name="restore" size={12} /></button>
-                      ) : (
-                        <button
-                          onClick={() => updateReleaseNoteIssue(issueKey, { hidden: true })}
-                          title="Hide issue"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--text3)', display: 'flex', alignItems: 'center' }}
-                        ><Icon name="eye" size={12} /></button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+          {/* hidden issues */}
+          {showHidden && groupedRows.hidden.map(({ j }) => {
+            const issueKey = jiraDedupeKey(j.url, j.name)
+            const keyLabel = jiraLabel(j.url) || issueKey
+            return (
+              <div key={issueKey} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: 'var(--amber-dim)', border: '1px solid var(--amber-border)', borderRadius: 6, fontFamily: 'var(--mono)', fontSize: 11, opacity: 0.7 }}>
+                <span style={{ color: 'var(--amber)', flex: 1 }}>{keyLabel} — {j.name}</span>
+                <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: false })} title="Restore" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--amber)', display: 'flex', alignItems: 'center' }}><Icon name="restore" size={12} /></button>
+              </div>
+            )
+          })}
+        </>
       )}
     </div>
   )
