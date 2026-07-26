@@ -769,7 +769,7 @@ function KanbanReleaseNotes() {
                         onChange={() => setStatusFilter((prev) => checked ? prev.filter((x) => x !== g.id) : [...prev, g.id])}
                         style={{ cursor: 'pointer' }}
                       />
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: `var(--${g.color === 'gray' ? 'text3' : g.color})` }} />
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: `var(--${g.color === 'gray' ? 'text2' : g.color})`, border: '1px solid var(--border)', boxSizing: 'border-box' }} />
                       {g.label}
                     </label>
                   )
