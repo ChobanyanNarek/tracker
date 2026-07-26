@@ -1835,28 +1835,32 @@ export function getBoardScope(state: AppState): BoardScope {
 export function jiraOnBoard(j: JiraIssue, scope: BoardScope): boolean {
   if (!scope.active) return true
 
-  // Exact membership (most accurate) when resolved.
+  const full = jiraFullKey(j)
+  const pfx = full ? full.split('-')[0] : undefined
+
+  // 1) Exact key set is the authority when resolved. A derivable key MUST be in the set.
+  //    An issue with a foreign key (e.g. MONE-777 on a CS board) is excluded here even if
+  //    it was wrongly stamped with this board's id by an earlier sync.
   if (scope.issueKeys) {
-    const full = jiraFullKey(j)
     if (full) return scope.issueKeys.has(full)
-    // key can't be derived — fall through to boardId/prefix checks below
+    // No derivable key: only keep it if it's stamped with THIS board's id.
+    return scope.boardId != null && j.boardId === scope.boardId
   }
 
-  // Prefix membership when resolved.
+  // 2) Prefix set (coarse) when exact keys aren't resolved.
   if (scope.prefixes && scope.prefixes.length) {
-    const pfx = jiraKeyPrefix(j)
-    if (pfx) return scope.prefixes.includes(pfx)
+    if (full) return scope.prefixes.includes(pfx!)
+    return scope.boardId != null && j.boardId === scope.boardId
   }
 
-  // Unresolved fallback: trust the boardId stamped on the issue at sync time.
+  // 3) Nothing resolved: trust the boardId stamped at sync time.
   if (scope.boardId != null && j.boardId != null) {
     return j.boardId === scope.boardId
   }
 
-  // Last resort: derive an expected prefix from any resolved signal. If we truly have
-  // nothing to compare against, keep the issue only if it lacks a derivable key (manual
-  // item); otherwise hide it so foreign-project issues don't leak onto the board.
-  return jiraFullKey(j) == null
+  // 4) Truly nothing to compare: keep only manual items (no derivable key); hide any issue
+  //    that has a real key so foreign-project issues never leak onto the board.
+  return full == null
 }
 
 // A task passes the board filter when at least one of its jiras is on the board.
