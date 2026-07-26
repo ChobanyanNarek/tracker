@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react'
-import { useStore, getVisibleTasks, getVisibleDevIds, getBoardScope, jiraOnBoard } from '../../store'
+import React, { useState, useMemo, useEffect } from 'react'
+import { useStore, getVisibleTasks, getVisibleDevIds, getBoardScope, jiraOnBoard, getActiveBoardId, sprintMatchesBoard } from '../../store'
 import { STATUS_EMOJI } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
-import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
+import { getJiras, jiraLabel, jiraDedupeKey } from '../../utils/format'
 import { dlInfo, formatDate, formatDateTime, daysInMonth, padDate, isAmHoliday } from '../../utils/dates'
 import Icon from '../ui/Icon'
 import DatePicker from '../ui/DatePicker'
@@ -232,30 +232,11 @@ function StandupSection() {
 // Sub-section 2: Monthly Report
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const DAY_TYPE_COLORS: Record<string, { color: string; bg: string; border: string; icon: React.ReactNode }> = {
-  work:     { color: 'var(--green)',  bg: 'var(--green-dim)',  border: 'var(--green-border)',  icon: <Icon name="briefcase" size={10} color="var(--green)" /> },
-  vacation: { color: 'var(--teal)',   bg: 'var(--teal-dim)',   border: 'var(--teal-border)',   icon: <Icon name="palm" size={10} color="var(--teal)" /> },
-  dayoff:   { color: 'var(--amber)',  bg: 'var(--amber-dim)',  border: 'var(--amber-border)',  icon: <Icon name="sun" size={10} color="var(--amber)" /> },
-  sick:     { color: 'var(--red)',    bg: 'var(--red-dim)',    border: 'var(--red-border)',    icon: <Icon name="thermometer" size={10} color="var(--red)" /> },
-  holiday:  { color: 'var(--pink)',   bg: 'var(--pink-dim)',   border: 'var(--pink-border)',   icon: <Icon name="flag" size={10} color="var(--pink)" /> },
-}
-
-function Chip({ icon, label, color, bg, border }: { icon: React.ReactNode; label: string; color: string; bg: string; border: string }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'var(--mono)', fontSize: 10, padding: '2px 7px', borderRadius: 8, background: bg, color, border: `1px solid ${border}` }}>
-      {icon} {label}
-    </span>
-  )
-}
-
 function MonthlySection() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const [copied, setCopied] = useState(false)
-  const [reportVisible, setReportVisible] = useState(false)
-  const [reportCopied, setReportCopied] = useState(false)
-  const [textOnly, setTextOnly] = useState(false)
 
   const { developers: allDevs, schedule, selectedProject, selectedDev, projects } = useStore()
   const proj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
@@ -269,27 +250,6 @@ function MonthlySection() {
   const days = daysInMonth(year, month)
   const daysList: string[] = []
   for (let d = 1; d <= days; d++) daysList.push(padDate(year, month, d))
-
-  const devStats = useMemo(() => developers.map((dev) => {
-    let worked = 0, vacation = 0, dayoff = 0, sick = 0, holidays = 0
-    daysList.forEach((ds) => {
-      if (isWeekend(ds)) return
-      const amHol = isAmHoliday(ds)
-      const entry = schedule[dev.id]?.[ds]
-      if (entry === 'vacation') vacation++
-      else if (entry === 'dayoff') dayoff++
-      else if (entry === 'sick') sick++
-      else if (entry === 'holiday' || (amHol && !entry)) holidays++
-      else worked++
-    })
-    return { dev, worked, vacation, dayoff, sick, holidays }
-  }), [developers, daysList, schedule])
-
-  const totalWork = devStats.reduce((s, r) => s + r.worked, 0)
-  const totalVac = devStats.reduce((s, r) => s + r.vacation, 0)
-  const totalDayoff = devStats.reduce((s, r) => s + r.dayoff, 0)
-  const totalSick = devStats.reduce((s, r) => s + r.sick, 0)
-  const totalHol = devStats.reduce((s, r) => s + r.holidays, 0)
 
   const buildTextReport = () => {
     const monthName = `${MONTHS[month]} ${year}`
@@ -345,25 +305,6 @@ function MonthlySection() {
     return lines.join('\n')
   }
 
-  const buildMarkdown = () => {
-    const lines: string[] = []
-    lines.push(`# Monthly Report — ${MONTHS[month]} ${year}`)
-    lines.push('')
-    lines.push('| Developer | Work Days | Vacation | Day Off | Sick | Holidays |')
-    lines.push('|---|---|---|---|---|---|')
-    devStats.forEach(({ dev, worked, vacation, dayoff, sick, holidays }) => {
-      lines.push(`| ${dev.name} | ${worked} | ${vacation} | ${dayoff} | ${sick} | ${holidays} |`)
-    })
-    lines.push(`| **Total** | **${totalWork}** | **${totalVac}** | **${totalDayoff}** | **${totalSick}** | **${totalHol}** |`)
-    return lines.join('\n')
-  }
-
-  const copy = async () => {
-    await navigator.clipboard.writeText(buildMarkdown())
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   const prevMonth = () => {
     if (month === 0) { setYear((y) => y - 1); setMonth(11) } else setMonth((m) => m - 1)
   }
@@ -371,156 +312,55 @@ function MonthlySection() {
     if (month === 11) { setYear((y) => y + 1); setMonth(0) } else setMonth((m) => m + 1)
   }
 
-  // Mini calendar: Mon=0, ..., Sun=6
-  const firstDow = new Date(padDate(year, month, 1) + 'T12:00:00').getDay()
-  const startPad = (firstDow + 6) % 7
+  const reportText = buildTextReport()
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <button onClick={prevMonth} className="icon-btn">‹</button>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600, minWidth: 130, textAlign: 'center' }}>{MONTHS[month]} {year}</span>
         <button onClick={nextMonth} className="icon-btn">›</button>
         <button onClick={() => { const n = new Date(); setYear(n.getFullYear()); setMonth(n.getMonth()) }} style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer' }}>This month</button>
-        <button
-          onClick={() => { setTextOnly((v) => { const nv = !v; if (nv) setReportVisible(true); return nv }) }}
-          style={{ ...btnBase, border: `1px solid ${textOnly ? 'var(--accent)' : 'var(--border)'}`, background: textOnly ? 'var(--accent-dim)' : 'var(--surface2)', color: textOnly ? 'var(--accent)' : 'var(--text2)' }}
-        >
-          <Icon name="list" size={12} /> {textOnly ? 'Calendar view' : 'Text only'}
-        </button>
-        <div style={{ marginLeft: 'auto' }}>
-          <button onClick={copy} style={{ ...btnBase, border: `1px solid ${copied ? 'var(--green-border)' : 'var(--border)'}`, background: copied ? 'var(--green-dim)' : 'var(--surface2)', color: copied ? 'var(--green)' : 'var(--text2)' }}>
-            <Icon name={copied ? 'check' : 'copy'} size={12} />
-            {copied ? 'Copied!' : 'Copy as Markdown'}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => {
+              const blob = new Blob([reportText], { type: 'text/plain' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `monthly-report-${MONTHS[month].toLowerCase()}-${year}.txt`
+              a.click()
+              URL.revokeObjectURL(url)
+            }}
+            style={{ ...btnBase, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)' }}
+          >
+            <Icon name="download" size={12} />
+            Download .txt
+          </button>
+          <button
+            onClick={async () => {
+              await navigator.clipboard.writeText(reportText)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 2000)
+            }}
+            style={{ ...btnBase, background: copied ? 'var(--green-dim)' : 'var(--accent)', border: `1px solid ${copied ? 'var(--green-border)' : 'var(--accent)'}`, color: copied ? 'var(--green)' : '#fff', fontWeight: 600 }}
+          >
+            <Icon name={copied ? 'check' : 'copy'} size={12} color={copied ? 'var(--green)' : '#fff'} />
+            {copied ? 'Copied!' : 'Copy'}
           </button>
         </div>
       </div>
 
-      {developers.length === 0 && (
+      {developers.length === 0 ? (
         <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No developers match the current filter.</div>
+      ) : (
+        <textarea
+          readOnly
+          value={reportText}
+          style={{ border: '1px solid var(--border)', outline: 'none', padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.7, color: 'var(--text2)', background: 'var(--surface2)', resize: 'vertical', borderRadius: 8, minHeight: 320 }}
+        />
       )}
-
-      {!textOnly && devStats.map(({ dev, worked, vacation, dayoff, sick, holidays }, di) => {
-        const rgb = hexRgb(dev.color)
-        const devSchedule = schedule[dev.id] ?? {}
-
-        return (
-          <div key={dev.id} style={{ background: di % 2 === 0 ? 'var(--surface)' : 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
-              <div className="av" style={{ background: `rgba(${rgb},.15)`, color: dev.color, width: 28, height: 28, fontSize: 11, flexShrink: 0 }}>{initials(dev.name)}</div>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{dev.name}</div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{dev.role}</div>
-              </div>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Chip icon={DAY_TYPE_COLORS.work.icon} label={`${worked}d work`} color={DAY_TYPE_COLORS.work.color} bg={DAY_TYPE_COLORS.work.bg} border={DAY_TYPE_COLORS.work.border} />
-                {vacation > 0 && <Chip icon={DAY_TYPE_COLORS.vacation.icon} label={`${vacation}d vac`} color={DAY_TYPE_COLORS.vacation.color} bg={DAY_TYPE_COLORS.vacation.bg} border={DAY_TYPE_COLORS.vacation.border} />}
-                {dayoff > 0 && <Chip icon={DAY_TYPE_COLORS.dayoff.icon} label={`${dayoff}d off`} color={DAY_TYPE_COLORS.dayoff.color} bg={DAY_TYPE_COLORS.dayoff.bg} border={DAY_TYPE_COLORS.dayoff.border} />}
-                {sick > 0 && <Chip icon={DAY_TYPE_COLORS.sick.icon} label={`${sick}d sick`} color={DAY_TYPE_COLORS.sick.color} bg={DAY_TYPE_COLORS.sick.bg} border={DAY_TYPE_COLORS.sick.border} />}
-                {holidays > 0 && <Chip icon={DAY_TYPE_COLORS.holiday.icon} label={`${holidays}d hol`} color={DAY_TYPE_COLORS.holiday.color} bg={DAY_TYPE_COLORS.holiday.bg} border={DAY_TYPE_COLORS.holiday.border} />}
-              </div>
-            </div>
-
-            {/* mini calendar */}
-            <div style={{ padding: '10px 14px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 28px)', gap: 2 }}>
-                {['M','T','W','T','F','S','S'].map((d, i) => (
-                  <div key={i} style={{ textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', fontWeight: 700, padding: '2px 0', width: 28 }}>{d}</div>
-                ))}
-                {Array.from({ length: startPad }).map((_, i) => <div key={`pad-${i}`} style={{ width: 28 }} />)}
-                {daysList.map((ds) => {
-                  const dayNum = parseInt(ds.slice(8))
-                  const we = isWeekend(ds)
-                  const amHol = isAmHoliday(ds)
-                  const entry = devSchedule[ds]
-                  const effective = entry ?? (amHol ? 'holiday' : null)
-                  const dt = effective ? DAY_TYPE_COLORS[effective] : null
-                  return (
-                    <div
-                      key={ds}
-                      title={amHol || effective || 'work'}
-                      style={{
-                        width: 28, height: 28, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: dt ? dt.bg : we ? 'var(--surface3)' : 'transparent',
-                        border: dt ? `1px solid ${dt.border}` : '1px solid transparent',
-                        fontSize: 9, fontFamily: 'var(--mono)', fontWeight: dt ? 700 : 400,
-                        color: dt ? dt.color : we ? 'var(--text3)' : 'var(--text2)',
-                      }}
-                    >
-                      {dayNum}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )
-      })}
-
-      {!textOnly && devStats.length > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--text)', minWidth: 80 }}>Total</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Chip icon={DAY_TYPE_COLORS.work.icon} label={`${totalWork}d work`} color={DAY_TYPE_COLORS.work.color} bg={DAY_TYPE_COLORS.work.bg} border={DAY_TYPE_COLORS.work.border} />
-            {totalVac > 0 && <Chip icon={DAY_TYPE_COLORS.vacation.icon} label={`${totalVac}d vac`} color={DAY_TYPE_COLORS.vacation.color} bg={DAY_TYPE_COLORS.vacation.bg} border={DAY_TYPE_COLORS.vacation.border} />}
-            {totalDayoff > 0 && <Chip icon={DAY_TYPE_COLORS.dayoff.icon} label={`${totalDayoff}d off`} color={DAY_TYPE_COLORS.dayoff.color} bg={DAY_TYPE_COLORS.dayoff.bg} border={DAY_TYPE_COLORS.dayoff.border} />}
-            {totalSick > 0 && <Chip icon={DAY_TYPE_COLORS.sick.icon} label={`${totalSick}d sick`} color={DAY_TYPE_COLORS.sick.color} bg={DAY_TYPE_COLORS.sick.bg} border={DAY_TYPE_COLORS.sick.border} />}
-            {totalHol > 0 && <Chip icon={DAY_TYPE_COLORS.holiday.icon} label={`${totalHol}d hol`} color={DAY_TYPE_COLORS.holiday.color} bg={DAY_TYPE_COLORS.holiday.bg} border={DAY_TYPE_COLORS.holiday.border} />}
-          </div>
-        </div>
-      )}
-
-      {/* Report text section */}
-      <div style={{ borderTop: textOnly ? 'none' : '1px solid var(--border)', paddingTop: textOnly ? 0 : 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: (reportVisible || textOnly) ? 12 : 0 }}>
-          {!textOnly && (
-            <button
-              onClick={() => setReportVisible((v) => !v)}
-              style={{ ...btnBase, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)' }}
-            >
-              <Icon name="chart" size={12} />
-              {reportVisible ? 'Hide Report Text' : 'Generate Report Text'}
-            </button>
-          )}
-          {(reportVisible || textOnly) && (
-            <>
-              <button
-                onClick={async () => {
-                  await navigator.clipboard.writeText(buildTextReport())
-                  setReportCopied(true)
-                  setTimeout(() => setReportCopied(false), 2000)
-                }}
-                style={{ ...btnBase, border: `1px solid ${reportCopied ? 'var(--green-border)' : 'var(--border)'}`, background: reportCopied ? 'var(--green-dim)' : 'var(--surface2)', color: reportCopied ? 'var(--green)' : 'var(--text2)' }}
-              >
-                <Icon name={reportCopied ? 'check' : 'copy'} size={12} />
-                {reportCopied ? 'Copied!' : 'Copy'}
-              </button>
-              <button
-                onClick={() => {
-                  const text = buildTextReport()
-                  const blob = new Blob([text], { type: 'text/plain' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `monthly-report-${MONTHS[month].toLowerCase()}-${year}.txt`
-                  a.click()
-                  URL.revokeObjectURL(url)
-                }}
-                style={{ ...btnBase, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)' }}
-              >
-                <Icon name="download" size={12} />
-                Download .txt
-              </button>
-            </>
-          )}
-        </div>
-        {(reportVisible || textOnly) && (
-          <pre style={{ margin: 0, padding: '14px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text)', whiteSpace: 'pre', lineHeight: 1.7, overflowX: 'auto' }}>
-            {buildTextReport()}
-          </pre>
-        )}
-      </div>
     </div>
   )
 }
@@ -968,14 +808,26 @@ function ScrumReleaseNotes() {
     return p?.members?.length ? new Set<string>(p.members) : new Set<string>()
   }, [projects, selectedProject])
 
+  const activeBoardId = getActiveBoardId(state)
   const projectSprints = useMemo((): Sprint[] =>
     sprints
-      .filter((s: Sprint) => selectedProject === 'ALL' || s.projectId === selectedProject)
+      .filter((s: Sprint) => selectedProject === 'ALL'
+        ? true
+        : sprintMatchesBoard(s, selectedProject, activeBoardId))
       .sort((a: Sprint, b: Sprint) => b.startDate.localeCompare(a.startDate)),
-    [sprints, selectedProject]
+    [sprints, selectedProject, activeBoardId]
   )
 
   const [selectedSprintId, setSelectedSprintId] = useState(() => projectSprints[0]?.id ?? '')
+
+  // When the project/board changes, the previously selected sprint may no longer belong
+  // to the current board — reset to the first valid sprint (or none) to avoid showing
+  // issues from an unrelated board.
+  useEffect(() => {
+    if (!projectSprints.some((s) => s.id === selectedSprintId)) {
+      setSelectedSprintId(projectSprints[0]?.id ?? '')
+    }
+  }, [projectSprints, selectedSprintId])
   const [copied, setCopied] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   const [addingCol, setAddingCol] = useState(false)
