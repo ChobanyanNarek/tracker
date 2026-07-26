@@ -5,6 +5,7 @@ import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
 import { todayStr } from '../../utils/dates'
 import { loadPresets, savePresets, loadJiraPresets, saveJiraPresets } from '../../utils/format'
 import DatePicker from '../ui/DatePicker'
+import TimePicker from '../ui/TimePicker'
 
 interface JiraFormRow {
   url: string
@@ -40,7 +41,7 @@ function PrRow({ value, onChange, onRemove }: { value: PrEntry; onChange: (v: Pr
     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 6, alignItems: 'center', marginBottom: 4 }}>
       <input className="field" type="url" placeholder="https://github.com/..." value={value.url} onChange={(e) => autoFill(e.target.value)} />
       <DatePicker value={value.date} onChange={(d) => onChange({ ...value, date: d })} placeholder="Date" />
-      <input className="field" type="time" value={value.time} onChange={(e) => onChange({ ...value, time: e.target.value })} style={{ width: 'auto' }} />
+      <TimePicker value={value.time} onChange={(t) => onChange({ ...value, time: t })} />
       <button className="icon-btn del" onClick={onRemove} title="Remove PR">✕</button>
     </div>
   )
@@ -120,7 +121,7 @@ function JiraRow({ value, onChange, onRemove }: { value: JiraFormRow; onChange: 
           <button type="button" onClick={() => onChange({ ...value, deadline: todayStr() })} style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 9, padding: '2px 7px', borderRadius: 4, cursor: 'pointer', lineHeight: 1.4, whiteSpace: 'nowrap' }}>Today</button>
         </div>
 
-        <input className="field" type="time" value={value.deadlineTime} onChange={(e) => onChange({ ...value, deadlineTime: e.target.value })} />
+        <TimePicker value={value.deadlineTime} onChange={(t) => onChange({ ...value, deadlineTime: t })} />
       </div>
 
       {/* comment + PRs */}

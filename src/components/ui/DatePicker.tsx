@@ -36,8 +36,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Select date
 
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const [openUp, setOpenUp] = useState(false)
-  const [openLeft, setOpenLeft] = useState(false)
+  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({})
 
   useEffect(() => {
     if (!open) return
@@ -51,8 +50,17 @@ export default function DatePicker({ value, onChange, placeholder = 'Select date
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
-    setOpenUp(window.innerHeight - rect.bottom < 300)
-    setOpenLeft(rect.left + 264 > window.innerWidth)
+    const popupW = 264
+    const popupH = 300
+    const goUp = window.innerHeight - rect.bottom < popupH
+    const goLeft = rect.left + popupW > window.innerWidth - 8
+
+    const top = goUp ? rect.top - popupH - 4 : rect.bottom + 4
+    const left = goLeft
+      ? Math.max(8, rect.right - popupW)
+      : Math.min(rect.left, window.innerWidth - popupW - 8)
+
+    setPopupStyle({ position: 'fixed', top, left, zIndex: 9999 })
   }, [open])
 
   // When value changes externally, sync nav
@@ -129,10 +137,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Select date
 
       {open && (
         <div style={{
-          position: 'absolute',
-          ...(openUp ? { bottom: '100%', top: 'auto', marginBottom: 4, marginTop: 0 } : { top: '100%', marginTop: 4 }),
-          ...(openLeft ? { right: 0, left: 'auto' } : { left: 0 }),
-          zIndex: 500,
+          ...popupStyle,
           background: 'var(--surface)',
           border: '1px solid var(--border)',
           borderRadius: 12,

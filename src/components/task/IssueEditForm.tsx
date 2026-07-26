@@ -3,6 +3,7 @@ import type { JiraIssue, PrEntry, Status, Priority } from '../../types'
 import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
 import { todayStr } from '../../utils/dates'
 import DatePicker from '../ui/DatePicker'
+import TimePicker from '../ui/TimePicker'
 
 interface Props {
   issue: JiraIssue
@@ -89,7 +90,7 @@ export default function IssueEditForm({ issue, onSave, onCancel }: Props) {
         </div>
         <div>
           <label className="field-label">Time</label>
-          <input className="field" type="time" style={{ width: 'auto' }} value={deadlineTime} onChange={(e) => setDeadlineTime(e.target.value)} />
+          <TimePicker value={deadlineTime} onChange={setDeadlineTime} />
         </div>
       </div>
 
@@ -107,7 +108,7 @@ export default function IssueEditForm({ issue, onSave, onCancel }: Props) {
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 6, alignItems: 'center', marginBottom: 4 }}>
             <input className="field" type="url" placeholder="https://gitlab.com/…/merge_requests/1" value={pr.url} onChange={(e) => prUrlChange(i, e.target.value)} />
             <DatePicker value={pr.date} onChange={(d) => setPr(i, { ...pr, date: d })} placeholder="Date" />
-            <input className="field" type="time" style={{ width: 'auto' }} value={pr.time} onChange={(e) => setPr(i, { ...pr, time: e.target.value })} />
+            <TimePicker value={pr.time} onChange={(t) => setPr(i, { ...pr, time: t })} />
             <button className="icon-btn del" title="Remove PR" onClick={() => setPrs((list) => list.filter((_, j) => j !== i))}>✕</button>
           </div>
         ))}
