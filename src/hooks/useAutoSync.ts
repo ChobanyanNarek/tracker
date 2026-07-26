@@ -44,6 +44,25 @@ export function useAutoSync(onToast: (msg: string) => void) {
     return () => clearTimeout(timer)
   }, [])
 
+  // Startup Jira sync — pull latest when data is stale, so a refresh reflects Jira.
+  useEffect(() => {
+    const conns = useStore.getState().jiraConnections
+    const stale = conns.find((c) => {
+      if (!c.enabled || !c.token) return false
+      const lastSyncMs = c.lastSync ? new Date(c.lastSync).getTime() : 0
+      return Date.now() - lastSyncMs > 5 * 60 * 1000
+    })
+    if (!stale) return
+    const timer = setTimeout(() => {
+      useStore.getState().syncJira()
+        .then(({ added, updated, removed }) => {
+          onToast(`Jira synced — ${added} added, ${updated} updated${removed ? `, ${removed} removed` : ''}`)
+        })
+        .catch((e) => { console.warn('[auto-sync] startup Jira sync failed:', e) })
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [])
+
   // Jira interval poll — use the smallest configured interval across all enabled connections
   useEffect(() => {
     const active = jiraConnections.filter((c) => c.enabled && c.syncInterval && c.token)
@@ -52,10 +71,16 @@ export function useAutoSync(onToast: (msg: string) => void) {
     const id = setInterval(async () => {
       try {
         const { added, updated, removed } = await useStore.getState().syncJira()
+        // Always surface a toast so the user can see auto-sync is alive, even with no changes.
         if (added || updated || removed) {
           onToast(`Jira synced — ${added} added, ${updated} updated${removed ? `, ${removed} closed removed` : ''}`)
+        } else {
+          onToast('Jira synced — up to date')
         }
-      } catch {}
+      } catch (e) {
+        console.warn('[auto-sync] Jira interval sync failed:', e)
+        onToast('Jira auto-sync failed — check connection')
+      }
     }, ms)
     return () => clearInterval(id)
   }, [JSON.stringify(jiraConnections.map((c) => [c.id, c.enabled, c.syncInterval, c.token]))])
