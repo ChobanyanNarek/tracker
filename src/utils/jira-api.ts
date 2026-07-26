@@ -220,6 +220,25 @@ export async function fetchJiraSprints(config: JiraConfig, boardId: number): Pro
   return data.map((s) => ({ id: s.id, name: s.name, state: s.state, startDate: s.startDate?.slice(0, 10), endDate: s.endDate?.slice(0, 10) }))
 }
 
+export async function fetchJiraTimeTracking(config: JiraConfig): Promise<number> {
+  try {
+    const res = await fetch(`${API_URL}/pm-tracker/jira-time-tracking`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        baseUrl: config.baseUrl.trim(),
+        email: config.email.trim(),
+        token: config.token.trim(),
+      }),
+    })
+    if (!res.ok) return 8
+    const data = (await res.json()) as { workingHoursPerDay?: number }
+    return data.workingHoursPerDay ?? 8
+  } catch {
+    return 8
+  }
+}
+
 export async function fetchJiraStatuses(config: JiraConfig): Promise<JiraStatusInfo[]> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-statuses`, {
     method: 'POST',

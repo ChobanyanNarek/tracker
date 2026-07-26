@@ -3,7 +3,7 @@ import type { AppState, Developer, Project, Sprint, Task, JiraIssue, JiraConfig,
 import { loadCloudState, saveCloudState } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
-import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
+import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
@@ -1264,8 +1264,10 @@ export const useStore = create<Store>((set, get) => {
         added += connAdded
         updated += connUpdated
         removed += connRemoved
+        const hoursPerDay = await fetchJiraTimeTracking(conn).catch(() => conn.hoursPerDay ?? 8)
         syncedConns.push({
           ...conn,
+          hoursPerDay,
           lastSync: new Date().toISOString(),
           lastSyncResult: `+${connAdded} added, ${connUpdated} updated${connRemoved ? `, ${connRemoved} closed removed` : ''}`,
         })
