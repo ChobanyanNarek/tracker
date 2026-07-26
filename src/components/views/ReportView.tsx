@@ -5,6 +5,7 @@ import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
 import { dlInfo, formatDate, formatDateTime, daysInMonth, padDate, isAmHoliday } from '../../utils/dates'
 import Icon from '../ui/Icon'
+import DatePicker from '../ui/DatePicker'
 import type { Developer, JiraConfig, JiraIssue, Sprint, Task, EmploymentPeriod } from '../../types'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -732,9 +733,9 @@ function KanbanReleaseNotes() {
       {/* toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <label style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>From</label>
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 12, padding: '4px 8px', borderRadius: 6 }} />
+        <DatePicker value={startDate} onChange={(d) => { setStartDate(d); if (endDate && d > endDate) setEndDate(d) }} maxDate={endDate || undefined} />
         <label style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>To</label>
-        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 12, padding: '4px 8px', borderRadius: 6 }} />
+        <DatePicker value={endDate} onChange={(d) => { setEndDate(d); if (startDate && d < startDate) setStartDate(d) }} minDate={startDate || undefined} />
 
         {hiddenCount > 0 && (
           <button

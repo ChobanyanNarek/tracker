@@ -207,9 +207,9 @@ export default function DeadlinesView() {
       {/* sort bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', flexShrink: 0 }}>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>From:</span>
-        <DatePicker value={rangeStart} onChange={setRangeStart} />
+        <DatePicker value={rangeStart} onChange={(d) => { setRangeStart(d); if (rangeEnd && d > rangeEnd) setRangeEnd(d) }} maxDate={rangeEnd || undefined} />
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>To:</span>
-        <DatePicker value={rangeEnd} onChange={setRangeEnd} />
+        <DatePicker value={rangeEnd} onChange={(d) => { setRangeEnd(d); if (rangeStart && d < rangeStart) setRangeStart(d) }} minDate={rangeStart || undefined} />
         <button onClick={() => { setRangeStart(today); setRangeEnd(today) }} style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 9px', cursor: 'pointer' }}>Reset</button>
         <span style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginRight: 2 }}>Sort:</span>

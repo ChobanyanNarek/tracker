@@ -5,6 +5,8 @@ interface DatePickerProps {
   onChange: (date: string) => void
   placeholder?: string
   style?: React.CSSProperties
+  minDate?: string  // YYYY-MM-DD — dates before this are disabled
+  maxDate?: string  // YYYY-MM-DD — dates after this are disabled
 }
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -20,7 +22,7 @@ function daysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate()
 }
 
-export default function DatePicker({ value, onChange, placeholder = 'Select date', style }: DatePickerProps) {
+export default function DatePicker({ value, onChange, placeholder = 'Select date', style, minDate, maxDate }: DatePickerProps) {
   const today = new Date().toISOString().slice(0, 10)
   const [open, setOpen] = useState(false)
 
@@ -82,7 +84,17 @@ export default function DatePicker({ value, onChange, placeholder = 'Select date
   const startPad = (firstDow + 6) % 7 // Mon=0
   const totalDays = daysInMonth(nav.year, nav.month)
 
+  const isDisabled = (day: number): boolean => {
+    const mm = String(nav.month + 1).padStart(2, '0')
+    const dd = String(day).padStart(2, '0')
+    const iso = `${nav.year}-${mm}-${dd}`
+    if (minDate && iso < minDate) return true
+    if (maxDate && iso > maxDate) return true
+    return false
+  }
+
   const selectDay = (day: number) => {
+    if (isDisabled(day)) return
     const mm = String(nav.month + 1).padStart(2, '0')
     const dd = String(day).padStart(2, '0')
     onChange(`${nav.year}-${mm}-${dd}`)
@@ -195,6 +207,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Select date
                   isSelected={isSelected}
                   isToday={isToday}
                   isWeekend={isWeekend}
+                  isDisabled={isDisabled(day)}
                   onClick={() => selectDay(day)}
                 />
               )
@@ -218,22 +231,25 @@ export default function DatePicker({ value, onChange, placeholder = 'Select date
   )
 }
 
-function DayCell({ day, isSelected, isToday, isWeekend, onClick }: {
+function DayCell({ day, isSelected, isToday, isWeekend, isDisabled, onClick }: {
   day: number
   isSelected: boolean
   isToday: boolean
   isWeekend: boolean
+  isDisabled: boolean
   onClick: () => void
 }) {
   const [hovered, setHovered] = useState(false)
 
   const bg = isSelected
     ? 'var(--accent)'
-    : hovered
+    : hovered && !isDisabled
     ? 'var(--surface2)'
     : 'transparent'
 
-  const color = isSelected
+  const color = isDisabled
+    ? 'var(--text3)'
+    : isSelected
     ? '#fff'
     : isWeekend
     ? 'var(--text3)'
@@ -258,12 +274,13 @@ function DayCell({ day, isSelected, isToday, isWeekend, onClick }: {
         fontFamily: 'var(--mono)',
         fontSize: 11,
         fontWeight: isSelected || isToday ? 700 : 400,
-        cursor: 'pointer',
+        cursor: isDisabled ? 'not-allowed' : 'pointer',
         background: bg,
         color,
         border,
         transition: 'background .1s, color .1s',
-        opacity: isWeekend && !isSelected ? 0.65 : 1,
+        opacity: isDisabled ? 0.3 : isWeekend && !isSelected ? 0.65 : 1,
+        textDecoration: isDisabled ? 'line-through' : 'none',
       }}
     >
       {day}
