@@ -1242,10 +1242,10 @@ export const useStore = create<Store>((set, get) => {
             const keep = t.jiras.filter((j) => {
               const ticket = jiraTicket(j)
               if (!ticket) return true                  // manual / non-key issue — never prune
-              // Only prune ACTIVE issues (non-done). The sync query returns all non-done
-              // issues, so an active issue Jira didn't return is genuinely deleted/reassigned.
-              // Done issues may be legitimately absent (query excludes Done >30d old) — keep them.
-              if (j.status === 'done') return true
+              // In board mode we get exact board membership — prune done issues too (they may
+              // have moved to another board with a new key). In project/JQL mode, keep done
+              // issues because the query may not return old done issues (age filters, etc).
+              if (j.status === 'done' && !effectiveBoardId) return true
               const pfx = keyPrefix(j)
               // If this connection restricts to specific project keys, only consider its own
               if (connKeys.length && (!pfx || !connKeys.includes(pfx))) return true
