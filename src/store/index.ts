@@ -1245,7 +1245,11 @@ export const useStore = create<Store>((set, get) => {
         added += connAdded
         updated += connUpdated
         removed += connRemoved
-        const hoursPerDay = await fetchJiraTimeTracking(conn).catch(() => conn.hoursPerDay ?? 8)
+        // Only fetch working-hours config once (it rarely changes). Avoids hitting
+        // jira-time-tracking on every sync, which was producing repeated 403 noise.
+        const hoursPerDay = conn.hoursPerDay != null
+          ? conn.hoursPerDay
+          : await fetchJiraTimeTracking(conn).catch(() => 8)
         syncedConns.push({
           ...conn,
           hoursPerDay,
