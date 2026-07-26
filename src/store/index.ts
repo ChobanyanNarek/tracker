@@ -1292,7 +1292,10 @@ export const useStore = create<Store>((set, get) => {
         try {
           const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
           boardKeyUpdates.set(proj.id, keys)
-        } catch { /* keep existing boardIssueKeys on failure */ }
+          if (!keys.length) console.warn(`[board-keys] ${proj.name} (board ${proj.jiraBoardId}) resolved 0 keys`)
+        } catch (e) {
+          console.warn(`[board-keys] ${proj.name} (board ${proj.jiraBoardId}) resolve FAILED — board scope will fall back to boardId/prefix:`, e)
+        }
       }
 
       set((s) => {
@@ -1806,6 +1809,7 @@ export function jiraKeyPrefix(j: JiraIssue): string | undefined {
 // prefixes = coarse fallback. `active` is false in kanban / ALL / no-board (no filtering).
 export interface BoardScope {
   active: boolean
+  boardId?: number              // the selected board's id (issues stamped with it are on-board)
   issueKeys?: Set<string>       // exact keys, when resolved
   prefixes?: string[]           // prefix fallback, when exact keys unavailable
 }
@@ -1815,6 +1819,7 @@ export function getBoardScope(state: AppState): BoardScope {
   if (!activeBoardId) return { active: false }
   return {
     active: true,
+    boardId: activeBoardId,
     issueKeys: getActiveBoardIssueKeys(state),
     prefixes: getActiveBoardProjectKeys(state),
   }
@@ -1824,18 +1829,34 @@ export function getBoardScope(state: AppState): BoardScope {
 //  - Board not active (kanban / ALL) → always true.
 //  - Exact issue keys resolved → the issue's key must be in that set (precise).
 //  - Only prefixes available → prefix must match (coarse fallback).
-//  - Nothing resolved yet → true (don't hide until resolution completes).
+//  - Neither resolved → the issue must at least be stamped with THIS board's id, or (if it
+//    carries no boardId) share the board's key prefix. Never fall back to "show everything",
+//    which would leak issues from other projects (e.g. MONE-* on the CS board).
 export function jiraOnBoard(j: JiraIssue, scope: BoardScope): boolean {
   if (!scope.active) return true
+
+  // Exact membership (most accurate) when resolved.
   if (scope.issueKeys) {
     const full = jiraFullKey(j)
-    return full ? scope.issueKeys.has(full) : false
+    if (full) return scope.issueKeys.has(full)
+    // key can't be derived — fall through to boardId/prefix checks below
   }
-  if (scope.prefixes) {
+
+  // Prefix membership when resolved.
+  if (scope.prefixes && scope.prefixes.length) {
     const pfx = jiraKeyPrefix(j)
-    return pfx ? scope.prefixes.includes(pfx) : false
+    if (pfx) return scope.prefixes.includes(pfx)
   }
-  return true  // board active but unresolved — show pending next resolve
+
+  // Unresolved fallback: trust the boardId stamped on the issue at sync time.
+  if (scope.boardId != null && j.boardId != null) {
+    return j.boardId === scope.boardId
+  }
+
+  // Last resort: derive an expected prefix from any resolved signal. If we truly have
+  // nothing to compare against, keep the issue only if it lacks a derivable key (manual
+  // item); otherwise hide it so foreign-project issues don't leak onto the board.
+  return jiraFullKey(j) == null
 }
 
 // A task passes the board filter when at least one of its jiras is on the board.
