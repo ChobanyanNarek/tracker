@@ -1947,6 +1947,14 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
       }
     } else {
       if (t.jira) {
+        // Legacy single-jira string. Apply the SAME board filter as the jiras[] path,
+        // otherwise old-style issues (e.g. a MONE-* url) bypass board scoping entirely.
+        const legacyIssue = { url: t.jira, name: '' } as unknown as JiraIssue
+        if (!jiraOnBoard(legacyIssue, boardScope)) {
+          // not on the selected board — keep the task only if it has non-jira content
+          if (!t.carriedOver && (t.deadline || t.comment)) result.push({ ...t, jira: '' } as Task)
+          continue
+        }
         const dk = jiraDedupeKey(t.jira, '')
         if (dk && dk !== 'name:') {
           const k = `${t.devId}:${dk}`
