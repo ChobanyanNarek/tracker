@@ -1729,6 +1729,40 @@ loadCloudState().then(applyCloudState).catch(() => {
   useStore.setState({ cloudSyncing: false })
 })
 
+// Debug helper: expose the store + a one-shot issue tracer on window so issue-visibility
+// problems can be diagnosed without reaching into React internals. Safe, read-only.
+if (typeof window !== 'undefined') {
+  ;(window as any).pmStore = useStore
+  ;(window as any).pmWhy = (needle: string) => {
+    const s = useStore.getState() as AppState
+    const conn = getActiveJiraConn(s)
+    const scope = getBoardScope(s)
+    const proj = s.projects.find((p) => p.id === s.selectedProject)
+    const rows: any[] = []
+    for (const t of s.tasks) {
+      for (const j of t.jiras ?? []) {
+        const blob = `${j.url ?? ''} ${j.name ?? ''} ${j.issueId ?? ''}`
+        if (!blob.toLowerCase().includes(needle.toLowerCase())) continue
+        rows.push({
+          key: jiraFullKey(j) ?? j.issueId,
+          taskDate: t.date, dev: t.devId, taskProj: t.projectId,
+          groupId: j.groupId, status: j.status, hidden: j.hidden, boardId: j.boardId,
+          failsBoard: !jiraOnBoard(j, scope),
+          failsShows: !issueShowsOnBoard(j, conn),
+          isClosedGrp: isClosedGroup(j.groupId, conn),
+          dateMatchesSelected: t.date === s.selectedDate,
+          devIsVisible: getVisibleDevIds(s).includes(t.devId),
+          projMatches: s.selectedProject === 'ALL' || t.projectId === s.selectedProject,
+        })
+      }
+    }
+    console.log('selectedProject', proj?.name, '| mode', proj?.mode, '| selectedDate', s.selectedDate,
+      '| boardScope.active', scope.active)
+    console.table(rows)
+    return rows
+  }
+}
+
 export function getVisibleDevIds(state: AppState): string[] {
   const activeOnDate = (d: AppState['developers'][number]) =>
     !d.archivedAt || state.selectedDate <= d.archivedAt
