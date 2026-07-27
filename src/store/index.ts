@@ -1938,8 +1938,19 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
     return issueShowsOnBoard(j, jiraConn)
   }
 
+  // Optional diagnostics: set window.__debugSync = true in the console, then re-render.
+  const dbg = typeof window !== 'undefined' && (window as any).__debugSync
+  const dbgCount = { raw: 0, afterBoard: 0, afterShows: 0, afterDedup: 0, droppedBoard: [] as string[], droppedShows: [] as string[] }
+
   for (const t of ordered) {
     if (Array.isArray(t.jiras) && t.jiras.length > 0) {
+      if (dbg) {
+        dbgCount.raw += t.jiras.length
+        t.jiras.forEach((j) => {
+          if (!jiraBelongsToBoard(j)) dbgCount.droppedBoard.push(jiraFullKey(j) ?? j.issueId ?? j.name ?? '?')
+          else if (!showsOnBoard(j)) dbgCount.droppedShows.push(`${jiraFullKey(j) ?? j.name}[grp=${j.groupId ?? j.status}]`)
+        })
+      }
       const freshJiras = t.jiras
         .filter(jiraBelongsToBoard)
         .filter(showsOnBoard)
@@ -1953,6 +1964,7 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
           return true
         })
         .map((j) => withUnionPrs(t.devId, j))
+      if (dbg) { dbgCount.afterDedup += freshJiras.length }
       if (freshJiras.length > 0) {
         result.push({ ...t, jiras: freshJiras })
       } else if (!t.carriedOver && (t.deadline || t.comment || t.pr || (t.prs?.length ?? 0) > 0)) {
@@ -1985,6 +1997,14 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
         if (!t.carriedOver || hasContent) result.push(t)
       }
     }
+  }
+
+  if (dbg) {
+    console.log('[debugSync] dev', devId ?? state.selectedDev, 'date', state.selectedDate,
+      '| boardScope.active', boardScope.active,
+      '| raw jiras', dbgCount.raw, '→ afterDedup', dbgCount.afterDedup,
+      '| dropped by BOARD filter:', dbgCount.droppedBoard.length, dbgCount.droppedBoard.slice(0, 40),
+      '| dropped by SHOWS(done/hidden):', dbgCount.droppedShows.length, dbgCount.droppedShows.slice(0, 40))
   }
 
   return result
