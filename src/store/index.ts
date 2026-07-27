@@ -1087,13 +1087,22 @@ export const useStore = create<Store>((set, get) => {
             // alone silently misses those issues.
             const localPart = email.includes('@') ? email.slice(0, email.indexOf('@')) : email
             const assigneeVals = [...new Set([email, localPart])].map((v) => `"${v}"`).join(', ')
-            const clauses = [
-              projList ? `project in (${projList})` : '',
-              `assignee in (${assigneeVals})`,
-              statusFilter,
-            ].filter(Boolean)
-            const devJql = `${clauses.join(' AND ')} ORDER BY updated DESC`
-            devIssues = await fetchJiraIssues(conn, devJql)
+            const assigneeClause = `assignee in (${assigneeVals})`
+            const projClause = projList ? `project in (${projList})` : ''
+            const buildJql = (withStatus: boolean) =>
+              [projClause, assigneeClause, withStatus ? statusFilter : '']
+                .filter(Boolean)
+                .join(' AND ') + ' ORDER BY updated DESC'
+            try {
+              devIssues = await fetchJiraIssues(conn, buildJql(true))
+            } catch (e) {
+              // The status filter (built from status-group mappings) can reference a status
+              // name that no longer exists in Jira, which makes the whole query 500 and
+              // silently drops that developer's issues. Retry WITHOUT the status filter so
+              // the issues still sync.
+              console.warn('[sync] status-filtered search failed, retrying without status filter:', e)
+              devIssues = await fetchJiraIssues(conn, buildJql(false))
+            }
           }
           } catch {
             // Fetch failed for this dev — skip pruning to avoid wiping issues on a transient error.
