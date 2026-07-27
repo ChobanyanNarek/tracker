@@ -20,6 +20,7 @@ interface Props {
   open: boolean
   onClose: () => void
   topOffset: number
+  onToast?: (msg: string) => void
 }
 
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
@@ -213,7 +214,7 @@ function SortableDevRow({ dev, schedulingId, archivingId, schedDraft, archiveDat
 
 // ── Main panel ──────────────────────────────────────────────────────────────
 
-export default function ProjectPanel({ open, onClose, topOffset }: Props) {
+export default function ProjectPanel({ open, onClose, topOffset, onToast }: Props) {
   // Project add form
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
@@ -721,7 +722,7 @@ export default function ProjectPanel({ open, onClose, topOffset }: Props) {
                     <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: jiraEnabled ? BRAND.jira : 'var(--text2)' }}>Jira</span>
                     {jiraEnabled && <span style={badge(BRAND.jira)}>on</span>}
                     <button style={iconBtnStyle} title="Jira settings" onClick={() => setJiraModalOpen(true)}><Icon name="gear" size={12} /></button>
-                    <button style={{ ...iconBtnStyle, color: jiraEnabled ? BRAND.jira : 'var(--text3)', borderColor: jiraEnabled ? `${BRAND.jira}50` : 'var(--border)', opacity: jiraSyncing ? 0.5 : 1 }} title="Sync from Jira" disabled={jiraSyncing} onClick={async () => { setJiraSyncing(true); try { await syncJira() } catch {} finally { setJiraSyncing(false) } }}><Icon name="sync" size={12} spinning={jiraSyncing} /></button>
+                    <button style={{ ...iconBtnStyle, color: jiraEnabled ? BRAND.jira : 'var(--text3)', borderColor: jiraEnabled ? `${BRAND.jira}50` : 'var(--border)', opacity: jiraSyncing ? 0.5 : 1 }} title="Sync from Jira" disabled={jiraSyncing} onClick={async () => { setJiraSyncing(true); try { const { added, updated, removed } = await syncJira(); onToast?.(`Jira synced — ${added} added, ${updated} updated${removed ? `, ${removed} removed` : ''}`) } catch (e) { console.error('[sync] manual Jira sync failed:', e); onToast?.(`Jira sync failed — ${e instanceof Error ? e.message : 'see console'}`) } finally { setJiraSyncing(false) } }}><Icon name="sync" size={12} spinning={jiraSyncing} /></button>
                   </div>
                   {/* GitLab */}
                   <div style={rowStyle}>

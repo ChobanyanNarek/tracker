@@ -257,7 +257,7 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
           </div>
         </div>
 
-        <ProjectPanel open={openPanel === 'proj'} onClose={() => setOpenPanel(null)} topOffset={isMobile ? 90 : 54} />
+        <ProjectPanel open={openPanel === 'proj'} onClose={() => setOpenPanel(null)} topOffset={isMobile ? 90 : 54} onToast={showToast} />
       </div>
 
       {toast && (
