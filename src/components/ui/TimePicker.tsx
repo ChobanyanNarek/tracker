@@ -10,18 +10,37 @@ interface TimePickerProps {
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'))
 
-function formatDisplay(val: string): string {
-  if (!val) return ''
-  return val
+// Normalize free-typed input into "HH:MM" (24h), or '' when incomplete/invalid.
+// Accepts "9", "930", "9:30", "0930", "9 30" etc.
+function normalizeTime(raw: string): string | null {
+  const digits = raw.replace(/[^0-9]/g, '')
+  if (!digits) return ''
+  let h: number, m: number
+  if (digits.length <= 2) { h = parseInt(digits, 10); m = 0 }
+  else if (digits.length === 3) { h = parseInt(digits.slice(0, 1), 10); m = parseInt(digits.slice(1), 10) }
+  else { h = parseInt(digits.slice(0, 2), 10); m = parseInt(digits.slice(2, 4), 10) }
+  if (isNaN(h) || isNaN(m) || h > 23 || m > 59) return null
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
 export default function TimePicker({ value, onChange, placeholder = '--:--', style }: TimePickerProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = useRef<HTMLInputElement>(null)
   const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({})
   const hourRef = useRef<HTMLDivElement>(null)
   const minRef = useRef<HTMLDivElement>(null)
+
+  // Local text buffer so the user can type freely; committed on blur/Enter.
+  const [draft, setDraft] = useState(value)
+  useEffect(() => { setDraft(value) }, [value])
+
+  const commitDraft = () => {
+    const norm = normalizeTime(draft)
+    if (norm === null) { setDraft(value); return } // invalid → revert
+    onChange(norm)
+    setDraft(norm)
+  }
 
   const [selHour, selMin] = value ? value.split(':') : ['', '']
 
@@ -86,34 +105,44 @@ export default function TimePicker({ value, onChange, placeholder = '--:--', sty
 
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-block', ...style }}>
-      <button
-        ref={triggerRef}
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          fontFamily: 'var(--mono)',
-          fontSize: 11,
-          color: value ? 'var(--text)' : 'var(--text3)',
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 6,
-          padding: '3px 28px 3px 8px',
-          cursor: 'pointer',
-          outline: 'none',
-          position: 'relative',
-          whiteSpace: 'nowrap',
-          minWidth: 72,
-          textAlign: 'left',
-        }}
-      >
-        {value ? formatDisplay(value) : placeholder}
+      <div style={{ position: 'relative', display: 'inline-block' }}>
+        <input
+          ref={triggerRef}
+          value={draft}
+          placeholder={placeholder}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={() => setOpen(true)}
+          onBlur={commitDraft}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { commitDraft(); setOpen(false); (e.target as HTMLInputElement).blur() }
+            else if (e.key === 'Escape') { setDraft(value); setOpen(false); (e.target as HTMLInputElement).blur() }
+          }}
+          inputMode="numeric"
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            color: value ? 'var(--text)' : 'var(--text3)',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: '3px 26px 3px 8px',
+            outline: 'none',
+            whiteSpace: 'nowrap',
+            minWidth: 72,
+            width: 72,
+            boxSizing: 'border-box',
+            textAlign: 'left',
+          }}
+        />
         <svg
+          onClick={() => { setOpen((o) => !o); triggerRef.current?.focus() }}
           width="12" height="12" viewBox="0 0 16 16" fill="none"
-          style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, pointerEvents: 'none' }}
+          style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, cursor: 'pointer', color: 'var(--text3)' }}
         >
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5"/>
           <path d="M8 5v3.5l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
-      </button>
+      </div>
 
       {open && (
         <div style={{
