@@ -349,3 +349,16 @@ input:focus, select:focus, textarea:focus {
   -ms-overflow-style: none;
 }
 .tabs-bar::-webkit-scrollbar { display: none; }
+
+/* ── Notes markdown ─────────────────────────────────────────────────────────── */
+.nv-md p { margin: 0 0 11px; }
+.nv-md p:last-child { margin-bottom: 0; }
+.nv-md strong { color: var(--text); font-weight: 660; }
+.nv-md code { font-family: var(--mono); font-size: 12px; background: var(--surface3); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.nv-md h3.nv-mdh { font-size: 15px; color: var(--text); font-weight: 680; margin: 16px 0 6px; }
+.nv-md ul { margin: 0 0 11px; padding-left: 20px; list-style: disc; }
+.nv-md li { margin: 3px 0; }
+.nv-md li.nv-chk { list-style: none; margin-left: -20px; display: flex; align-items: center; gap: 9px; }
+.nv-md li.nv-chk .nv-box { width: 16px; height: 16px; border: 1.6px solid var(--border2); border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.nv-md li.nv-chk.done .nv-box { background: var(--green); border-color: var(--green); }
+.nv-md li.nv-chk.done span { text-decoration: line-through; color: var(--text3); }

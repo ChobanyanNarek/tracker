@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppState, Developer, Project, Sprint, Task, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
+import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
 import { loadCloudState, saveCloudState } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
@@ -44,6 +44,7 @@ function freshState(): AppState {
     selectedDate: latestWorkday(),
     view: 'daily',
     highlightedTaskId: null,
+    highlightedNoteId: null,
     schedule: {},
     scheduleHours: {},
     notifsEnabled: false,
@@ -54,6 +55,7 @@ function freshState(): AppState {
     projects: [],
     sprints: [],
     tasks: [],
+    notes: [],
     releaseNoteColumns: [],
     releaseNoteData: {},
   }
@@ -66,6 +68,7 @@ function persistState(state: AppState): void {
     projects: state.projects,
     sprints: state.sprints,
     tasks: state.tasks,
+    notes: state.notes,
     schedule: state.schedule,
     scheduleHours: state.scheduleHours,
     notifsEnabled: state.notifsEnabled,
@@ -106,6 +109,10 @@ interface StoreActions {
   updateSprint: (id: string, changes: Partial<Omit<Sprint, 'id'>>) => void
   deleteSprint: (id: string) => void
 
+  addNote: () => string
+  updateNote: (id: string, changes: Partial<Omit<Note, 'id' | 'createdAt'>>) => void
+  deleteNote: (id: string) => void
+
   addTask: (t: Omit<Task, 'id'>) => void
   updateTask: (id: string, patch: Partial<Task>) => void
   deleteTask: (id: string) => void
@@ -138,6 +145,7 @@ interface StoreActions {
   exportJSON: () => void
   importJSON: (json: string) => Promise<boolean>
   setHighlightedTaskId: (id: string | null) => void
+  setHighlightedNoteId: (id: string | null) => void
   searchQuery: string
   setSearchQuery: (q: string) => void
   cloudSyncing: boolean
@@ -172,6 +180,7 @@ export const useStore = create<Store>((set, get) => {
     setSelectedDev: (selectedDev) => set((s) => withSave({ ...s, selectedDev })),
     setSelectedProject: (selectedProject) => set((s) => withSave({ ...s, selectedProject, selectedDev: 'ALL' })),
     setHighlightedTaskId: (highlightedTaskId) => set({ highlightedTaskId }),
+    setHighlightedNoteId: (highlightedNoteId) => set({ highlightedNoteId }),
     setSearchQuery: (searchQuery) => set({ searchQuery }),
 
     addDeveloper: (dev) =>
@@ -243,6 +252,42 @@ export const useStore = create<Store>((set, get) => {
 
     deleteSprint: (id) =>
       set((s) => withSave({ ...s, sprints: (s.sprints ?? []).filter((sp) => sp.id !== id) })),
+
+    addNote: () => {
+      const id = makeId('note')
+      const now = new Date().toISOString()
+      const proj = get().selectedProject
+      const note: Note = {
+        id,
+        title: '',
+        body: '',
+        color: 'var(--accent)',
+        projectId: proj !== 'ALL' ? proj : undefined,
+        createdAt: now,
+        updatedAt: now,
+      }
+      set((s) => withSave({ ...s, notes: [note, ...(s.notes ?? [])] }))
+      return id
+    },
+
+    updateNote: (id, changes) =>
+      set((s) => withSave({
+        ...s,
+        notes: (s.notes ?? []).map((n) => {
+          if (n.id !== id) return n
+          // Changing the reminder time re-arms the one-shot notification guard.
+          const reminderChanged = 'reminderAt' in changes && changes.reminderAt !== n.reminderAt
+          return {
+            ...n,
+            ...changes,
+            reminderFired: reminderChanged ? false : (changes.reminderFired ?? n.reminderFired),
+            updatedAt: new Date().toISOString(),
+          }
+        }),
+      })),
+
+    deleteNote: (id) =>
+      set((s) => withSave({ ...s, notes: (s.notes ?? []).filter((n) => n.id !== id) })),
 
     addProject: (p) =>
       set((s) => withSave({ ...s, projects: [...s.projects, { id: makeId('p'), ...p }] })),
@@ -1692,6 +1737,7 @@ function applyCloudState(cloud: Record<string, unknown> | null) {
           ...(cloud.projects ? { projects: (cloud.projects as AppState['projects']).map((p) => ({ nonWorkingDays: [0, 6] as number[], ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
           ...(cloud.sprints ? { sprints: cloud.sprints as AppState['sprints'] } : {}),
           ...(cloud.tasks ? { tasks: (cloud.tasks as AppState['tasks']).map(normalizeTask) } : {}),
+          ...(cloud.notes ? { notes: cloud.notes as AppState['notes'] } : {}),
           ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
           ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),
           ...(cloud.jiraConnections

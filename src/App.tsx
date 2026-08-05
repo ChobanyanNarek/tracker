@@ -4,6 +4,7 @@ import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
 import { useStore, countUrgentDeadlines, syncCloudToStore, sprintMatchesBoard, getBoardScope } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
+import { useNoteReminders } from './hooks/useNoteReminders'
 import { useAutoSync } from './hooks/useAutoSync'
 import TopBar from './components/layout/TopBar'
 import Icon from './components/ui/Icon'
@@ -19,6 +20,7 @@ import SprintView from './components/views/SprintView'
 import TimelineView from './components/views/TimelineView'
 import SprintBand from './components/sprint/SprintBand'
 import ReportView from './components/views/ReportView'
+import NotesView from './components/views/NotesView'
 
 const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
@@ -27,6 +29,7 @@ const VIEW_LABELS: Record<string, string> = {
   schedule: 'Schedule',
   timeline: 'Timeline',
   report: 'Report',
+  notes: 'Notes',
 }
 
 const VIEW_ICONS: Record<string, ReactNode> = {
@@ -37,6 +40,7 @@ const VIEW_ICONS: Record<string, ReactNode> = {
   sprint: <Icon name="sprint" size={14} />,
   timeline: <Icon name="timeline" size={14} />,
   report: <Icon name="chart" size={14} />,
+  notes: <Icon name="notes" size={14} />,
 }
 
 export default function App() {
@@ -74,7 +78,7 @@ export default function App() {
 }
 
 function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
-  const { view, setView, setSelectedDate, setHighlightedTaskId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
+  const { view, setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
 
   // When a scrum board is selected, resolve its exact issue set from Jira so board-scoped
   // views fill in immediately (no hard refresh needed after switching boards).
@@ -107,6 +111,7 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
   }, [])
 
   useDeadlineNotifications()
+  useNoteReminders()
   useAutoSync(showToast)
 
   const isSyncingRef = useRef(cloudSyncing)
@@ -135,13 +140,18 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
     if (!navigator.serviceWorker) return
     const handler = (e: MessageEvent) => {
       if (e.data?.type !== 'PM_NOTIF_CLICK') return
+      if (e.data.noteId) {
+        setView('notes')
+        setHighlightedNoteId(e.data.noteId as string)
+        return
+      }
       setView('daily')
       if (e.data.date) setSelectedDate(e.data.date as string)
       if (e.data.taskId) setHighlightedTaskId(e.data.taskId as string)
     }
     navigator.serviceWorker.addEventListener('message', handler)
     return () => navigator.serviceWorker.removeEventListener('message', handler)
-  }, [setView, setSelectedDate, setHighlightedTaskId])
+  }, [setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId])
 
   useEffect(() => {
     console.info(`[progressor] build ${__BUILD_ID__}`)
@@ -254,6 +264,7 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
             {view === 'sprint' && <SprintView />}
             {view === 'timeline' && <TimelineView />}
             {view === 'report' && <ReportView />}
+            {view === 'notes' && <NotesView />}
           </div>
         </div>
 

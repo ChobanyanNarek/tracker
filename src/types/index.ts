@@ -1,7 +1,21 @@
 export type Status = 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
 export type Priority = 'low' | 'medium' | 'high' | 'critical'
 export type ScheduleType = 'work' | 'vacation' | 'dayoff' | 'sick' | 'holiday'
-export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule' | 'sprint' | 'timeline' | 'report'
+export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule' | 'sprint' | 'timeline' | 'report' | 'notes'
+
+export interface Note {
+  id: string
+  title: string
+  body: string                // lightweight markdown
+  color?: string              // CSS var value, e.g. 'var(--amber)'
+  projectId?: string          // optional: scope to a project
+  pinned?: boolean
+  reminderAt?: string         // ISO datetime "YYYY-MM-DDTHH:MM"; when set → notify
+  reminderFired?: boolean     // one-shot guard; reset when reminderAt changes
+  createdAt: string           // ISO
+  updatedAt: string           // ISO
+  archivedAt?: string
+}
 
 export interface GitLabConfig {
   id: string
@@ -200,6 +214,7 @@ export interface AppState {
   projects: Project[]
   sprints: Sprint[]
   tasks: Task[]
+  notes: Note[]
   schedule: Record<string, Record<string, string>>
   scheduleHours: Record<string, Record<string, number>>
   selectedDev: string
@@ -211,6 +226,7 @@ export interface AppState {
   gitlabConnections: GitLabConfig[]
   githubConnections: GitHubConfig[]
   highlightedTaskId: string | null
+  highlightedNoteId?: string | null
   trackerTimezone?: string  // single IANA zone for Performance calc; falls back to browser zone
   releaseNoteColumns?: ReleaseNoteColumn[]
   releaseNoteData?: Record<string, ReleaseNoteIssueData>  // key = jiraDedupeKey or issueId
