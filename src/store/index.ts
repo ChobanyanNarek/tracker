@@ -122,6 +122,7 @@ interface StoreActions {
   migrateIssueIds: () => void
   deduplicateJiras: () => void
   mergeSameDayTasks: () => void
+  pruneOldTaskData: () => void
 
   updateJiraStatus: (taskId: string, issueId: string | undefined, url: string, status: JiraIssue['status'], groupId?: string) => void
   updateJiraPriority: (taskId: string, issueId: string | undefined, url: string, priority: JiraIssue['priority']) => void
@@ -831,6 +832,37 @@ export const useStore = create<Store>((set, get) => {
       })
 
       if (changed) set((s) => withSave({ ...s, tasks: merged }))
+    },
+
+    // Retention: for tasks older than 3 months, strip the heavy per-issue arrays that no
+    // historical dashboard reads — `prs` and `comment` on each jira, plus the task-level
+    // `comment`/`deletedJiraUrls`. Keeps the whole task record AND `statusHistory` so
+    // Performance "all time" stays exactly correct. Never touches tasks within the retention
+    // window (carry-over safety), notes, schedule, or any other slice.
+    pruneOldTaskData: () => {
+      // Cutoff = 90 days ago as a YYYY-MM-DD string (well past the ~40d carry-over window).
+      const cut = new Date()
+      cut.setDate(cut.getDate() - 90)
+      const cutoff = cut.toISOString().slice(0, 10)
+
+      const { tasks } = get()
+      let changed = false
+      const pruned = tasks.map((t) => {
+        if (!t.date || t.date >= cutoff) return t
+        // Already pruned? (no heavy fields left) → skip to avoid churn.
+        const hasHeavy = (t.comment && t.comment.length > 0)
+          || (t.deletedJiraUrls && t.deletedJiraUrls.length > 0)
+          || (t.jiras ?? []).some((j) => (j.prs && j.prs.length > 0) || (j.comment && j.comment.length > 0))
+        if (!hasHeavy) return t
+        changed = true
+        return {
+          ...t,
+          comment: '',
+          deletedJiraUrls: undefined,
+          jiras: (t.jiras ?? []).map((j) => ({ ...j, prs: [], comment: '' })),
+        }
+      })
+      if (changed) set((s) => withSave({ ...s, tasks: pruned }))
     },
 
     updateJiraStatus: (taskId, issueId, url, status, groupId) =>

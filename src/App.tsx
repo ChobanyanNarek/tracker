@@ -78,7 +78,7 @@ export default function App() {
 }
 
 function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
-  const { view, setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
+  const { view, setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, pruneOldTaskData, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
 
   // When a scrum board is selected, resolve its exact issue set from Jira so board-scoped
   // views fill in immediately (no hard refresh needed after switching boards).
@@ -122,6 +122,7 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
       deduplicateJiras()
       autoCarryOverdue()
       mergeSameDayTasks()
+      pruneOldTaskData()
     }
     isSyncingRef.current = cloudSyncing
   }, [cloudSyncing, showToast])
