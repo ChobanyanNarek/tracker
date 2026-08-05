@@ -61,8 +61,8 @@ function freshState(): AppState {
   }
 }
 
-function persistState(state: AppState): void {
-  const payload = {
+function buildPersistPayload(state: AppState): Record<string, unknown> {
+  return {
     _v: 2,
     developers: state.developers,
     projects: state.projects,
@@ -82,7 +82,33 @@ function persistState(state: AppState): void {
     releaseNoteColumns: state.releaseNoteColumns,
     releaseNoteData: state.releaseNoteData,
   }
-  void saveCloudState(payload as Record<string, unknown>)
+}
+
+// Debounced cloud save: rapid mutations (e.g. typing) collapse into one PUT of the latest
+// state instead of one request per keystroke — cutting network + backend memory pressure.
+let pendingPayload: Record<string, unknown> | null = null
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+const SAVE_DEBOUNCE_MS = 800
+
+function flushPersist(): void {
+  if (!pendingPayload) return
+  const payload = pendingPayload
+  pendingPayload = null
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  void saveCloudState(payload)
+}
+
+function persistState(state: AppState): void {
+  pendingPayload = buildPersistPayload(state)
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(flushPersist, SAVE_DEBOUNCE_MS)
+}
+
+// Don't lose a pending debounced save when the tab is hidden or closed.
+if (typeof window !== 'undefined') {
+  const flushIfHidden = () => { if (document.visibilityState === 'hidden') flushPersist() }
+  window.addEventListener('visibilitychange', flushIfHidden)
+  window.addEventListener('pagehide', flushPersist)
 }
 
 interface StoreActions {
@@ -847,6 +873,8 @@ export const useStore = create<Store>((set, get) => {
 
       const { tasks } = get()
       let changed = false
+      // Safety: capture the exact fields we strip, so a mistaken prune is recoverable.
+      const rescued: Array<{ id: string; comment?: string; deletedJiraUrls?: string[]; jiras: Array<{ issueId?: string; url: string; prs?: PrEntry[]; comment?: string }> }> = []
       const pruned = tasks.map((t) => {
         if (!t.date || t.date >= cutoff) return t
         // Already pruned? (no heavy fields left) → skip to avoid churn.
@@ -855,6 +883,14 @@ export const useStore = create<Store>((set, get) => {
           || (t.jiras ?? []).some((j) => (j.prs && j.prs.length > 0) || (j.comment && j.comment.length > 0))
         if (!hasHeavy) return t
         changed = true
+        rescued.push({
+          id: t.id,
+          comment: t.comment || undefined,
+          deletedJiraUrls: t.deletedJiraUrls,
+          jiras: (t.jiras ?? [])
+            .filter((j) => (j.prs && j.prs.length) || j.comment)
+            .map((j) => ({ issueId: j.issueId, url: j.url, prs: j.prs, comment: j.comment })),
+        })
         return {
           ...t,
           comment: '',
@@ -862,7 +898,19 @@ export const useStore = create<Store>((set, get) => {
           jiras: (t.jiras ?? []).map((j) => ({ ...j, prs: [], comment: '' })),
         }
       })
-      if (changed) set((s) => withSave({ ...s, tasks: pruned }))
+      if (changed) {
+        // Keep a rolling local backup of stripped fields (best-effort; ignore quota errors).
+        // Recoverable from this browser if the prune ever removed something wanted.
+        try {
+          if (typeof localStorage !== 'undefined' && rescued.length) {
+            const prev = JSON.parse(localStorage.getItem('pm_prune_backup') ?? '[]') as unknown[]
+            const merged = [...prev, { at: new Date().toISOString(), cutoff, items: rescued }]
+            // Cap the backup log so it can't itself grow unbounded (keep last 3 prune batches).
+            localStorage.setItem('pm_prune_backup', JSON.stringify(merged.slice(-3)))
+          }
+        } catch { /* storage full / unavailable — proceed with the prune anyway */ }
+        set((s) => withSave({ ...s, tasks: pruned }))
+      }
     },
 
     updateJiraStatus: (taskId, issueId, url, status, groupId) =>
