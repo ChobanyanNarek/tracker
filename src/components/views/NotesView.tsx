@@ -450,6 +450,8 @@ function NoteEditor({ note, projects, onChange, onDelete }: {
 
       {/* footer */}
       <div style={{ padding: '9px 22px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>
+        <span>Created {new Date(note.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        <span style={{ opacity: 0.4 }}>·</span>
         <span>Edited {relTime(note.updatedAt)} ago</span>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--green)', fontWeight: 600 }}>
           <Icon name="check" size={12} color="var(--green)" /> Saved
