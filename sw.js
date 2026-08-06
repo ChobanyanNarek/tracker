@@ -11,7 +11,7 @@ self.addEventListener('notificationclick', e => {
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       if (list.length) {
-        list[0].postMessage({ type: 'PM_NOTIF_CLICK', taskId: data.taskId, date: data.date })
+        list[0].postMessage({ type: 'PM_NOTIF_CLICK', taskId: data.taskId, date: data.date, noteId: data.noteId })
         return list[0].focus()
       }
       return clients.openWindow(self.registration.scope || '/')
