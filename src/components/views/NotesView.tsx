@@ -57,7 +57,7 @@ function joinReminder(date: string, time: string): string | undefined {
 }
 
 // ── minimal, safe markdown renderer (bold, lists, checkboxes, inline code) ──────
-function renderMarkdown(src: string): JSX.Element[] {
+function renderMarkdown(src: string, onToggleCheck?: (lineIdx: number) => void): JSX.Element[] {
   const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!))
   const inline = (s: string) =>
     esc(s)
@@ -74,7 +74,9 @@ function renderMarkdown(src: string): JSX.Element[] {
       const done = chk[1].toLowerCase() === 'x'
       list.push(
         <li key={i} className={`nv-chk${done ? ' done' : ''}`}>
-          <span className="nv-box">{done && <Icon name="check" size={10} color="#fff" />}</span>
+          <span className="nv-box" onClick={(e) => { e.stopPropagation(); onToggleCheck?.(i) }} style={{ cursor: onToggleCheck ? 'pointer' : undefined }}>
+            {done && <Icon name="check" size={10} color="#fff" />}
+          </span>
           <span dangerouslySetInnerHTML={{ __html: inline(chk[2]) }} />
         </li>,
       )
@@ -258,6 +260,59 @@ function NoteItem({ note, selected, onClick, projName, projColor }: {
   )
 }
 
+// ── formatting toolbar ────────────────────────────────────────────────────────
+type FmtAction = { label: string; title: string; apply: (sel: string, before: string) => { text: string; offset: number } }
+
+const FMT_ACTIONS: FmtAction[] = [
+  {
+    label: 'B', title: 'Bold (Ctrl+B)',
+    apply: (sel) => sel ? { text: `**${sel}**`, offset: 2 } : { text: '****', offset: 2 },
+  },
+  {
+    label: 'H', title: 'Heading',
+    apply: (sel, before) => {
+      const atLineStart = !before || before.endsWith('\n')
+      const prefix = atLineStart ? '## ' : '\n## '
+      return { text: prefix + (sel || 'Heading'), offset: prefix.length }
+    },
+  },
+  {
+    label: '•', title: 'Bullet list',
+    apply: (sel, before) => {
+      const prefix = (!before || before.endsWith('\n')) ? '- ' : '\n- '
+      return { text: prefix + (sel || 'Item'), offset: prefix.length }
+    },
+  },
+  {
+    label: '☐', title: 'Checklist item',
+    apply: (sel, before) => {
+      const prefix = (!before || before.endsWith('\n')) ? '- [ ] ' : '\n- [ ] '
+      return { text: prefix + (sel || 'Task'), offset: prefix.length }
+    },
+  },
+  {
+    label: '`', title: 'Inline code',
+    apply: (sel) => sel ? { text: '`' + sel + '`', offset: 1 } : { text: '``', offset: 1 },
+  },
+]
+
+function applyFormat(ta: HTMLTextAreaElement, action: FmtAction, onChange: (body: string) => void) {
+  const start = ta.selectionStart
+  const end = ta.selectionEnd
+  const val = ta.value
+  const sel = val.slice(start, end)
+  const before = val.slice(0, start)
+  const { text, offset } = action.apply(sel, before)
+  const next = before + text + val.slice(end)
+  onChange(next)
+  requestAnimationFrame(() => {
+    ta.focus()
+    const cursor = start + offset
+    const selEnd = sel ? cursor + sel.length : cursor
+    ta.setSelectionRange(cursor, selEnd)
+  })
+}
+
 function NoteEditor({ note, projects, onChange, onDelete }: {
   note: Note; projects: Project[]
   onChange: (c: Partial<Note>) => void; onDelete: () => void
@@ -265,6 +320,50 @@ function NoteEditor({ note, projects, onChange, onDelete }: {
   const { date, time } = splitReminder(note.reminderAt)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
   const [editingBody, setEditingBody] = useState(!note.body)
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const ta = e.currentTarget
+    if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+      e.preventDefault()
+      applyFormat(ta, FMT_ACTIONS[0], (body) => onChange({ body }))
+      return
+    }
+    // auto-continue lists on Enter
+    if (e.key === 'Enter') {
+      const start = ta.selectionStart
+      const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1
+      const line = ta.value.slice(lineStart, start)
+      const chk = line.match(/^(\s*)([-*]\s+\[[ xX]\]\s+)(.*)$/)
+      const li = !chk && line.match(/^(\s*)([-*]\s+)(.*)$/)
+      const match = chk ?? li
+      if (match && match[3].trim()) {
+        e.preventDefault()
+        const prefix = chk ? `${match[1]}- [ ] ` : `${match[1]}${match[2]}`
+        const next = ta.value.slice(0, start) + '\n' + prefix + ta.value.slice(start)
+        onChange({ body: next })
+        requestAnimationFrame(() => {
+          ta.focus()
+          const pos = start + 1 + prefix.length
+          ta.setSelectionRange(pos, pos)
+        })
+      }
+    }
+  }
+
+  const fmtBtn = (action: FmtAction) => (
+    <button
+      key={action.label}
+      title={action.title}
+      onMouseDown={(e) => {
+        e.preventDefault()
+        if (bodyRef.current) applyFormat(bodyRef.current, action, (body) => onChange({ body }))
+        if (!editingBody) setEditingBody(true)
+      }}
+      style={{ fontFamily: action.label === 'B' ? 'var(--sans)' : 'var(--mono)', fontWeight: action.label === 'B' ? 700 : 400, fontSize: 12, minWidth: 28, height: 26, padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      {action.label}
+    </button>
+  )
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -316,6 +415,12 @@ function NoteEditor({ note, projects, onChange, onDelete }: {
         </div>
       </div>
 
+      {/* formatting toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+        {FMT_ACTIONS.map(fmtBtn)}
+        <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold · Enter continues lists</span>
+      </div>
+
       {/* body — click to edit, blur to render markdown */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
         {editingBody ? (
@@ -325,12 +430,20 @@ function NoteEditor({ note, projects, onChange, onDelete }: {
             value={note.body}
             onChange={(e) => onChange({ body: e.target.value })}
             onBlur={() => { if (note.body.trim()) setEditingBody(false) }}
-            placeholder="Write your note…  supports **bold**, - lists, [ ] checkboxes, `code`, # heading"
+            onKeyDown={handleKeyDown}
+            placeholder="Write your note…"
             style={{ width: '100%', minHeight: 320, resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: 'var(--text2)', fontFamily: 'var(--sans)', fontSize: 14, lineHeight: 1.62 }}
           />
         ) : (
           <div className="nv-md" onClick={() => setEditingBody(true)} style={{ cursor: 'text', minHeight: 320, fontSize: 14, lineHeight: 1.62, color: 'var(--text2)' }}>
-            {note.body.trim() ? renderMarkdown(note.body) : <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Click to write…</span>}
+            {note.body.trim() ? renderMarkdown(note.body, (lineIdx) => {
+              const lines = note.body.split('\n')
+              const line = lines[lineIdx]
+              if (!line) return
+              const done = /^\s*[-*]\s+\[x\]/i.test(line)
+              lines[lineIdx] = line.replace(/^(\s*[-*]\s+)\[([ xX])\]/, (_, pre) => `${pre}[${done ? ' ' : 'x'}]`)
+              onChange({ body: lines.join('\n') })
+            }) : <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Click to write…</span>}
           </div>
         )}
       </div>
