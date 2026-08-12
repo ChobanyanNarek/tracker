@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, type AdminUser } from '../../utils/cloud-api'
+import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, adminGetPayments, adminGrantSubscription, type AdminUser, type AdminPayment } from '../../utils/cloud-api'
 import Icon, { BRAND } from '../ui/Icon'
 
 interface Props {
@@ -145,10 +145,47 @@ function Modal({ title, desc, icon, confirmLabel, confirmVariant, onConfirm, onC
   )
 }
 
+// ── Subscription badge ─────────────────────────────────────────────
+function SubBadge({ u }: { u: AdminUser }) {
+  const active = u.subscriptionActive
+  const until = u.subscriptionUntil
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6,
+      fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap',
+      background: active ? '#dcfce7' : 'var(--red-dim, #fee2e2)',
+      color: active ? '#16a34a' : 'var(--red, #dc2626)',
+      border: active ? '1px solid #bbf7d0' : '1px solid var(--red-border, #fca5a5)',
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />
+      {active ? (until ? `Until ${until.slice(0, 10)}` : 'Active') : 'No sub'}
+    </span>
+  )
+}
+
+// ── Payment status pill ────────────────────────────────────────────
+function PayStatusPill({ status }: { status: AdminPayment['status'] }) {
+  const map = {
+    completed: { bg: '#dcfce7', color: '#16a34a', border: '#bbf7d0', label: 'Paid' },
+    pending:   { bg: 'var(--amber-dim, #fef3c7)', color: 'var(--amber, #d97706)', border: 'var(--amber-border, #fcd34d)', label: 'Pending' },
+    failed:    { bg: 'var(--red-dim, #fee2e2)', color: 'var(--red, #dc2626)', border: 'var(--red-border, #fca5a5)', label: 'Failed' },
+    refunded:  { bg: 'var(--surface3)', color: 'var(--text3)', border: 'var(--border)', label: 'Refunded' },
+  }
+  const s = map[status] ?? map.pending
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: 6, fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+      {s.label}
+    </span>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────
 export default function AdminPage({ onBack }: Props) {
+  const [tab, setTab]               = useState<'users' | 'payments'>('users')
   const [users, setUsers]           = useState<AdminUser[]>([])
+  const [payments, setPayments]     = useState<AdminPayment[]>([])
   const [loading, setLoading]       = useState(true)
+  const [payLoading, setPayLoading] = useState(false)
   const [toast, setToast]           = useState<{ msg: string; ok: boolean } | null>(null)
   const [deleteTarget, setDelTarget] = useState<AdminUser | null>(null)
   const [dataTarget, setDataTarget]  = useState<AdminUser | null>(null)
@@ -156,6 +193,8 @@ export default function AdminPage({ onBack }: Props) {
   const [newPw, setNewPw]            = useState('')
   const [phoneTarget, setPhoneTarget] = useState<AdminUser | null>(null)
   const [newPhone, setNewPhone]       = useState('')
+  const [grantTarget, setGrantTarget] = useState<AdminUser | null>(null)
+  const [grantMonths, setGrantMonths] = useState('1')
   const [busy, setBusy]              = useState(false)
   const [isMobile, setIsMobile]      = useState(() => window.innerWidth < 768)
 
@@ -176,7 +215,14 @@ export default function AdminPage({ onBack }: Props) {
     setLoading(false)
   }, [])
 
+  const loadPayments = useCallback(async () => {
+    setPayLoading(true)
+    setPayments(await adminGetPayments())
+    setPayLoading(false)
+  }, [])
+
   useEffect(() => { void load() }, [load])
+  useEffect(() => { if (tab === 'payments') void loadPayments() }, [tab, loadPayments])
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -207,6 +253,21 @@ export default function AdminPage({ onBack }: Props) {
     else showToast('Password change failed', false)
   }
 
+  const handleGrantSubscription = async () => {
+    if (!grantTarget) return
+    setBusy(true)
+    const months = parseInt(grantMonths, 10) || 1
+    const ok = await adminGrantSubscription(grantTarget.id, months)
+    setBusy(false)
+    if (ok) {
+      showToast(`Subscription granted to ${displayName(grantTarget)}`)
+      setGrantTarget(null)
+      await load()
+    } else {
+      showToast('Failed to grant subscription', false)
+    }
+  }
+
   const handleEditPhone = async () => {
     if (!phoneTarget) return
     setBusy(true)
@@ -232,19 +293,85 @@ export default function AdminPage({ onBack }: Props) {
         <HeaderBtn onClick={onBack}><IcoBack /> {!isMobile && 'Back'}</HeaderBtn>
         <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 14px' }} />
         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>Admin Panel</span>
-        {!isMobile && !loading && (
+        {!isMobile && !loading && tab === 'users' && (
           <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>
             {users.length} user{users.length !== 1 ? 's' : ''}
           </span>
         )}
+        {/* Tab switcher */}
+        <div style={{ display: 'flex', gap: 2, margin: '0 16px', background: 'var(--surface2)', borderRadius: 8, padding: 3, border: '1px solid var(--border)' }}>
+          {(['users', 'payments'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600,
+                background: tab === t ? 'var(--surface)' : 'transparent',
+                color: tab === t ? 'var(--accent)' : 'var(--text3)',
+                boxShadow: tab === t ? '0 1px 4px rgba(25,35,90,.08)' : 'none',
+                transition: 'all .12s', textTransform: 'capitalize',
+              }}
+            >
+              {t === 'users' ? 'Users' : 'Payments'}
+            </button>
+          ))}
+        </div>
         <div style={{ marginLeft: 'auto' }}>
-          <HeaderBtn onClick={() => { void load() }}><IcoRefresh /> {!isMobile && 'Refresh'}</HeaderBtn>
+          <HeaderBtn onClick={() => { if (tab === 'payments') void loadPayments(); else void load() }}><IcoRefresh /> {!isMobile && 'Refresh'}</HeaderBtn>
         </div>
       </div>
 
       {/* Body */}
       <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? 16 : 28 }}>
-        {loading ? (
+        {/* ── Payments tab ── */}
+        {tab === 'payments' && (payLoading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, height: 240, color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
+            <Spinner /><span>Loading payments…</span>
+          </div>
+        ) : payments.length === 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 240, color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
+            No payments yet
+          </div>
+        ) : (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 4px rgba(25,35,90,.07)' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                    {['User', 'Amount', 'Status', 'Card', 'Date', 'Sub Until'].map((h) => (
+                      <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((p, i) => (
+                    <tr key={p.id} style={{ borderBottom: i === payments.length - 1 ? 'none' : '1px solid rgba(222,225,237,.7)' }}>
+                      <td style={{ padding: '12px 16px' }}>
+                        <div style={{ fontWeight: 500, color: 'var(--text)', fontSize: 13 }}>{p.userName}</div>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{p.userEmail}</div>
+                      </td>
+                      <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                        {p.amount} {p.currency}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}><PayStatusPill status={p.status} /></td>
+                      <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{p.cardNumber ?? '—'}</td>
+                      <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
+                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}
+                      </td>
+                      <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
+                        {p.subscriptionUntil ? p.subscriptionUntil.slice(0, 10) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+
+        {/* ── Users tab ── */}
+        {tab === 'users' && (loading ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, height: 240, color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
             <Spinner /><span>Loading users…</span>
           </div>
@@ -276,15 +403,17 @@ export default function AdminPage({ onBack }: Props) {
                     </div>
                   ))}
                 </div>
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
                   <ConnPill on={u.jiraConnected}   cls="jira" label="Jira" />
                   <ConnPill on={u.gitlabConnected} cls="gl"   label="GitLab" />
                   <ConnPill on={u.githubConnected} cls="gh"   label="GitHub" />
                 </div>
+                <div style={{ marginBottom: 12 }}><SubBadge u={u} /></div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {([
                     { v: 'pw',   icon: <IcoPhone />, label: 'Phone',    action: () => { setPhoneTarget(u); setNewPhone(u.phone ?? '') } },
                     { v: 'pw',   icon: <IcoKey />,   label: 'Password', action: () => { setPwTarget(u); setNewPw('') } },
+                    { v: 'pw',   icon: <span>+</span>, label: 'Sub',   action: () => { setGrantTarget(u); setGrantMonths('1') } },
                     { v: 'wipe', icon: <IcoWipe />,  label: 'Data',     action: () => setDataTarget(u) },
                     { v: 'del',  icon: <IcoTrash />, label: 'Delete',   action: () => setDelTarget(u) },
                   ] as const).map(({ v, icon, label, action }) => (
@@ -301,7 +430,7 @@ export default function AdminPage({ onBack }: Props) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                    {['User', 'Role', 'Stats', 'Connections', 'Actions'].map((h) => (
+                    {['User', 'Role', 'Subscription', 'Stats', 'Connections', 'Actions'].map((h) => (
                       <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', whiteSpace: 'nowrap' }}>
                         {h}
                       </th>
@@ -315,13 +444,14 @@ export default function AdminPage({ onBack }: Props) {
                       onPw={() => { setPwTarget(u); setNewPw('') }}
                       onData={() => setDataTarget(u)}
                       onDel={() => setDelTarget(u)}
+                      onGrant={() => { setGrantTarget(u); setGrantMonths('1') }}
                     />
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
-        )}
+        ))}
       </div>
 
       {/* ── Modals ── */}
@@ -393,6 +523,28 @@ export default function AdminPage({ onBack }: Props) {
         </Modal>
       )}
 
+      {grantTarget && (
+        <Modal
+          title="Grant subscription"
+          icon={<span style={{ fontSize: 20 }}>⭐</span>}
+          confirmLabel="Grant" confirmVariant="accent"
+          onConfirm={() => { void handleGrantSubscription() }}
+          onCancel={() => { if (!busy) { setGrantTarget(null); setGrantMonths('1') } }}
+          busy={busy}
+        >
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>{grantTarget.email}</div>
+          <label style={{ display: 'block', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 6 }}>
+            Months to grant
+          </label>
+          <input
+            type="number" value={grantMonths} min={1} max={24} autoFocus
+            onChange={(e) => setGrantMonths(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleGrantSubscription() }}
+            style={{ width: '100%', padding: '9px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }}
+          />
+        </Modal>
+      )}
+
       {/* Toast */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.ok ? 'var(--text)' : 'var(--red, #dc2626)', color: '#fff', fontFamily: 'var(--mono)', fontSize: 12, padding: '9px 18px', borderRadius: 24, boxShadow: '0 4px 20px rgba(0,0,0,.2)', zIndex: 2000, whiteSpace: 'nowrap' }}>
@@ -445,7 +597,7 @@ function MobileActionBtn({ variant, onClick, children }: { variant: 'pw' | 'wipe
   )
 }
 
-function TableRow({ u, isLast, onPw, onData, onDel, onPhone }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void }) {
+function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void }) {
   const [hov, setHov] = useState(false)
   return (
     <tr
@@ -464,6 +616,7 @@ function TableRow({ u, isLast, onPw, onData, onDel, onPhone }: { u: AdminUser; i
         </div>
       </td>
       <td style={{ padding: '14px 16px' }}><RoleBadge u={u} /></td>
+      <td style={{ padding: '14px 16px' }}><SubBadge u={u} /></td>
       <td style={{ padding: '14px 16px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {[{ n: u.devCount, l: 'devs' }, { n: u.projectCount, l: 'projects' }].map(({ n, l }) => (
@@ -485,6 +638,7 @@ function TableRow({ u, isLast, onPw, onData, onDel, onPhone }: { u: AdminUser; i
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           <ActionBtn variant="pw"   onClick={onPhone}><IcoPhone /> Phone   </ActionBtn>
           <ActionBtn variant="pw"   onClick={onPw}>  <IcoKey />   Password</ActionBtn>
+          <ActionBtn variant="pw"   onClick={onGrant}>⭐ Sub      </ActionBtn>
           <ActionBtn variant="wipe" onClick={onData}><IcoWipe />  Data    </ActionBtn>
           <ActionBtn variant="del"  onClick={onDel}> <IcoTrash /> Delete  </ActionBtn>
         </div>

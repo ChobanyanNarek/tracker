@@ -8,7 +8,10 @@ export interface StoredUser {
   lastName: string | null
   email: string | null
   phone?: string | null
-  role: 'ADMIN' | 'CREATOR' | null
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'CREATOR' | 'USER' | null
+  subscriptionActive?: boolean
+  subscriptionUntil?: string | null
+  trialUntil?: string | null
 }
 
 export function getToken(): string | null {
@@ -37,6 +40,17 @@ export function clearToken(): void {
 
 export function isAuthenticated(): boolean {
   return !!getToken()
+}
+
+export function isSuperAdmin(): boolean {
+  return getUserInfo()?.role === 'SUPER_ADMIN'
+}
+
+export function isSubscriptionActive(): boolean {
+  const u = getUserInfo()
+  if (!u) return false
+  if (u.role === 'SUPER_ADMIN') return true
+  return u.subscriptionActive === true
 }
 
 export function authHeaders(): HeadersInit {

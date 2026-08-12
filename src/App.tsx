@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
-import { isAuthenticated, getUserInfo } from './utils/auth'
+import { isAuthenticated, getUserInfo, isSuperAdmin, isSubscriptionActive } from './utils/auth'
+import { getSubscriptionStatus } from './utils/payment-api'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
+import PaywallScreen from './components/subscription/PaywallScreen'
 import { useStore, countUrgentDeadlines, syncCloudToStore, sprintMatchesBoard, getBoardScope } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useNoteReminders } from './hooks/useNoteReminders'
@@ -46,6 +48,7 @@ const VIEW_ICONS: Record<string, ReactNode> = {
 export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [subscribed, setSubscribed] = useState<boolean | null>(null)
 
   useEffect(() => {
     if (authed) {
@@ -58,9 +61,25 @@ export default function App() {
     }
   }, [authed])
 
+  // Check subscription after auth
+  useEffect(() => {
+    if (!authed) return
+    if (isSuperAdmin()) { setSubscribed(true); return }
+    if (isSubscriptionActive()) { setSubscribed(true); return }
+    // Fetch fresh status from server
+    void getSubscriptionStatus().then((status) => {
+      setSubscribed(status?.subscriptionActive ?? false)
+    })
+  }, [authed])
+
   const handleAuth = useCallback(async () => {
     await syncCloudToStore()
     setAuthed(true)
+  }, [])
+
+  const handleSubscribed = useCallback(async () => {
+    const status = await getSubscriptionStatus()
+    if (status?.subscriptionActive) setSubscribed(true)
   }, [])
 
   if (!authed) {
@@ -71,10 +90,27 @@ export default function App() {
     return <AdminPage onBack={() => setAdminOpen(false)} />
   }
 
-  const user = getUserInfo()
-  const isAdmin = user?.role === 'ADMIN'
+  // Still checking subscription
+  if (subscribed === null) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13, flexDirection: 'column', gap: 12 }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+        <span>Checking subscription…</span>
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+    )
+  }
 
-  return <AuthedApp onAdminOpen={isAdmin ? () => setAdminOpen(true) : undefined} />
+  if (!subscribed) {
+    return <PaywallScreen onSubscribed={() => { void handleSubscribed() }} />
+  }
+
+  const user = getUserInfo()
+  const canAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN'
+
+  return <AuthedApp onAdminOpen={canAdmin ? () => setAdminOpen(true) : undefined} />
 }
 
 function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {

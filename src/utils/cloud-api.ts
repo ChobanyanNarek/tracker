@@ -31,6 +31,25 @@ export interface AdminUser {
   jiraConnected: boolean
   gitlabConnected: boolean
   githubConnected: boolean
+  subscriptionActive?: boolean
+  subscriptionUntil?: string | null
+  trialUntil?: string | null
+}
+
+export interface AdminPayment {
+  id: string
+  userId: string
+  userEmail: string
+  userName: string
+  amount: number
+  currency: string
+  status: 'pending' | 'completed' | 'failed' | 'refunded'
+  paymentId: string
+  orderId: string | number
+  cardNumber?: string
+  createdAt: string
+  completedAt?: string | null
+  subscriptionUntil?: string | null
 }
 
 export async function adminGetUsers(): Promise<AdminUser[]> {
@@ -106,6 +125,26 @@ export async function changeMyPassword(currentPassword: string, password: string
     const body = await res.json().catch(() => ({})) as { message?: string }
     return { ok: false, error: body.message }
   } catch { return { ok: false } }
+}
+
+export async function adminGetPayments(): Promise<AdminPayment[]> {
+  try {
+    const res = await fetch(`${API_URL}/admin/pm-tracker/payments`, { headers: authHeaders() })
+    if (!res.ok) return []
+    const json = await res.json() as { payments: AdminPayment[] }
+    return json.payments
+  } catch { return [] }
+}
+
+export async function adminGrantSubscription(userId: string, months: number): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/admin/pm-tracker/users/${userId}/subscription`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ months }),
+    })
+    return res.ok
+  } catch { return false }
 }
 
 export async function saveCloudState(data: Record<string, unknown>): Promise<boolean> {
