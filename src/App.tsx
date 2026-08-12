@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
-import { isAuthenticated, getUserInfo, isSuperAdmin, isSubscriptionActive } from './utils/auth'
+import { isAuthenticated, isSuperAdmin, isSubscriptionActive } from './utils/auth'
 import { getSubscriptionStatus } from './utils/payment-api'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
@@ -56,17 +56,24 @@ export default function App() {
         localStorage.removeItem('pm_open_admin')
         setAdminOpen(true)
       } else if (window.location.pathname === '/admin') {
-        setAdminOpen(true)
+        if (isSuperAdmin()) setAdminOpen(true)
       }
     }
   }, [authed])
 
-  // Check subscription after auth
+  // SUPER_ADMIN always goes straight to admin panel
+  useEffect(() => {
+    if (authed && isSuperAdmin()) {
+      setAdminOpen(true)
+      setSubscribed(true)
+    }
+  }, [authed])
+
+  // Check subscription for regular users
   useEffect(() => {
     if (!authed) return
-    if (isSuperAdmin()) { setSubscribed(true); return }
+    if (isSuperAdmin()) return
     if (isSubscriptionActive()) { setSubscribed(true); return }
-    // Fetch fresh status from server
     void getSubscriptionStatus().then((status) => {
       setSubscribed(status?.subscriptionActive ?? false)
     })
@@ -86,7 +93,7 @@ export default function App() {
     return <LoginPage onAuth={() => { void handleAuth() }} />
   }
 
-  if (adminOpen) {
+  if (adminOpen && isSuperAdmin()) {
     return <AdminPage onBack={() => setAdminOpen(false)} />
   }
 
@@ -107,13 +114,10 @@ export default function App() {
     return <PaywallScreen onSubscribed={() => { void handleSubscribed() }} />
   }
 
-  const user = getUserInfo()
-  const canAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN'
-
-  return <AuthedApp onAdminOpen={canAdmin ? () => setAdminOpen(true) : undefined} />
+  return <AuthedApp />
 }
 
-function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
+function AuthedApp() {
   const { view, setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, pruneOldTaskData, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
 
   // When a scrum board is selected, resolve its exact issue set from Jira so board-scoped
@@ -238,7 +242,6 @@ function AuthedApp({ onAdminOpen }: { onAdminOpen?: () => void }) {
         onFeedback={showToast}
         onProjPanel={() => togglePanel('proj')}
         projPanelOpen={openPanel === 'proj'}
-        onAdminOpen={onAdminOpen}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
