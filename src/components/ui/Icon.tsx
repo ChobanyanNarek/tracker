@@ -18,7 +18,7 @@ export type IconName =
   | 'check' | 'copy' | 'message' | 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
   | 'edit' | 'database' | 'download' | 'upload' | 'jira'
   | 'briefcase' | 'palm' | 'sun' | 'thermometer' | 'party' | 'flag' | 'timeline'
-  | 'notes' | 'pin'
+  | 'notes' | 'pin' | 'star' | 'ban'
 
 // Brand colors — single source of truth (was duplicated across 3 files with divergent values)
 export const BRAND = {
@@ -95,6 +95,8 @@ const PATHS: Record<IconName, JSX.Element> = {
   jira: <path d="M11.53 2 6.77 6.76a1 1 0 0 0 0 1.42l4.76 4.76 4.77-4.76a1 1 0 0 0 0-1.42L11.53 2zM6.76 6.77 2 11.53l4.76 4.76 4.77-4.76-4.77-4.76zM16.29 6.77l-4.76 4.76 4.76 4.76L21.05 11.53l-4.76-4.76z"/>,
   notes: <><path d="M4 3h11l5 5v13a0 0 0 0 1 0 0H4a0 0 0 0 1 0 0V3z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></>,
   pin: <><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 2h6l-1 7 3 3v2H7v-2l3-3-1-7z"/></>,
+  star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
+  ban: <><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></>,
 }
 
 // Brand logo shapes (fill-based)

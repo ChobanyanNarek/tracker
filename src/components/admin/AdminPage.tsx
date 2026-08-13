@@ -14,6 +14,10 @@ const IcoKey     = () => <Icon name="key" size={12} />
 const IcoWipe    = () => <Icon name="wipe" size={12} />
 const IcoTrash   = () => <Icon name="trash" size={12} />
 const IcoPhone   = () => <Icon name="phone" size={12} />
+const IcoStar    = () => <Icon name="star" size={12} />
+const IcoBan     = () => <Icon name="ban" size={12} />
+const IcoGear    = () => <Icon name="gear" size={12} />
+const IcoLogout  = () => <Icon name="logout" size={12} />
 
 // ── Helpers ────────────────────────────────────────────────────────
 function initials(u: AdminUser) {
@@ -340,14 +344,8 @@ export default function AdminPage({ onBack: _onBack }: Props) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
           <HeaderBtn onClick={() => { if (tab === 'payments') void loadPayments(); else void load() }}><IcoRefresh /> {!isMobile && 'Refresh'}</HeaderBtn>
-          <HeaderBtn onClick={() => setSettingsOpen(true)}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            {!isMobile && ' Settings'}
-          </HeaderBtn>
-          <HeaderBtn onClick={handleLogout}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            {!isMobile && ' Logout'}
-          </HeaderBtn>
+          <HeaderBtn onClick={() => setSettingsOpen(true)}><IcoGear />{!isMobile && ' Settings'}</HeaderBtn>
+          <HeaderBtn onClick={handleLogout}><IcoLogout />{!isMobile && ' Logout'}</HeaderBtn>
         </div>
       </div>
 
@@ -442,8 +440,8 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                   {([
                     { v: 'pw',   icon: <IcoPhone />, label: 'Phone',    action: () => { setPhoneTarget(u); setNewPhone(u.phone ?? '') } },
                     { v: 'pw',   icon: <IcoKey />,   label: 'Password', action: () => { setPwTarget(u); setNewPw('') } },
-                    { v: 'pw',   icon: <span>+</span>, label: 'Sub',   action: () => { setGrantTarget(u); setGrantMonths('1') } },
-                    ...(u.subscriptionActive ? [{ v: 'wipe' as const, icon: <span>✕</span>, label: 'Revoke Sub', action: () => setRevokeTarget(u) }] : []),
+                    { v: 'pw',   icon: <IcoStar />, label: 'Sub',   action: () => { setGrantTarget(u); setGrantMonths('1') } },
+                    ...(u.subscriptionActive ? [{ v: 'wipe' as const, icon: <IcoBan />, label: 'Revoke Sub', action: () => setRevokeTarget(u) }] : []),
                     { v: 'wipe', icon: <IcoWipe />,  label: 'Data',     action: () => setDataTarget(u) },
                     { v: 'del',  icon: <IcoTrash />, label: 'Delete',   action: () => setDelTarget(u) },
                   ] as const).map(({ v, icon, label, action }) => (
@@ -557,7 +555,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
       {grantTarget && (
         <Modal
           title="Grant subscription"
-          icon={<span style={{ fontSize: 20 }}>⭐</span>}
+          icon={<IcoStar />}
           confirmLabel="Grant" confirmVariant="accent"
           onConfirm={() => { void handleGrantSubscription() }}
           onCancel={() => { if (!busy) { setGrantTarget(null); setGrantMonths('1') } }}
@@ -580,7 +578,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
         <Modal
           title="Revoke subscription?"
           desc={<>This will immediately cancel the subscription for <strong style={{ color: 'var(--text)' }}>{displayName(revokeTarget)}</strong>. They will lose access until they subscribe again.</>}
-          icon={<IcoTrash />}
+          icon={<IcoBan />}
           confirmLabel="Revoke" confirmVariant="red"
           onConfirm={() => { void handleRevokeSubscription() }}
           onCancel={() => !busy && setRevokeTarget(null)}
@@ -683,8 +681,8 @@ function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke }
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           <ActionBtn variant="pw"   onClick={onPhone}><IcoPhone /> Phone   </ActionBtn>
           <ActionBtn variant="pw"   onClick={onPw}>  <IcoKey />   Password</ActionBtn>
-          <ActionBtn variant="pw"   onClick={onGrant}>⭐ Sub      </ActionBtn>
-          {u.subscriptionActive && <ActionBtn variant="wipe" onClick={onRevoke}>✕ Revoke Sub</ActionBtn>}
+          <ActionBtn variant="pw"   onClick={onGrant}><IcoStar /> Sub</ActionBtn>
+          {u.subscriptionActive && <ActionBtn variant="wipe" onClick={onRevoke}><IcoBan /> Revoke</ActionBtn>}
           <ActionBtn variant="wipe" onClick={onData}><IcoWipe />  Data    </ActionBtn>
           <ActionBtn variant="del"  onClick={onDel}> <IcoTrash /> Delete  </ActionBtn>
         </div>
