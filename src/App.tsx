@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
-import { isAuthenticated, isSuperAdmin, isSubscriptionActive } from './utils/auth'
+import { isAuthenticated, isSuperAdmin, isSubscriptionActive, clearToken } from './utils/auth'
 import { getSubscriptionStatus } from './utils/payment-api'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
@@ -93,6 +93,12 @@ export default function App() {
 
   if (!authed) {
     return <LoginPage onAuth={() => { void handleAuth() }} adminMode={isAdminPath} />
+  }
+
+  if (isAdminPath && !isSuperAdmin()) {
+    clearToken()
+    window.location.reload()
+    return null
   }
 
   if (adminOpen && isSuperAdmin()) {
