@@ -7,7 +7,7 @@ const buildId = new Date().toISOString().slice(5, 16).replace('T', ' ')
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  base: '/',
   build: { outDir: 'dist' },
   define: { __BUILD_ID__: JSON.stringify(buildId) },
 })
