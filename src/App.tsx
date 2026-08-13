@@ -56,10 +56,18 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
     const responseCode = params.get('responseCode') ?? params.get('resposneCode') ?? ''
 
     if (responseCode !== '00') {
-      const desc = params.get('description') ?? 'Payment failed'
-      setMsg(desc.replace(/\+/g, ' '))
+      const desc = params.get('description') ?? ''
+      const codeMessages: Record<string, string> = {
+        '05': 'Payment declined — please try again',
+        '04': 'Missing required parameter',
+        '06': 'Order not found',
+        '20': 'Incorrect merchant credentials',
+        '0116': 'Insufficient funds',
+        '0101': 'Card expired',
+      }
+      setMsg(codeMessages[responseCode] ?? (desc.replace(/\+/g, ' ') || `Payment failed (code ${responseCode})`))
       setStatus('failed')
-      setTimeout(() => { window.location.replace('/') }, 3000)
+      setTimeout(() => { window.location.replace('/') }, 4000)
       return
     }
 
