@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, adminGetPayments, adminGrantSubscription, type AdminUser, type AdminPayment } from '../../utils/cloud-api'
+import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, adminGetPayments, adminGrantSubscription, adminRevokeSubscription, type AdminUser, type AdminPayment } from '../../utils/cloud-api'
 import { clearToken } from '../../utils/auth'
 import ProfileModal from '../modals/ProfileModal'
 import Icon, { BRAND } from '../ui/Icon'
@@ -196,6 +196,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
   const [newPhone, setNewPhone]       = useState('')
   const [grantTarget, setGrantTarget] = useState<AdminUser | null>(null)
   const [grantMonths, setGrantMonths] = useState('1')
+  const [revokeTarget, setRevokeTarget] = useState<AdminUser | null>(null)
   const [busy, setBusy]              = useState(false)
   const [isMobile, setIsMobile]      = useState(() => window.innerWidth < 768)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -272,6 +273,20 @@ export default function AdminPage({ onBack: _onBack }: Props) {
       await load()
     } else {
       showToast('Failed to grant subscription', false)
+    }
+  }
+
+  const handleRevokeSubscription = async () => {
+    if (!revokeTarget) return
+    setBusy(true)
+    const ok = await adminRevokeSubscription(revokeTarget.id)
+    setBusy(false)
+    if (ok) {
+      showToast(`Subscription revoked for ${displayName(revokeTarget)}`)
+      setRevokeTarget(null)
+      await load()
+    } else {
+      showToast('Failed to revoke subscription', false)
     }
   }
 
@@ -428,6 +443,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                     { v: 'pw',   icon: <IcoPhone />, label: 'Phone',    action: () => { setPhoneTarget(u); setNewPhone(u.phone ?? '') } },
                     { v: 'pw',   icon: <IcoKey />,   label: 'Password', action: () => { setPwTarget(u); setNewPw('') } },
                     { v: 'pw',   icon: <span>+</span>, label: 'Sub',   action: () => { setGrantTarget(u); setGrantMonths('1') } },
+                    ...(u.subscriptionActive ? [{ v: 'wipe' as const, icon: <span>✕</span>, label: 'Revoke Sub', action: () => setRevokeTarget(u) }] : []),
                     { v: 'wipe', icon: <IcoWipe />,  label: 'Data',     action: () => setDataTarget(u) },
                     { v: 'del',  icon: <IcoTrash />, label: 'Delete',   action: () => setDelTarget(u) },
                   ] as const).map(({ v, icon, label, action }) => (
@@ -459,6 +475,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                       onData={() => setDataTarget(u)}
                       onDel={() => setDelTarget(u)}
                       onGrant={() => { setGrantTarget(u); setGrantMonths('1') }}
+                      onRevoke={() => setRevokeTarget(u)}
                     />
                   ))}
                 </tbody>
@@ -559,6 +576,18 @@ export default function AdminPage({ onBack: _onBack }: Props) {
         </Modal>
       )}
 
+      {revokeTarget && (
+        <Modal
+          title="Revoke subscription?"
+          desc={<>This will immediately cancel the subscription for <strong style={{ color: 'var(--text)' }}>{displayName(revokeTarget)}</strong>. They will lose access until they subscribe again.</>}
+          icon={<IcoTrash />}
+          confirmLabel="Revoke" confirmVariant="red"
+          onConfirm={() => { void handleRevokeSubscription() }}
+          onCancel={() => !busy && setRevokeTarget(null)}
+          busy={busy}
+        />
+      )}
+
       {settingsOpen && <ProfileModal onClose={() => setSettingsOpen(false)} />}
 
       {/* Toast */}
@@ -613,7 +642,7 @@ function MobileActionBtn({ variant, onClick, children }: { variant: 'pw' | 'wipe
   )
 }
 
-function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void }) {
+function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void }) {
   const [hov, setHov] = useState(false)
   return (
     <tr
@@ -655,6 +684,7 @@ function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant }: { u: Adm
           <ActionBtn variant="pw"   onClick={onPhone}><IcoPhone /> Phone   </ActionBtn>
           <ActionBtn variant="pw"   onClick={onPw}>  <IcoKey />   Password</ActionBtn>
           <ActionBtn variant="pw"   onClick={onGrant}>⭐ Sub      </ActionBtn>
+          {u.subscriptionActive && <ActionBtn variant="wipe" onClick={onRevoke}>✕ Revoke Sub</ActionBtn>}
           <ActionBtn variant="wipe" onClick={onData}><IcoWipe />  Data    </ActionBtn>
           <ActionBtn variant="del"  onClick={onDel}> <IcoTrash /> Delete  </ActionBtn>
         </div>

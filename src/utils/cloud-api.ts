@@ -147,6 +147,16 @@ export async function adminGrantSubscription(userId: string, months: number): Pr
   } catch { return false }
 }
 
+export async function adminRevokeSubscription(userId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/admin/pm-tracker/users/${userId}/subscription`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    return res.ok
+  } catch { return false }
+}
+
 export async function saveCloudState(data: Record<string, unknown>): Promise<boolean> {
   if (!getToken()) return false
   try {
