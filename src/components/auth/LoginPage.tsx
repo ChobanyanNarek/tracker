@@ -195,9 +195,9 @@ export default function LoginPage({ onAuth, adminMode }: Props) {
           </div>
         </div>
 
-        {/* Tab switcher */}
-        <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 10, padding: 3, marginBottom: 26, gap: 2, border: '1px solid var(--border)' }}>
-          {(['login', ...(adminMode ? [] : ['register'])] as Array<'login' | 'register'>).map((t) => (
+        {/* Tab switcher — hidden in admin mode (only one tab) */}
+        {!adminMode && <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 10, padding: 3, marginBottom: 26, gap: 2, border: '1px solid var(--border)' }}>
+          {(['login', 'register'] as Array<'login' | 'register'>).map((t) => (
             <button
               key={t}
               onClick={() => {
@@ -221,7 +221,7 @@ export default function LoginPage({ onAuth, adminMode }: Props) {
               {t === 'login' ? 'Sign In' : 'Create Account'}
             </button>
           ))}
-        </div>
+        </div>}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
