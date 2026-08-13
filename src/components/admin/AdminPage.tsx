@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, adminGetPayments, adminGrantSubscription, type AdminUser, type AdminPayment } from '../../utils/cloud-api'
+import { getUserInfo, clearToken } from '../../utils/auth'
 import Icon, { BRAND } from '../ui/Icon'
 
 interface Props {
@@ -196,6 +197,12 @@ export default function AdminPage({ onBack: _onBack }: Props) {
   const [grantMonths, setGrantMonths] = useState('1')
   const [busy, setBusy]              = useState(false)
   const [isMobile, setIsMobile]      = useState(() => window.innerWidth < 768)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [, setSettingsEmail] = useState('')
+  const [settingsPhone, setSettingsPhone] = useState('')
+  const [settingsPw, setSettingsPw]       = useState('')
+  const [settingsPw2, setSettingsPw2]     = useState('')
+  const [settingsBusy, setSettingsBusy]   = useState(false)
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768)
@@ -222,6 +229,38 @@ export default function AdminPage({ onBack: _onBack }: Props) {
 
   useEffect(() => { void load() }, [load])
   useEffect(() => { if (tab === 'payments') void loadPayments() }, [tab, loadPayments])
+
+  const handleLogout = () => {
+    clearToken()
+    window.location.href = '/admin'
+  }
+
+  const openSettings = () => {
+    const me = getUserInfo()
+    setSettingsEmail(me?.email ?? '')
+    setSettingsPhone(me?.phone ?? '')
+    setSettingsPw('')
+    setSettingsPw2('')
+    setSettingsOpen(true)
+  }
+
+  const handleSaveSettings = async () => {
+    const me = getUserInfo()
+    if (!me?.id) return
+    if (settingsPw && settingsPw !== settingsPw2) { showToast('Passwords do not match', false); return }
+    if (settingsPw && settingsPw.length < 6) { showToast('Password must be at least 6 characters', false); return }
+    setSettingsBusy(true)
+    let ok = true
+    if (settingsPhone !== (me.phone ?? '')) {
+      ok = await adminEditUser(me.id, { phone: settingsPhone || null }) && ok
+    }
+    if (settingsPw) {
+      ok = await adminChangePassword(me.id, settingsPw) && ok
+    }
+    setSettingsBusy(false)
+    if (ok) { showToast('Settings saved'); setSettingsOpen(false) }
+    else showToast('Failed to save some settings', false)
+  }
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -315,8 +354,16 @@ export default function AdminPage({ onBack: _onBack }: Props) {
             </button>
           ))}
         </div>
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
           <HeaderBtn onClick={() => { if (tab === 'payments') void loadPayments(); else void load() }}><IcoRefresh /> {!isMobile && 'Refresh'}</HeaderBtn>
+          <HeaderBtn onClick={openSettings}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            {!isMobile && ' Settings'}
+          </HeaderBtn>
+          <HeaderBtn onClick={handleLogout}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            {!isMobile && ' Logout'}
+          </HeaderBtn>
         </div>
       </div>
 
@@ -541,6 +588,46 @@ export default function AdminPage({ onBack: _onBack }: Props) {
             style={{ width: '100%', padding: '9px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }}
           />
         </Modal>
+      )}
+
+      {/* Settings modal */}
+      {settingsOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,26,45,.45)', backdropFilter: 'blur(3px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 380, boxShadow: '0 24px 72px rgba(25,35,90,.18)' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 20 }}>Account Settings</div>
+
+            <label style={{ display: 'block', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' }}>Phone</label>
+            <input
+              value={settingsPhone}
+              onChange={(e) => setSettingsPhone(e.target.value)}
+              placeholder="Phone number"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, marginBottom: 16, outline: 'none' }}
+            />
+
+            <label style={{ display: 'block', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' }}>New Password</label>
+            <input
+              type="password"
+              value={settingsPw}
+              onChange={(e) => setSettingsPw(e.target.value)}
+              placeholder="Leave blank to keep current"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, marginBottom: 10, outline: 'none' }}
+            />
+            <input
+              type="password"
+              value={settingsPw2}
+              onChange={(e) => setSettingsPw2(e.target.value)}
+              placeholder="Confirm new password"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, marginBottom: 22, outline: 'none' }}
+            />
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setSettingsOpen(false)} disabled={settingsBusy} style={{ padding: '8px 18px', borderRadius: 7, border: '1px solid var(--border)', background: 'none', fontSize: 13, color: 'var(--text3)', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => { void handleSaveSettings() }} disabled={settingsBusy} style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: 'var(--accent)', fontSize: 13, fontWeight: 600, color: '#fff', cursor: settingsBusy ? 'default' : 'pointer', opacity: settingsBusy ? .6 : 1 }}>
+                {settingsBusy ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast */}
