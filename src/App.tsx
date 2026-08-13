@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import { isAuthenticated, isSuperAdmin, isSubscriptionActive, clearToken } from './utils/auth'
-import { getSubscriptionStatus } from './utils/payment-api'
+import { getSubscriptionStatus, confirmPayment } from './utils/payment-api'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
 import PaywallScreen from './components/subscription/PaywallScreen'
@@ -43,6 +43,53 @@ const VIEW_ICONS: Record<string, ReactNode> = {
   timeline: <Icon name="timeline" size={14} />,
   report: <Icon name="chart" size={14} />,
   notes: <Icon name="notes" size={14} />,
+}
+
+function PaymentCallback({ onDone }: { onDone: () => void }) {
+  const [status, setStatus] = useState<'loading' | 'success' | 'failed'>('loading')
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const orderId = params.get('orderID') ?? ''
+    const paymentId = params.get('paymentID') ?? ''
+    const responseCode = params.get('responseCode') ?? params.get('resposneCode') ?? ''
+
+    if (responseCode !== '00') {
+      const desc = params.get('description') ?? 'Payment failed'
+      setMsg(desc.replace(/\+/g, ' '))
+      setStatus('failed')
+      setTimeout(() => { window.location.replace('/') }, 3000)
+      return
+    }
+
+    void confirmPayment(orderId, paymentId).then((res) => {
+      if (res.ok) {
+        setStatus('success')
+        setTimeout(onDone, 1500)
+      } else {
+        setMsg(res.error ?? 'Could not confirm payment')
+        setStatus('failed')
+        setTimeout(() => { window.location.replace('/') }, 3000)
+      }
+    })
+  }, [onDone])
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', fontFamily: 'var(--sans)' }}>
+      <div style={{ textAlign: 'center', color: 'var(--text)' }}>
+        {status === 'loading' && <p style={{ color: 'var(--text3)', fontSize: 14 }}>Confirming payment…</p>}
+        {status === 'success' && <p style={{ color: 'var(--accent)', fontSize: 16, fontWeight: 700 }}>Payment successful! Redirecting…</p>}
+        {status === 'failed' && (
+          <>
+            <p style={{ color: 'var(--red)', fontSize: 15, fontWeight: 600 }}>Payment failed</p>
+            <p style={{ color: 'var(--text3)', fontSize: 13 }}>{msg}</p>
+            <p style={{ color: 'var(--text4)', fontSize: 12 }}>Redirecting back…</p>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function App() {
@@ -90,6 +137,12 @@ export default function App() {
   }, [])
 
   const isAdminPath = window.location.pathname === '/admin'
+  const isCallbackPath = window.location.pathname === '/payment/callback'
+
+  // Handle Ameriabank redirect back — parse params, confirm, redirect to app
+  if (isCallbackPath) {
+    return <PaymentCallback onDone={() => { void handleSubscribed().then(() => { window.location.replace('/') }) }} />
+  }
 
   if (!authed) {
     return <LoginPage onAuth={() => { void handleAuth() }} adminMode={isAdminPath} />
