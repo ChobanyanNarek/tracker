@@ -7,7 +7,6 @@ interface Props {
 }
 
 // ── SVG icons (shared Icon system) ─────────────────────────────────
-const IcoBack    = () => <Icon name="back" size={14} />
 const IcoRefresh = () => <Icon name="refresh" size={12} />
 const IcoKey     = () => <Icon name="key" size={12} />
 const IcoWipe    = () => <Icon name="wipe" size={12} />
@@ -180,7 +179,7 @@ function PayStatusPill({ status }: { status: AdminPayment['status'] }) {
 }
 
 // ── Main component ─────────────────────────────────────────────────
-export default function AdminPage({ onBack }: Props) {
+export default function AdminPage({ onBack: _onBack }: Props) {
   const [tab, setTab]               = useState<'users' | 'payments'>('users')
   const [users, setUsers]           = useState<AdminUser[]>([])
   const [payments, setPayments]     = useState<AdminPayment[]>([])
@@ -290,7 +289,6 @@ export default function AdminPage({ onBack }: Props) {
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: `0 ${isMobile ? 16 : 24}px`, height: 54, borderBottom: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0, boxShadow: '0 1px 4px rgba(25,35,90,.07)' }}>
-        <HeaderBtn onClick={onBack}><IcoBack /> {!isMobile && 'Back'}</HeaderBtn>
         <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 14px' }} />
         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>Admin Panel</span>
         {!isMobile && !loading && tab === 'users' && (

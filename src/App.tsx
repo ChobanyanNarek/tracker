@@ -89,8 +89,10 @@ export default function App() {
     if (status?.subscriptionActive) setSubscribed(true)
   }, [])
 
+  const isAdminPath = window.location.pathname === '/admin'
+
   if (!authed) {
-    return <LoginPage onAuth={() => { void handleAuth() }} />
+    return <LoginPage onAuth={() => { void handleAuth() }} adminMode={isAdminPath} />
   }
 
   if (adminOpen && isSuperAdmin()) {

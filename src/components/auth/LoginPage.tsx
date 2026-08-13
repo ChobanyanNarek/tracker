@@ -47,9 +47,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 const EyeIcon = ({ open }: { open: boolean }) => <Icon name={open ? 'eye' : 'eye-off'} size={15} />
 
-interface Props { onAuth: () => void }
+interface Props { onAuth: () => void; adminMode?: boolean }
 
-export default function LoginPage({ onAuth }: Props) {
+export default function LoginPage({ onAuth, adminMode }: Props) {
   const [tab, setTab] = useState<'login' | 'register'>('login')
 
   // login
@@ -197,7 +197,7 @@ export default function LoginPage({ onAuth }: Props) {
 
         {/* Tab switcher */}
         <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 10, padding: 3, marginBottom: 26, gap: 2, border: '1px solid var(--border)' }}>
-          {(['login', 'register'] as const).map((t) => (
+          {(['login', ...(adminMode ? [] : ['register'])] as Array<'login' | 'register'>).map((t) => (
             <button
               key={t}
               onClick={() => {
