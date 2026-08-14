@@ -43,8 +43,8 @@ export async function confirmPayment(orderId: string, paymentId: string): Promis
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderId, paymentId }),
     })
-    if (res.ok) return { ok: true }
-    const body = await res.json().catch(() => ({})) as { message?: string }
+    const body = await res.json().catch(() => ({})) as { ok?: boolean; message?: string }
+    if (res.ok && body.ok !== false) return { ok: true }
     return { ok: false, error: body.message }
   } catch { return { ok: false } }
 }
