@@ -40,7 +40,7 @@ export async function confirmPayment(orderId: string, paymentId: string): Promis
   try {
     const res = await fetch(`${API_URL}/payment/confirm`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderId, paymentId }),
     })
     if (res.ok) return { ok: true }
