@@ -106,11 +106,13 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
 }
 
 export default function App() {
-  // Handle payment callback before any auth/subscription checks
   if (window.location.pathname === '/payment/callback') {
     return <PaymentCallback onDone={() => { window.location.replace('/') }} />
   }
+  return <AuthApp />
+}
 
+function AuthApp() {
   const [authed, setAuthed] = useState(isAuthenticated)
   const [adminOpen, setAdminOpen] = useState(false)
   const [subscribed, setSubscribed] = useState<boolean | null>(null)
