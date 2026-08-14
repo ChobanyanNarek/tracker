@@ -106,6 +106,11 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
 }
 
 export default function App() {
+  // Handle payment callback before any auth/subscription checks
+  if (window.location.pathname === '/payment/callback') {
+    return <PaymentCallback onDone={() => { window.location.replace('/') }} />
+  }
+
   const [authed, setAuthed] = useState(isAuthenticated)
   const [adminOpen, setAdminOpen] = useState(false)
   const [subscribed, setSubscribed] = useState<boolean | null>(null)
@@ -150,12 +155,6 @@ export default function App() {
   }, [])
 
   const isAdminPath = window.location.pathname === '/admin'
-  const isCallbackPath = window.location.pathname === '/payment/callback'
-
-  // Handle Ameriabank redirect back — parse params, confirm, redirect to app
-  if (isCallbackPath) {
-    return <PaymentCallback onDone={() => { void handleSubscribed().then(() => { window.location.replace('/') }) }} />
-  }
 
   if (!authed) {
     return <LoginPage onAuth={() => { void handleAuth() }} adminMode={isAdminPath} />
