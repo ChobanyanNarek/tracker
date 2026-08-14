@@ -48,12 +48,16 @@ const VIEW_ICONS: Record<string, ReactNode> = {
 function PaymentCallback({ onDone }: { onDone: () => void }) {
   const [status, setStatus] = useState<'loading' | 'success' | 'failed'>('loading')
   const [msg, setMsg] = useState('')
+  const [debugInfo, setDebugInfo] = useState('')
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const orderId = params.get('orderID') ?? ''
     const paymentId = params.get('paymentID') ?? ''
     const responseCode = params.get('responseCode') ?? params.get('resposneCode') ?? ''
+    const allParams = Object.fromEntries(params.entries())
+    setDebugInfo(JSON.stringify(allParams))
+    console.log('[PaymentCallback] params:', allParams)
 
     if (responseCode !== '00') {
       const desc = params.get('description') ?? ''
@@ -85,7 +89,7 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', fontFamily: 'var(--sans)' }}>
-      <div style={{ textAlign: 'center', color: 'var(--text)' }}>
+      <div style={{ textAlign: 'center', color: 'var(--text)', maxWidth: 500, padding: 20 }}>
         {status === 'loading' && <p style={{ color: 'var(--text3)', fontSize: 14 }}>Confirming payment…</p>}
         {status === 'success' && <p style={{ color: 'var(--accent)', fontSize: 16, fontWeight: 700 }}>Payment successful! Redirecting…</p>}
         {status === 'failed' && (
@@ -95,6 +99,7 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
             <p style={{ color: 'var(--text4)', fontSize: 12 }}>Redirecting back…</p>
           </>
         )}
+        {debugInfo && <p style={{ color: 'var(--text4)', fontSize: 11, fontFamily: 'monospace', marginTop: 20, wordBreak: 'break-all' }}>{debugInfo}</p>}
       </div>
     </div>
   )
