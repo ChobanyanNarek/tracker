@@ -71,7 +71,7 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
       }
       setMsg(codeMessages[responseCode] ?? (desc.replace(/\+/g, ' ') || `Payment failed (code ${responseCode})`))
       setStatus('failed')
-      setTimeout(() => { window.location.replace('/') }, 4000)
+      setTimeout(() => { window.location.replace('/') }, 10000)
       return
     }
 
@@ -82,7 +82,7 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
       } else {
         setMsg(res.error ?? 'Could not confirm payment')
         setStatus('failed')
-        setTimeout(() => { window.location.replace('/') }, 3000)
+        setTimeout(() => { window.location.replace('/') }, 10000)
       }
     })
   }, [onDone])
