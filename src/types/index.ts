@@ -35,9 +35,8 @@ export interface GitHubConfig {
   name: string
   enabled: boolean
   token: string
-  orgOrUser: string  // GitHub org or user — used to scope PR search; leave empty to search globally
-  repos?: string[]   // explicit repo slugs to fetch all PRs from, e.g. ["myorg/myrepo"]
-  syncInterval: number  // minutes; 0 = manual only
+  orgOrUser: string       // GitHub org or user — all repos in this org are scanned (mirrors GitLab groupPath)
+  syncInterval: number    // minutes; 0 = manual only
   developerUsernames?: Record<string, string>  // devId → github username
   lastSync?: string
   lastSyncResult?: string

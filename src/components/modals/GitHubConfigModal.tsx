@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
 import type { GitHubConfig } from '../../types'
+import { fetchOrgPRs } from '../../utils/github-api'
+import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
 import Icon from '../ui/Icon'
-import { formatDateTime } from '../../utils/dates'
 
 interface Props { onClose: () => void; projectId?: string }
 
@@ -24,7 +25,6 @@ function makeEmptyConn(projectId?: string): GitHubConfig {
     enabled: true,
     token: '',
     orgOrUser: '',
-    repos: [],
     syncInterval: 0,
     developerUsernames: {},
     ...(projectId ? { projectId } : {}),
@@ -62,27 +62,21 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: username } })
   }
 
+  function formatGithubError(msg: string): string {
+    if (msg.includes('401')) return 'Token expired or invalid — create a new one at github.com/settings/tokens with repo scope.'
+    if (msg.includes('403')) return 'Access denied (403) — your token cannot list org repos. Sync will fall back to per-developer fetch if usernames are configured.'
+    if (msg.includes('404') || msg.includes('neither a readable')) return 'Not found — check the org / user name.'
+    return msg
+  }
+
   async function testConnection() {
     setTesting(true)
     setTestResult(null)
     try {
-      const res = await fetch('https://api.github.com/user', {
-        headers: {
-          Authorization: `Bearer ${conn.token.trim()}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      })
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(`GitHub ${res.status}: ${text.slice(0, 200) || res.statusText}`)
-      }
-      const data = (await res.json()) as { login: string }
-      setTestResult({ ok: true, msg: `Connection successful ✓ — authenticated as ${data.login}` })
+      const prs = await fetchOrgPRs(conn.orgOrUser.trim(), conn.token.trim())
+      setTestResult({ ok: true, msg: `Connection successful ✓ — ${prs.length} PR${prs.length !== 1 ? 's' : ''} found` })
     } catch (err) {
-      const msg = (err as Error).message
-      const friendly = msg.includes('401') ? 'Invalid token — create a PAT at github.com/settings/tokens with repo scope.' : msg
-      setTestResult({ ok: false, msg: friendly })
+      setTestResult({ ok: false, msg: formatGithubError((err as Error).message) })
     }
     setTesting(false)
   }
@@ -93,7 +87,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <input
           style={{ ...inputStyle, flex: 1, fontWeight: 600 }}
-          placeholder="Connection name (e.g. Main, Mobile Team)"
+          placeholder="Connection name (e.g. Main Org, Mobile Team)"
           value={conn.name}
           onChange={(e) => patch('name', e.target.value)}
         />
@@ -108,6 +102,16 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
             style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', borderRadius: 'var(--r)', padding: '5px', cursor: 'pointer', flexShrink: 0 }}
           ><Icon name="close" size={12} /></button>
         )}
+      </div>
+
+      {/* org / user path */}
+      <div>
+        <span style={labelStyle}>Org / User name</span>
+        <input style={inputStyle} placeholder="mycompany or myusername" value={conn.orgOrUser} onChange={(e) => patch('orgOrUser', e.target.value)} />
+        {conn.orgOrUser.trim()
+          ? <div style={{ fontSize: 10, marginTop: 3, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>Will scan all repos under: <b>{conn.orgOrUser.trim()}</b></div>
+          : <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>The org or user in the GitHub URL: github.com/<b>mycompany</b></div>
+        }
       </div>
 
       {/* token */}
@@ -128,35 +132,20 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
             <Icon name={showToken ? 'eye-off' : 'eye'} size={14} />
           </button>
         </div>
-        <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Needs <code>repo</code> (or <code>public_repo</code>) scope for PR search</div>
+        <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Needs <code>repo</code> (or <code>public_repo</code>) scope · if you get 401, create a new token</div>
       </div>
 
-      {/* repos + sync interval */}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <div style={{ flex: 2 }}>
-          <span style={labelStyle}>
-            Repos to watch
-            {conn.repos?.length ? null : <span style={{ fontWeight: 400, color: 'var(--text3)', marginLeft: 4 }}>(one per line)</span>}
-          </span>
-          <textarea
-            style={{ ...inputStyle, height: 54, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 11 }}
-            placeholder={'myorg/backend\nmyorg/frontend'}
-            value={(conn.repos ?? []).join('\n')}
-            onChange={(e) => patch('repos', e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
-          />
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>All PRs from these repos are scanned regardless of author</div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <span style={labelStyle}>Auto-sync</span>
-          <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer' }}>
-            <option value={0}>Manual only</option>
-            <option value={2}>Every 2 min</option>
-            <option value={5}>Every 5 min</option>
-            <option value={10}>Every 10 min</option>
-            <option value={15}>Every 15 min</option>
-            <option value={30}>Every 30 min</option>
-          </select>
-        </div>
+      {/* sync interval */}
+      <div>
+        <span style={labelStyle}>Auto-sync</span>
+        <select value={conn.syncInterval} onChange={(e) => patch('syncInterval', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer' }}>
+          <option value={0}>Manual only</option>
+          <option value={2}>Every 2 min</option>
+          <option value={5}>Every 5 min</option>
+          <option value={10}>Every 10 min</option>
+          <option value={15}>Every 15 min</option>
+          <option value={30}>Every 30 min</option>
+        </select>
       </div>
 
       {/* test result + button */}
@@ -167,8 +156,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       )}
       <button
         onClick={testConnection}
-        disabled={testing || !conn.token}
-        style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.token ? 0.5 : 1 }}
+        disabled={testing || !conn.token || !conn.orgOrUser}
+        style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.token || !conn.orgOrUser ? 0.5 : 1 }}
       >
         {testing ? '…testing' : 'Test connection'}
       </button>
@@ -259,16 +248,21 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
     setSyncing(true)
     setSyncResult(null)
     try {
-      const { linked, updated } = await syncGithub()
-      setSyncResult(`✓ Synced — ${linked} linked, ${updated} already tracked`)
+      const r = await syncGithub()
+      setSyncResult(`✓ Synced — ${r.linked} linked, ${r.updated} already tracked`)
       setConns(useStore.getState().githubConnections)
     } catch (err) {
-      setSyncResult(`✗ ${(err as Error).message}`)
+      const msg = (err as Error).message
+      let friendly = msg
+      if (msg.includes('401')) friendly = 'Token expired or invalid — create a new one with repo scope.'
+      else if (msg.includes('403')) friendly = 'Access denied (403) — configure developer usernames for per-developer fallback.'
+      else if (msg.includes('404') || msg.includes('neither a readable')) friendly = 'Not found — check the org / user name.'
+      setSyncResult(`✗ ${friendly}`)
     }
     setSyncing(false)
   }
 
-  const anyEnabled = conns.some((c) => c.enabled && c.token)
+  const anyEnabled = conns.some((c) => c.enabled && c.token && c.orgOrUser)
 
   return (
     <Modal

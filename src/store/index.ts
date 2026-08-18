@@ -6,7 +6,7 @@ import { getJiras, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
-import { fetchUserPRs, fetchRepoPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
+import { fetchUserPRs, fetchOrgPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
 import { isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
 
@@ -1673,71 +1673,82 @@ export const useStore = create<Store>((set, get) => {
         ]),
       ]
 
-      const prPatches = new Map<string, Map<string, PrEntry[]>>()
-      const prUrlToStatus = new Map<string, JiraIssue['status']>()
-      let linked = 0
-      let updated = 0
+      const prById = new Map<number, Awaited<ReturnType<typeof fetchOrgPRs>>[number]>()
       const syncedConns: GitHubConfig[] = []
 
       for (const conn of enabledConns) {
-        const connDevUsernames = developers
+        const devUsernames = developers
           .filter((d) => !d.archivedAt)
           .map((d) => (conn.developerUsernames?.[d.id] ?? '').trim())
           .filter(Boolean)
 
-        const processPRs = (prs: Awaited<ReturnType<typeof fetchUserPRs>>) => {
-          for (const pr of prs) {
-            const keys = extractGithubJiraKeys(pr, projectKeys)
-            console.info('[GitHub sync] PR:', pr.html_url, 'title:', pr.title, 'branch:', pr.head?.ref, 'keys:', keys)
-            if (!keys.length) continue
-            const { date: pushDate, time: pushTime } = toLocalParts(new Date(pr.created_at))
-            const isMerged = !!(pr.merged_at ?? pr.pull_request?.merged_at)
-            prUrlToStatus.set(pr.html_url, isMerged ? 'done' : 'review')
+        if (conn.orgOrUser.trim()) {
+          try {
+            const orgPRs = await fetchOrgPRs(conn.orgOrUser, conn.token)
+            for (const p of orgPRs) prById.set(p.id, p)
+          } catch (err) {
+            const msg = (err as Error).message
+            const isPermission = msg.includes('403') || msg.includes('Forbidden') || msg.includes('401')
+            if (!isPermission || devUsernames.length === 0) throw err
+          }
+        }
 
-            const keySet = new Set(keys)
-            const keyRes = keys.map((key) => new RegExp(`(^|[^A-Za-z0-9])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`, 'i'))
-            const matchesIssue = (jira: JiraIssue) => {
-              if (jira.issueId && keySet.has(jira.issueId.toUpperCase())) return true
-              const k = jiraDedupeKey(jira.url, jira.name)
-              if (k && k !== 'name:' && keySet.has(k.toUpperCase())) return true
-              return keyRes.some((re) => re.test(jira.url ?? ''))
-            }
+        if (devUsernames.length > 0) {
+          const userPRs = await Promise.all(devUsernames.map((u) => fetchUserPRs(u, conn.token, conn.orgOrUser)))
+          for (const prs of userPRs) for (const p of prs) prById.set(p.id, p)
+        }
 
-            let matched = false
-            let addedSomewhere = false
+        syncedConns.push({ ...conn, lastSync: new Date().toISOString() })
+      }
 
-            for (const task of tasks) {
-              for (const jira of (task.jiras ?? [])) {
-                if (!matchesIssue(jira)) continue
-                matched = true
-                if ((jira.prs ?? []).some((p) => p.url === pr.html_url)) continue
-                const identity = jira.issueId ?? (jira.url || null)
-                if (!identity) continue
-                if (!prPatches.has(task.id)) prPatches.set(task.id, new Map())
-                const taskPatch = prPatches.get(task.id)!
-                const existing = taskPatch.get(identity) ?? []
-                if (!existing.some((p) => p.url === pr.html_url)) {
-                  taskPatch.set(identity, [...existing, { url: pr.html_url, date: pushDate, time: pushTime }])
-                  addedSomewhere = true
-                }
-              }
-            }
+      const allPRs = [...prById.values()]
 
-            if (matched) {
-              if (addedSomewhere) linked++
-              else updated++
+      const prPatches = new Map<string, Map<string, PrEntry[]>>()
+      const prUrlToStatus = new Map<string, JiraIssue['status']>()
+      let linked = 0
+      let updated = 0
+
+      for (const pr of allPRs) {
+        const keys = extractGithubJiraKeys(pr, projectKeys)
+        console.info('[GitHub sync] PR:', pr.html_url, 'title:', pr.title, 'branch:', pr.head?.ref, 'keys:', keys)
+        if (!keys.length) continue
+        const { date: pushDate, time: pushTime } = toLocalParts(new Date(pr.created_at))
+        const isMerged = !!(pr.merged_at ?? pr.pull_request?.merged_at)
+        prUrlToStatus.set(pr.html_url, isMerged ? 'done' : 'review')
+
+        const keySet = new Set(keys)
+        const keyRes = keys.map((key) => new RegExp(`(^|[^A-Za-z0-9])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`, 'i'))
+        const matchesIssue = (jira: JiraIssue) => {
+          if (jira.issueId && keySet.has(jira.issueId.toUpperCase())) return true
+          const k = jiraDedupeKey(jira.url, jira.name)
+          if (k && k !== 'name:' && keySet.has(k.toUpperCase())) return true
+          return keyRes.some((re) => re.test(jira.url ?? ''))
+        }
+
+        let matched = false
+        let addedSomewhere = false
+
+        for (const task of tasks) {
+          for (const jira of (task.jiras ?? [])) {
+            if (!matchesIssue(jira)) continue
+            matched = true
+            if ((jira.prs ?? []).some((p) => p.url === pr.html_url)) continue
+            const identity = jira.issueId ?? (jira.url || null)
+            if (!identity) continue
+            if (!prPatches.has(task.id)) prPatches.set(task.id, new Map())
+            const taskPatch = prPatches.get(task.id)!
+            const existing = taskPatch.get(identity) ?? []
+            if (!existing.some((p) => p.url === pr.html_url)) {
+              taskPatch.set(identity, [...existing, { url: pr.html_url, date: pushDate, time: pushTime }])
+              addedSomewhere = true
             }
           }
         }
 
-        console.info('[GitHub sync] devUsernames:', connDevUsernames, 'projectKeys:', projectKeys)
-        for (const username of connDevUsernames) {
-          processPRs(await fetchUserPRs(username, conn.token, conn.orgOrUser))
+        if (matched) {
+          if (addedSomewhere) linked++
+          else updated++
         }
-        for (const repo of (conn.repos ?? [])) {
-          processPRs(await fetchRepoPRs(repo.trim(), conn.token))
-        }
-        syncedConns.push({ ...conn, lastSync: new Date().toISOString() })
       }
 
       set((s) => withSave({

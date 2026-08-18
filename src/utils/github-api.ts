@@ -49,27 +49,54 @@ async function enrichPRs(prs: GitHubPR[], headers: HeadersInit): Promise<GitHubP
   return [...enriched.map((r, i) => r.status === 'fulfilled' ? r.value : toEnrich[i]), ...prs.slice(20)]
 }
 
-// Fetch all open + recently merged PRs from a specific repo slug (e.g. "owner/repo")
-export async function fetchRepoPRs(repoSlug: string, token: string): Promise<GitHubPR[]> {
+// Fetch ALL PRs from all repos in a GitHub org or user account (mirrors GitLab fetchGroupMRs)
+export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<GitHubPR[]> {
+  const org = orgOrUser.trim()
+  if (!org) throw new Error('Org / User path is empty — enter an org or user name (e.g. mycompany)')
+  if (!token.trim()) throw new Error('Personal Access Token is empty')
+
   const headers: HeadersInit = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
   }
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const queries = [
-    `is:pr+repo:${encodeURIComponent(repoSlug)}+state:open`,
-    `is:pr+repo:${encodeURIComponent(repoSlug)}+is:merged+merged:>${thirtyDaysAgo}`,
-  ]
-  const byId = new Map<number, GitHubPR>()
-  for (const q of queries) {
-    const res = await fetch(`https://api.github.com/search/issues?q=${q}&per_page=100`, { headers })
-    if (!res.ok) { if (res.status === 422) continue; continue }
-    const data = await res.json() as { items: GitHubPR[] }
-    for (const item of data.items) byId.set(item.id, item)
+
+  // Discover all repos in the org (try org first, then user)
+  const repos: string[] = []
+  for (const scope of ['orgs', 'users'] as const) {
+    let page = 1
+    while (true) {
+      const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(org)}/repos?per_page=100&page=${page}`, { headers })
+      if (!res.ok) break
+      const batch = await res.json() as { full_name: string }[]
+      for (const r of batch) repos.push(r.full_name)
+      if (batch.length < 100) break
+      page++
+    }
+    if (repos.length) break
   }
+
+  if (!repos.length) throw new Error(`GitHub: "${org}" is neither a readable org nor user — check the name and token`)
+  console.info(`[GitHub sync] found ${repos.length} repos in ${org}`)
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const byId = new Map<number, GitHubPR>()
+
+  for (const repoSlug of repos) {
+    const queries = [
+      `is:pr+repo:${repoSlug}+state:open`,
+      `is:pr+repo:${repoSlug}+is:merged+merged:>${thirtyDaysAgo}`,
+    ]
+    for (const q of queries) {
+      const res = await fetch(`https://api.github.com/search/issues?q=${q}&per_page=100`, { headers })
+      if (!res.ok) continue
+      const data = await res.json() as { items: GitHubPR[] }
+      for (const item of data.items) byId.set(item.id, item)
+    }
+  }
+
   const all = [...byId.values()]
-  console.info(`[GitHub sync] fetched ${all.length} PRs from repo ${repoSlug}, enriching details…`)
+  console.info(`[GitHub sync] fetched ${all.length} PRs from org ${org}, enriching details…`)
   return enrichPRs(all, headers)
 }
 
