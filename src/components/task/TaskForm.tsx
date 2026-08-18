@@ -18,9 +18,6 @@ interface JiraFormRow {
   comment: string
   // Carried through unchanged on edit so issue identity and history survive a save.
   issueId?: string
-  groupId?: string
-  jiraStatusName?: string
-  boardId?: number
   statusHistory?: StatusHistoryEntry[]
   manualStatus?: Status
   hidden?: boolean
@@ -181,7 +178,7 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
   const [comment, setComment] = useState(existing?.comment ?? '')
   const [jiraRows, setJiraRows] = useState<JiraFormRow[]>(() => {
     if (existing?.jiras?.length) {
-      return existing.jiras.map((j) => ({ url: j.url, name: j.name, status: j.status, priority: j.priority ?? 'low', deadline: j.deadline, deadlineTime: j.deadlineTime, prs: j.prs ?? [], comment: j.comment ?? '', issueId: j.issueId, groupId: j.groupId, jiraStatusName: j.jiraStatusName, boardId: j.boardId, statusHistory: j.statusHistory, manualStatus: j.manualStatus, hidden: j.hidden }))
+      return existing.jiras.map((j) => ({ url: j.url, name: j.name, status: j.status, priority: j.priority ?? 'low', deadline: j.deadline, deadlineTime: j.deadlineTime, prs: j.prs ?? [], comment: j.comment ?? '', issueId: j.issueId, statusHistory: j.statusHistory, manualStatus: j.manualStatus, hidden: j.hidden }))
     }
     return [makeBlankJira()]
   })
@@ -203,9 +200,6 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
           prs: r.prs,
           comment: r.comment,
           ...(r.issueId ? { issueId: r.issueId } : {}),
-          ...(r.groupId ? { groupId: r.groupId } : {}),
-          ...(r.jiraStatusName ? { jiraStatusName: r.jiraStatusName } : {}),
-          ...(r.boardId ? { boardId: r.boardId } : {}),
           ...(r.statusHistory ? { statusHistory: r.statusHistory } : {}),
           ...(r.manualStatus ? { manualStatus: r.manualStatus } : {}),
           ...(r.hidden ? { hidden: r.hidden } : {}),

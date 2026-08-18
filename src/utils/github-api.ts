@@ -2,12 +2,11 @@ export interface GitHubPR {
   id: number
   number: number
   title: string
-  body: string | null
   html_url: string
   created_at: string
   state: 'open' | 'closed'
   user: { login: string }
-  pull_request?: { merged_at: string | null; head?: { ref: string } }
+  pull_request?: { merged_at: string | null }
 }
 
 function keysFromText(text: string, projectKeys: string[]): string[] {
@@ -22,9 +21,7 @@ function keysFromText(text: string, projectKeys: string[]): string[] {
 }
 
 export function extractJiraKeys(pr: GitHubPR, projectKeys: string[] = []): string[] {
-  const texts = [pr.title, pr.body ?? '', pr.pull_request?.head?.ref ?? '']
-  const combined = texts.join(' ')
-  return keysFromText(combined, projectKeys)
+  return keysFromText(pr.title, projectKeys)
 }
 
 export async function fetchUserPRs(username: string, token: string, orgOrUser?: string): Promise<GitHubPR[]> {
@@ -34,19 +31,18 @@ export async function fetchUserPRs(username: string, token: string, orgOrUser?: 
     'X-GitHub-Api-Version': '2022-11-28',
   }
 
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const scope = orgOrUser?.trim() ? `+org:${orgOrUser.trim()}` : ''
 
   const queries = [
     `is:pr+author:${encodeURIComponent(username)}+state:open${scope}`,
-    `is:pr+author:${encodeURIComponent(username)}+is:merged+merged:>${thirtyDaysAgo}${scope}`,
+    `is:pr+author:${encodeURIComponent(username)}+is:merged+merged:>${sevenDaysAgo}${scope}`,
   ]
 
   const byId = new Map<number, GitHubPR>()
 
   for (const q of queries) {
     const url = `https://api.github.com/search/issues?q=${q}&per_page=100`
-    console.info(`[GitHub sync] query: ${url}`)
     const res = await fetch(url, { headers })
     if (!res.ok) {
       if (res.status === 422) continue
@@ -54,7 +50,6 @@ export async function fetchUserPRs(username: string, token: string, orgOrUser?: 
       throw new Error(`GitHub ${res.status}: ${text.slice(0, 200) || res.statusText}`)
     }
     const data = (await res.json()) as { items: GitHubPR[] }
-    console.info(`[GitHub sync] query returned ${data.items.length} items`)
     for (const item of data.items) byId.set(item.id, item)
   }
 

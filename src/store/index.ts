@@ -8,7 +8,7 @@ import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
-import { isClosedGroup, legacyStatusToGroupId, groupForJiraStatus } from '../utils/status-groups'
+import { isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
 
 function makeId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 6)
@@ -467,19 +467,10 @@ export const useStore = create<Store>((set, get) => {
         let jiras = patch.jiras
         if (jiras) {
           jiras = jiras.map((j) => {
+            if (j.issueId) return j
             const key = jiraDedupeKey(j.url, j.name)
-            const match = existing?.jiras?.find((ej) =>
-              (j.issueId && ej.issueId === j.issueId) ||
-              (key && key !== 'name:' && jiraDedupeKey(ej.url, ej.name) === key)
-            )
-            return {
-              ...j,
-              issueId: j.issueId ?? match?.issueId ?? makeId('i'),
-              // Preserve groupId and jiraStatusName from the stored issue when the form
-              // didn't carry them (old data lacking these fields).
-              groupId: j.groupId ?? match?.groupId,
-              jiraStatusName: j.jiraStatusName ?? match?.jiraStatusName,
-            }
+            const match = existing?.jiras?.find((ej) => ej.issueId && jiraDedupeKey(ej.url, ej.name) === key)
+            return { ...j, issueId: match?.issueId ?? makeId('i') }
           })
         }
         return withSave({
@@ -1291,7 +1282,7 @@ export const useStore = create<Store>((set, get) => {
                 // Jira is the source of truth on sync: take the fresh Jira status and
                 // clear any manual override (manualStatus is only an optimistic hint
                 // between syncs — it must never permanently mask the real Jira status).
-                syncTask.jiras[existIdx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, jiraStatusName: nj.jiraStatusName ?? ex.jiraStatusName, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent, jiraCreatedAt: nj.jiraCreatedAt ?? ex.jiraCreatedAt }
+                syncTask.jiras[existIdx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent, jiraCreatedAt: nj.jiraCreatedAt ?? ex.jiraCreatedAt }
                 connUpdated++
                 return
               }
@@ -1301,7 +1292,7 @@ export const useStore = create<Store>((set, get) => {
               const { task, idx } = keyToTask.get(njKey)!
               const ex = task.jiras[idx]
               // Jira is the source of truth on sync — take fresh status, clear manual override.
-              task.jiras[idx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, jiraStatusName: nj.jiraStatusName ?? ex.jiraStatusName, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent }
+              task.jiras[idx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent }
               connUpdated++
               return
             }
@@ -1698,7 +1689,6 @@ export const useStore = create<Store>((set, get) => {
           const prs = await fetchUserPRs(username, conn.token, conn.orgOrUser)
           for (const pr of prs) {
             const keys = extractGithubJiraKeys(pr, projectKeys)
-            console.info(`[GitHub sync] PR #${pr.number} "${pr.title}" → keys: [${keys.join(', ')}]`)
             if (!keys.length) continue
             const { date: pushDate, time: pushTime } = toLocalParts(new Date(pr.created_at))
             prUrlToStatus.set(pr.html_url, pr.pull_request?.merged_at ? 'done' : 'review')
@@ -1872,7 +1862,6 @@ if (typeof window !== 'undefined') {
   ;(window as any).pmWhy = (needle: string) => {
     const s = useStore.getState() as AppState
     const conn = getActiveJiraConn(s)
-    const allConns = getActiveJiraConns(s)
     const scope = getBoardScope(s)
     const proj = s.projects.find((p) => p.id === s.selectedProject)
     const rows: any[] = []
@@ -1883,9 +1872,9 @@ if (typeof window !== 'undefined') {
         rows.push({
           key: jiraFullKey(j) ?? j.issueId,
           taskDate: t.date, dev: t.devId, taskProj: t.projectId,
-          groupId: j.groupId, jiraStatusName: j.jiraStatusName, status: j.status, hidden: j.hidden, boardId: j.boardId,
+          groupId: j.groupId, status: j.status, hidden: j.hidden, boardId: j.boardId,
           failsBoard: !jiraOnBoard(j, scope),
-          failsShows: !issueShowsOnBoard(j, conn, allConns),
+          failsShows: !issueShowsOnBoard(j, conn),
           isClosedGrp: isClosedGroup(j.groupId, conn),
           dateMatchesSelected: t.date === s.selectedDate,
           devIsVisible: getVisibleDevIds(s).includes(t.devId),
@@ -1950,35 +1939,13 @@ export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
   return state.jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
 }
 
-export function getActiveJiraConns(state: AppState): JiraConfig[] {
-  return state.jiraConnections.filter((c) => c.enabled)
-}
-
 // Single source of truth for board visibility, shared by Daily AND Deadlines.
 // An issue shows on the board unless its status group is 'hidden' or marked isClosed
 // (per the integration settings). Falls back to legacy status for issues with no group.
-// Pass all enabled connections so custom groups/mappings from any connection are checked.
-export function issueShowsOnBoard(j: JiraIssue, conn: JiraConfig | undefined, allConns?: JiraConfig[]): boolean {
-  // Prefer the connection that owns this issue (matched by issue URL prefix or boardId),
-  // fall back to the first connection with mappings, then any enabled connection.
-  const conns = allConns ?? (conn ? [conn] : [])
-  const owningConn = conns.find((c) =>
-    (j.boardId && c.boardId === j.boardId) ||
-    (j.url && c.baseUrl && j.url.startsWith(c.baseUrl.replace(/\/$/, '')))
-  ) ?? conn
-
-  // Re-derive groupId from the raw Jira status name when groupId is missing (old data
-  // or issues synced before groupId was stored). Checks owning conn's mappings first,
-  // then falls back to any conn with mappings.
-  const mappings = owningConn?.statusMappings ?? conns.find((c) => c.statusMappings?.length)?.statusMappings
-  const gid = j.groupId ?? (j.jiraStatusName ? groupForJiraStatus(j.jiraStatusName, mappings) : undefined)
+export function issueShowsOnBoard(j: JiraIssue, conn: JiraConfig | undefined): boolean {
+  const gid = j.groupId
   if (gid === 'hidden') return false
-  // Check isClosed against owning conn's groups, then all conns.
-  const isClosed = gid ? (
-    isClosedGroup(gid, owningConn) ||
-    conns.some((c) => isClosedGroup(gid, c))
-  ) : j.status === 'done'
-  if (isClosed) return false
+  if (gid ? isClosedGroup(gid, conn) : j.status === 'done') return false
   return true
 }
 
@@ -2127,9 +2094,8 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
   // Integration settings are the source of truth for board visibility (shared by Daily
   // and Deadlines): hide any issue whose status group is 'hidden' OR marked isClosed.
   const jiraConn = getActiveJiraConn(state)
-  const allJiraConns = getActiveJiraConns(state)
   const showsOnBoard = (j: JiraIssue): boolean => {
-    return issueShowsOnBoard(j, jiraConn, allJiraConns)
+    return issueShowsOnBoard(j, jiraConn)
   }
 
   // Optional diagnostics: set window.__debugSync = true in the console, then re-render.

@@ -7,10 +7,10 @@ import Icon from '../ui/Icon'
 
 // ── constants ─────────────────────────────────────────────────────────────────
 const LABEL_W   = 260
-const ROW_H     = 44
+const ROW_H     = 34
 const HDR_H     = 40
-const DEV_HDR_H = 30
-const BAR_H     = 22
+const DEV_HDR_H = 28
+const BAR_H     = 18
 const MR_COLOR  = '#818cf8'
 const DL_COLOR  = '#f43f5e'
 const STATUSES: Status[] = ['todo', 'inprogress', 'review', 'done', 'blocked']

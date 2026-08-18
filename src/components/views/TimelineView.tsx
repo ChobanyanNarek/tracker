@@ -1,10 +1,8 @@
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, getVisibleDevIds } from '../../store'
 import { jiraDedupeKey, initials, hexRgb } from '../../utils/format'
 import { todayStr, formatDate } from '../../utils/dates'
 import type { Developer, Project, JiraIssue } from '../../types'
-import DatePicker from '../ui/DatePicker'
-import { resolveGroups } from '../../utils/status-groups'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -58,7 +56,6 @@ interface BarItem {
 interface Tooltip {
   x: number
   y: number
-  flip?: boolean
   item: BarItem
   dev: Developer | undefined
   project: Project | undefined
@@ -71,33 +68,31 @@ const ROW_H = 44
 
 export default function TimelineView() {
   const state = useStore()
-  const { tasks, developers, projects, selectedDev, selectedProject, setView, setSelectedDate, jiraConnections } = state
+  const { tasks, developers, projects, selectedDev, selectedProject } = state
   const boardScope = getBoardScope(state)
-  const conn = jiraConnections?.[0]
 
   const today = todayStr()
 
   // ── toolbar state ──────────────────────────────────────────────────────────
   const [groupBy, setGroupBy] = useState<'dev' | 'project'>('dev')
-  const zoom = 'week'
-  const [showAll, setShowAll] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<string[]>([])
+  const [zoom, setZoom] = useState<'week' | 'month'>('week')
+  const [navOffset, setNavOffset] = useState(0)          // in units of zoom
+  const [showAll, setShowAll] = useState(false)           // include issues without deadline
   const [tooltip, setTooltip] = useState<Tooltip | null>(null)
-
-  const defaultStart = addDays(today, -14)
-  const defaultEnd   = addDays(today, 27)
-  const [windowStart, setWindowStart] = useState(defaultStart)
-  const [windowEnd,   setWindowEnd]   = useState(defaultEnd)
 
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const resetRange = useCallback(() => {
-    setWindowStart(defaultStart)
-    setWindowEnd(defaultEnd)
-  }, [defaultStart, defaultEnd])
-
   // ── window ─────────────────────────────────────────────────────────────────
-  const totalDays = Math.max(1, diffDays(windowStart, windowEnd) + 1)
+  const totalDays = zoom === 'week' ? 42 : 90  // 6 weeks or ~3 months
+  const windowStart = useMemo(() => {
+    const pivot = zoom === 'week'
+      ? addDays(today, navOffset * 42)
+      : addDays(today, navOffset * 90)
+    // center on today
+    const offset = zoom === 'week' ? 14 : 30
+    return addDays(pivot, -offset)
+  }, [zoom, navOffset, today])
+  const windowEnd = addDays(windowStart, totalDays - 1)
 
   // ── visible devIds ─────────────────────────────────────────────────────────
   const visibleDevIds = useMemo(() => {
@@ -133,23 +128,14 @@ export default function TimelineView() {
         } else {
           // take min start
           if (taskStart < existing.start) existing.start = taskStart
-          // update to latest task copy so tooltip shows current status/deadline
-          if (taskStart >= existing.start) existing.issue = j
-          // keep the latest deadline for bar end
+          // keep deadline from the issue (same either way)
           if (j.deadline && (!existing.end || j.deadline > existing.end)) existing.end = j.deadline
         }
       }
     }
 
-    let result = Array.from(map.values())
-    if (statusFilter.length > 0) {
-      result = result.filter((b) => {
-        const gid = b.issue.groupId ?? b.issue.status ?? 'todo'
-        return statusFilter.includes(gid)
-      })
-    }
-    return result
-  }, [tasks, selectedDev, selectedProject, visibleDevIds, boardScope, showAll, statusFilter])
+    return Array.from(map.values())
+  }, [tasks, selectedDev, selectedProject, visibleDevIds, boardScope, showAll])
 
   // ── group rows ─────────────────────────────────────────────────────────────
   type RowKey = string
@@ -284,47 +270,39 @@ export default function TimelineView() {
           ))}
         </div>
 
-        {/* date range pickers */}
-        <span style={{ color: 'var(--text3)', fontSize: 11 }}>From:</span>
-        <DatePicker value={windowStart} onChange={(d) => { setWindowStart(d); if (d > windowEnd) setWindowEnd(d) }} maxDate={windowEnd} />
-        <span style={{ color: 'var(--text3)', fontSize: 11 }}>To:</span>
-        <DatePicker value={windowEnd} onChange={(d) => { setWindowEnd(d); if (d < windowStart) setWindowStart(d) }} minDate={windowStart} />
-        <button
-          onClick={resetRange}
-          style={{ padding: '4px 10px', fontSize: 11, fontFamily: 'var(--mono)', background: 'transparent', color: 'var(--text3)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}
-        >
-          Reset
-        </button>
-
-        {/* status filter chips */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-          {resolveGroups(conn).map((g) => {
-            const active = statusFilter.includes(g.id)
-            return (
-              <button
-                key={g.id}
-                onClick={() => setStatusFilter((prev) => active ? prev.filter((s) => s !== g.id) : [...prev, g.id])}
-                style={{
-                  padding: '3px 9px',
-                  fontSize: 10,
-                  fontFamily: 'var(--mono)',
-                  fontWeight: 600,
-                  borderRadius: 20,
-                  border: `1px solid ${active ? 'var(--border2)' : 'var(--border)'}`,
-                  background: active ? `var(--${g.color}-dim, var(--surface2))` : 'transparent',
-                  color: active ? `var(--${g.color}, var(--text))` : 'var(--text3)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                {active && <span style={{ width: 5, height: 5, borderRadius: '50%', background: `var(--${g.color}, currentColor)`, flexShrink: 0 }} />}
-                {g.label}
-              </button>
-            )
-          })}
+        {/* zoom toggle */}
+        <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+          {(['week', 'month'] as const).map((z) => (
+            <button
+              key={z}
+              onClick={() => { setZoom(z); setNavOffset(0) }}
+              style={{
+                padding: '4px 10px',
+                fontSize: 11,
+                fontFamily: 'var(--mono)',
+                background: zoom === z ? 'var(--accent)' : 'transparent',
+                color: zoom === z ? '#fff' : 'var(--text)',
+                border: 'none',
+                cursor: 'pointer',
+                fontWeight: zoom === z ? 600 : 400,
+              }}
+            >
+              {z === 'week' ? 'Week' : 'Month'}
+            </button>
+          ))}
         </div>
+
+        {/* nav */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => setNavOffset((n) => n - 1)} style={navBtnStyle}>‹</button>
+          <button onClick={() => setNavOffset(0)} style={{ ...navBtnStyle, fontSize: 10, padding: '4px 8px' }}>Today</button>
+          <button onClick={() => setNavOffset((n) => n + 1)} style={navBtnStyle}>›</button>
+        </div>
+
+        {/* date range label */}
+        <span style={{ color: 'var(--text3)', fontSize: 11 }}>
+          {formatDate(windowStart)} – {formatDate(windowEnd)}
+        </span>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: 'var(--text3)', fontSize: 11 }}>
@@ -354,9 +332,7 @@ export default function TimelineView() {
             <div style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
               {/* month labels (week zoom only) */}
               {zoom === 'week' && (
-                <div style={{ display: 'flex', height: 18, borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ width: LABEL_W, minWidth: LABEL_W, flexShrink: 0, borderRight: '1px solid var(--border)' }} />
-                  <div style={{ flex: 1, position: 'relative' }}>
+                <div style={{ display: 'flex', marginLeft: LABEL_W, position: 'relative', height: 18, borderBottom: '1px solid var(--border)' }}>
                   {monthMarkers.map((m) => (
                     <div
                       key={m.date}
@@ -379,14 +355,11 @@ export default function TimelineView() {
                       {m.label}
                     </div>
                   ))}
-                  </div>
                 </div>
               )}
 
               {/* day/week column headers */}
-              <div style={{ display: 'flex', height: 28 }}>
-                <div style={{ width: LABEL_W, minWidth: LABEL_W, flexShrink: 0, borderRight: '1px solid var(--border)' }} />
-                <div style={{ flex: 1, position: 'relative' }}>
+              <div style={{ display: 'flex', height: 28, position: 'relative', marginLeft: LABEL_W }}>
                 {columns.map((col) => {
                   const isToday = col.date === today
                   const isWeekend = zoom === 'week' ? (() => {
@@ -417,21 +390,17 @@ export default function TimelineView() {
                     </div>
                   )
                 })}
-                </div>
               </div>
             </div>
 
-            {/* rows — height expands to give each bar its own lane */}
-            {rows.map((row) => {
-              const visibleBars = row.bars.filter((b) => barGeometry(b) !== null)
-              const totalRowH = Math.max(visibleBars.length, 1) * ROW_H
-              return (
+            {/* rows */}
+            {rows.map((row) => (
               <div
                 key={row.key}
                 style={{
                   display: 'flex',
-                  borderBottom: '2px solid var(--border)',
-                  height: totalRowH,
+                  borderBottom: '1px solid var(--border)',
+                  minHeight: ROW_H,
                   position: 'relative',
                 }}
               >
@@ -515,14 +484,10 @@ export default function TimelineView() {
                     />
                   )}
 
-                  {/* sub-row dividers */}
-                  {visibleBars.map((_, idx) => idx > 0 && (
-                    <div key={idx} style={{ position: 'absolute', left: 0, right: 0, top: idx * ROW_H, height: 1, background: 'var(--border)', opacity: 0.5, pointerEvents: 'none' }} />
-                  ))}
-
-                  {/* bars — each in its own lane */}
-                  {visibleBars.map((item, idx) => {
-                    const geo = barGeometry(item)!
+                  {/* bars */}
+                  {row.bars.map((item, idx) => {
+                    const geo = barGeometry(item)
+                    if (!geo) return null
                     const dev = developers.find((d) => d.id === item.devId)
                     const proj = projects.find((p) =>
                       tasks.find((t) => t.devId === item.devId && (t.jiras ?? []).some((j) => jiraDedupeKey(j.url, j.name) === item.dedupeKey.split(':')[0]))?.projectId === p.id
@@ -530,8 +495,7 @@ export default function TimelineView() {
                     const color = groupBy === 'dev' ? (dev?.color ?? row.color) : row.color
                     const rgb = hexRgb(color)
                     const issueName = item.issue.name || item.issue.url || 'Issue'
-                    const BAR_H = ROW_H - 14
-                    const topOffset = idx * ROW_H + (ROW_H - BAR_H) / 2
+                    const topOffset = 6 + idx * (ROW_H - 12) / Math.max(row.bars.length, 1)
 
                     return (
                       <div
@@ -541,39 +505,44 @@ export default function TimelineView() {
                           left: `${geo.left}%`,
                           width: `${geo.width}%`,
                           top: topOffset,
-                          height: BAR_H,
+                          height: ROW_H - 14,
                           minHeight: 22,
                           borderRadius: 4,
                           background: `rgba(${rgb},0.15)`,
+                          borderLeft: `3px solid ${color}`,
                           border: `1px solid rgba(${rgb},0.35)`,
                           borderLeftWidth: 3,
-                          borderLeftColor: color,
                           display: 'flex',
                           alignItems: 'center',
                           paddingLeft: 6,
                           paddingRight: 4,
                           overflow: 'hidden',
-                          cursor: 'pointer',
+                          cursor: 'default',
                           zIndex: 2,
                           boxSizing: 'border-box',
-                        }}
-                        onClick={() => {
-                          setSelectedDate(item.start)
-                          setView('daily')
                         }}
                         onMouseEnter={(e) => {
                           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                           const container = containerRef.current?.getBoundingClientRect()
-                          const relTop = rect.top - (container?.top ?? 0)
-                          const relBottom = rect.bottom - (container?.top ?? 0)
-                          // show below bar; if near top of container show above instead
-                          const y = relTop < 160 ? relBottom + 6 : relTop - 8
-                          const flip = relTop < 160
-                          setTooltip({ x: rect.left - (container?.left ?? 0) + rect.width / 2, y, item, dev, project: proj, flip })
+                          setTooltip({
+                            x: rect.left - (container?.left ?? 0) + rect.width / 2,
+                            y: rect.top - (container?.top ?? 0) - 8,
+                            item,
+                            dev,
+                            project: proj,
+                          })
                         }}
                         onMouseLeave={() => setTooltip(null)}
                       >
-                        <span style={{ fontSize: 10, color, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', userSelect: 'none' }}>
+                        <span style={{
+                          fontSize: 10,
+                          color: color,
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          userSelect: 'none',
+                        }}>
                           {issueName}
                         </span>
                       </div>
@@ -581,8 +550,7 @@ export default function TimelineView() {
                   })}
                 </div>
               </div>
-              )
-            })}
+            ))}
           </div>
         )}
 
@@ -593,7 +561,7 @@ export default function TimelineView() {
               position: 'absolute',
               left: tooltip.x,
               top: tooltip.y,
-              transform: tooltip.flip ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+              transform: 'translate(-50%, -100%)',
               background: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: 6,
@@ -613,15 +581,15 @@ export default function TimelineView() {
                 {tooltip.dev.name}
               </div>
             )}
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-              Start date: {formatDate(tooltip.item.start)}
-            </div>
             {tooltip.item.issue.deadline && (
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-                Due date: {formatDate(tooltip.item.issue.deadline)}
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                Deadline: {formatDate(tooltip.item.issue.deadline)}
                 {tooltip.item.issue.deadlineTime ? ` at ${tooltip.item.issue.deadlineTime}` : ''}
               </div>
             )}
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+              Start: {formatDate(tooltip.item.start)}
+            </div>
             {tooltip.item.issue.status && (
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2, textTransform: 'capitalize' }}>
                 Status: {tooltip.item.issue.groupId ?? tooltip.item.issue.status}
@@ -634,3 +602,14 @@ export default function TimelineView() {
   )
 }
 
+const navBtnStyle: React.CSSProperties = {
+  padding: '4px 8px',
+  fontSize: 13,
+  fontFamily: 'var(--mono)',
+  background: 'transparent',
+  color: 'var(--text)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  cursor: 'pointer',
+  lineHeight: 1,
+}
