@@ -15,7 +15,8 @@ function diffDays(a: string, b: string): number {
 }
 
 function fmtDate(d: string) {
-  return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const dt = new Date(d + 'T12:00:00')
+  return `${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')}.${dt.getFullYear()}`
 }
 
 const IcoPlus = () => <Icon name="plus" size={12} />
@@ -35,25 +36,63 @@ function SprintCard({ sprint, onEdit, onDelete }: { sprint: Sprint; onEdit: () =
   const isActive = today >= sprint.startDate && today <= sprint.endDate
 
   const boardScope = getBoardScope(store)
-  const projectTasks = tasks.filter((t) => t.projectId === selectedProject && taskPassesBoardFilter(t, boardScope))
-  const allJiras = projectTasks.flatMap((t) => (t.jiras ?? []).filter((j) => jiraOnBoard(j, boardScope)))
 
-  const todo = allJiras.filter((j) => j.status === 'todo' && !j.hidden).length
-  const active = allJiras.filter((j) => j.status === 'inprogress' && !j.hidden).length
-  const review = allJiras.filter((j) => j.status === 'review' && !j.hidden).length
-  const blocked = allJiras.filter((j) => j.status === 'blocked' && !j.hidden).length
-  const done = allJiras.filter((j) => j.status === 'done' && !j.hidden).length
+  // Collect all board issues for this project, deduplicated by issue key (latest task copy wins).
+  // Tasks are sorted by date so later copies overwrite earlier ones.
+  const projectTasks = tasks.filter((t) => t.projectId === selectedProject && taskPassesBoardFilter(t, boardScope))
+  const issueMap = new Map<string, { j: NonNullable<typeof projectTasks[0]['jiras']>[0]; devId: string; date: string }>()
+  const sortedTasks = [...projectTasks].sort((a, b) => a.date < b.date ? -1 : 1)
+  for (const t of sortedTasks) {
+    for (const j of (t.jiras ?? []).filter((j) => jiraOnBoard(j, boardScope) && !j.hidden)) {
+      const key = j.issueId ?? j.url ?? j.name
+      const existing = issueMap.get(key)
+      if (!existing || t.date >= existing.date) {
+        issueMap.set(key, { j, devId: t.devId, date: t.date })
+      }
+    }
+  }
+
+  // Determine if an issue was active during this sprint's window.
+  // An issue belongs to this sprint if:
+  // 1. It was created (jiraCreatedAt) within the sprint window, OR
+  // 2. It has a statusHistory entry (non-todo status change) during the sprint window, OR
+  // 3. For the active sprint — include all current non-done board issues too.
+  const sprintStart = sprint.startDate
+  const sprintEnd = sprint.endDate
+  const isActiveSprint = today >= sprintStart && today <= sprintEnd
+
+  function issueInSprint(j: NonNullable<typeof projectTasks[0]['jiras']>[0]): boolean {
+    // Created during sprint
+    if (j.jiraCreatedAt && j.jiraCreatedAt >= sprintStart && j.jiraCreatedAt <= sprintEnd) return true
+    // Had activity (status change) during sprint
+    if (j.statusHistory?.some((e) => {
+      const d = e.at.slice(0, 10)
+      return d >= sprintStart && d <= sprintEnd
+    })) return true
+    // Active sprint: include in-progress/blocked/review issues that haven't been assigned to a past sprint
+    if (isActiveSprint && j.status !== 'todo') return true
+    return false
+  }
+
+  const sprintIssueMap = new Map([...issueMap.entries()].filter(([, v]) => issueInSprint(v.j)))
+  const allJiras = [...sprintIssueMap.values()].map((v) => v.j)
+
+  const todo = allJiras.filter((j) => j.status === 'todo').length
+  const active = allJiras.filter((j) => j.status === 'inprogress').length
+  const review = allJiras.filter((j) => j.status === 'review').length
+  const blocked = allJiras.filter((j) => j.status === 'blocked').length
+  const done = allJiras.filter((j) => j.status === 'done').length
   const total = todo + active + review + blocked + done
 
   // Per-dev stats
   const devStats = developers.map((dev) => {
-    const devJiras = projectTasks.filter((t) => t.devId === dev.id).flatMap((t) => t.jiras ?? []).filter((j) => !j.hidden)
+    const devJiras = [...sprintIssueMap.values()].filter((v) => v.devId === dev.id).map((v) => v.j)
     const devDone = devJiras.filter((j) => j.status === 'done').length
     const devTotal = devJiras.length
     return { dev, done: devDone, total: devTotal }
   }).filter((d) => d.total > 0)
 
-  const blocked_issues = allJiras.filter((j) => j.status === 'blocked' && !j.hidden)
+  const blocked_issues = allJiras.filter((j) => j.status === 'blocked')
 
   return (
     <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
