@@ -33,6 +33,46 @@ export function extractJiraKeys(pr: GitHubPR, projectKeys: string[] = []): strin
   return keysFromText(texts, projectKeys)
 }
 
+async function enrichPRs(prs: GitHubPR[], headers: HeadersInit): Promise<GitHubPR[]> {
+  const toEnrich = prs.slice(0, 20)
+  const enriched = await Promise.allSettled(
+    toEnrich.map(async (pr) => {
+      const match = pr.html_url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
+      if (!match) return pr
+      const [, repoPath, num] = match
+      const r = await fetch(`https://api.github.com/repos/${repoPath}/pulls/${num}`, { headers })
+      if (!r.ok) return pr
+      const detail = await r.json() as { body?: string | null; head?: { ref: string }; merged_at?: string | null }
+      return { ...pr, body: detail.body ?? pr.body, head: detail.head, merged_at: detail.merged_at }
+    })
+  )
+  return [...enriched.map((r, i) => r.status === 'fulfilled' ? r.value : toEnrich[i]), ...prs.slice(20)]
+}
+
+// Fetch all open + recently merged PRs from a specific repo slug (e.g. "owner/repo")
+export async function fetchRepoPRs(repoSlug: string, token: string): Promise<GitHubPR[]> {
+  const headers: HeadersInit = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  }
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const queries = [
+    `is:pr+repo:${encodeURIComponent(repoSlug)}+state:open`,
+    `is:pr+repo:${encodeURIComponent(repoSlug)}+is:merged+merged:>${thirtyDaysAgo}`,
+  ]
+  const byId = new Map<number, GitHubPR>()
+  for (const q of queries) {
+    const res = await fetch(`https://api.github.com/search/issues?q=${q}&per_page=100`, { headers })
+    if (!res.ok) { if (res.status === 422) continue; continue }
+    const data = await res.json() as { items: GitHubPR[] }
+    for (const item of data.items) byId.set(item.id, item)
+  }
+  const all = [...byId.values()]
+  console.info(`[GitHub sync] fetched ${all.length} PRs from repo ${repoSlug}, enriching details…`)
+  return enrichPRs(all, headers)
+}
+
 export async function fetchUserPRs(username: string, token: string, orgOrUser?: string): Promise<GitHubPR[]> {
   const headers: HeadersInit = {
     Authorization: `Bearer ${token}`,
@@ -64,23 +104,5 @@ export async function fetchUserPRs(username: string, token: string, orgOrUser?: 
 
   const all = [...byId.values()]
   console.info(`[GitHub sync] fetched ${all.length} PRs for ${username}, enriching details…`)
-
-  // The search API doesn't return body or head.ref — fetch full PR details in parallel (capped at 20)
-  const toEnrich = all.slice(0, 20)
-  const enriched = await Promise.allSettled(
-    toEnrich.map(async (pr) => {
-      // html_url: https://github.com/owner/repo/pull/123 → owner/repo
-      const match = pr.html_url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
-      if (!match) return pr
-      const [, repoPath, num] = match
-      const r = await fetch(`https://api.github.com/repos/${repoPath}/pulls/${num}`, { headers })
-      if (!r.ok) return pr
-      const detail = await r.json() as { body?: string | null; head?: { ref: string }; merged_at?: string | null }
-      return { ...pr, body: detail.body ?? pr.body, head: detail.head, merged_at: detail.merged_at }
-    })
-  )
-
-  const result = enriched.map((r, i) => r.status === 'fulfilled' ? r.value : toEnrich[i])
-  // append any PRs beyond the cap that weren't enriched
-  return [...result, ...all.slice(20)]
+  return enrichPRs(all, headers)
 }

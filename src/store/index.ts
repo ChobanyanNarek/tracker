@@ -6,7 +6,7 @@ import { getJiras, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
-import { fetchUserPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
+import { fetchUserPRs, fetchRepoPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
 import { isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
 
@@ -1685,9 +1685,7 @@ export const useStore = create<Store>((set, get) => {
           .map((d) => (conn.developerUsernames?.[d.id] ?? '').trim())
           .filter(Boolean)
 
-        console.info('[GitHub sync] devUsernames:', connDevUsernames, 'projectKeys:', projectKeys)
-        for (const username of connDevUsernames) {
-          const prs = await fetchUserPRs(username, conn.token, conn.orgOrUser)
+        const processPRs = (prs: Awaited<ReturnType<typeof fetchUserPRs>>) => {
           for (const pr of prs) {
             const keys = extractGithubJiraKeys(pr, projectKeys)
             console.info('[GitHub sync] PR:', pr.html_url, 'title:', pr.title, 'branch:', pr.head?.ref, 'keys:', keys)
@@ -1730,6 +1728,14 @@ export const useStore = create<Store>((set, get) => {
               else updated++
             }
           }
+        }
+
+        console.info('[GitHub sync] devUsernames:', connDevUsernames, 'projectKeys:', projectKeys)
+        for (const username of connDevUsernames) {
+          processPRs(await fetchUserPRs(username, conn.token, conn.orgOrUser))
+        }
+        for (const repo of (conn.repos ?? [])) {
+          processPRs(await fetchRepoPRs(repo.trim(), conn.token))
         }
         syncedConns.push({ ...conn, lastSync: new Date().toISOString() })
       }
