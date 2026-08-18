@@ -131,24 +131,20 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Needs <code>repo</code> (or <code>public_repo</code>) scope for PR search</div>
       </div>
 
-      {/* repos */}
-      <div>
-        <span style={labelStyle}>Repos to watch (one per line, e.g. <code style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>myorg/myrepo</code>)</span>
-        <textarea
-          style={{ ...inputStyle, height: 56, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 11 }}
-          placeholder={'mabrook-ai/expert-back\nmyorg/frontend'}
-          value={(conn.repos ?? []).join('\n')}
-          onChange={(e) => patch('repos', e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
-        />
-        <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>All PRs from these repos are scanned regardless of author</div>
-      </div>
-
-      {/* org or user + sync interval */}
+      {/* repos + sync interval */}
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 2 }}>
-          <span style={labelStyle}>Org or user (optional, for scoping author search)</span>
-          <input style={inputStyle} placeholder="mycompany" value={conn.orgOrUser} onChange={(e) => patch('orgOrUser', e.target.value)} />
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Restricts per-author PR search to this GitHub org</div>
+          <span style={labelStyle}>
+            Repos to watch
+            {conn.repos?.length ? null : <span style={{ fontWeight: 400, color: 'var(--text3)', marginLeft: 4 }}>(one per line)</span>}
+          </span>
+          <textarea
+            style={{ ...inputStyle, height: 54, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 11 }}
+            placeholder={'myorg/backend\nmyorg/frontend'}
+            value={(conn.repos ?? []).join('\n')}
+            onChange={(e) => patch('repos', e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
+          />
+          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>All PRs from these repos are scanned regardless of author</div>
         </div>
         <div style={{ flex: 1 }}>
           <span style={labelStyle}>Auto-sync</span>

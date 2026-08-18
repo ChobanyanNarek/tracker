@@ -1648,11 +1648,9 @@ export const useStore = create<Store>((set, get) => {
     setGithubConnections: (githubConnections) => set((s) => withSave({ ...s, githubConnections })),
 
     syncGithub: async () => {
-      const { githubConnections, jiraConnections, tasks, developers, projects } = get()
+      const { githubConnections, jiraConnections, tasks, developers } = get()
       const enabledConns = githubConnections.filter((c) => c.enabled && c.token)
       if (!enabledConns.length) throw new Error('No GitHub connections configured')
-      // Collect repos from all projects — these are synced on every enabled connection
-      const projectRepos = [...new Set(projects.flatMap((p) => p.githubRepos ?? []).map((r) => r.trim()).filter(Boolean))]
 
       // All external timestamps are recorded in the user's local timezone.
       const tz = resolveTrackerTz()
@@ -1736,8 +1734,7 @@ export const useStore = create<Store>((set, get) => {
         for (const username of connDevUsernames) {
           processPRs(await fetchUserPRs(username, conn.token, conn.orgOrUser))
         }
-        const allRepos = [...new Set([...(conn.repos ?? []), ...projectRepos])]
-        for (const repo of allRepos) {
+        for (const repo of (conn.repos ?? [])) {
           processPRs(await fetchRepoPRs(repo.trim(), conn.token))
         }
         syncedConns.push({ ...conn, lastSync: new Date().toISOString() })

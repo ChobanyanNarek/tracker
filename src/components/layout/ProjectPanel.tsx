@@ -232,7 +232,6 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
   const [editMode, setEditMode] = useState<'kanban' | 'scrum'>('kanban')
   const [editJiraBoardId, setEditJiraBoardId] = useState('')
   const [editJiraConnectionId, setEditJiraConnectionId] = useState('')
-  const [editGithubRepos, setEditGithubRepos] = useState('')
   const [boards, setBoards] = useState<JiraBoardInfo[]>([])
   const [loadingBoards, setLoadingBoards] = useState(false)
   const [resolvingBoard, setResolvingBoard] = useState(false)
@@ -299,7 +298,6 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
     setEditMode(p.mode ?? 'kanban')
     setEditJiraBoardId(p.jiraBoardId != null ? String(p.jiraBoardId) : '')
     setEditJiraConnectionId(p.jiraConnectionId ?? '')
-    setEditGithubRepos((p.githubRepos ?? []).join('\n'))
     setShowDevForm(false); setSchedulingId(null); setArchivingId(null)
   }
 
@@ -315,7 +313,6 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
       nonWorkingDays: editNonWorkingDays, mode: editMode,
       jiraBoardId: boardId,
       jiraConnectionId: connId,
-      githubRepos: editGithubRepos.split('\n').map(r => r.trim()).filter(Boolean),
     })
 
     // Resolve the EXACT issue keys on this board so display filtering is precise
@@ -587,18 +584,6 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                     ) : (
                       <input style={field} value={editJiraBoardId} onChange={e => setEditJiraBoardId(e.target.value)} placeholder="Board ID" type="number" />
                     )}
-                  </div>
-                )}
-                {githubConnections.some(c => c.enabled) && (
-                  <div style={section}>
-                    <label style={label}>GitHub repos (one per line)</label>
-                    <textarea
-                      style={{ ...field, height: 54, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 11 }}
-                      placeholder={'myorg/backend\nmyorg/frontend'}
-                      value={editGithubRepos}
-                      onChange={e => setEditGithubRepos(e.target.value)}
-                    />
-                    <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>All PRs from these repos will sync to this project's issues</div>
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>

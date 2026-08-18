@@ -184,7 +184,6 @@ export interface Project {
   jiraConnectionId?: string  // links this project to a specific Jira connection
   boardProjectKeys?: string[]  // Jira project key prefixes the selected board covers (e.g. ['COM']); resolved when board is saved. Empty array = board resolved but has no issues.
   boardIssueKeys?: string[]    // EXACT Jira issue keys on the selected board (e.g. ['COM-826','COM-813']); the accurate board-membership signal. Resolved on board save and refreshed each sync.
-  githubRepos?: string[]       // GitHub repo slugs for this project, e.g. ["myorg/backend", "myorg/frontend"]
 }
 
 export interface DeadlineItem {
