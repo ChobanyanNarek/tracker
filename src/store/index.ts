@@ -1685,10 +1685,12 @@ export const useStore = create<Store>((set, get) => {
           .map((d) => (conn.developerUsernames?.[d.id] ?? '').trim())
           .filter(Boolean)
 
+        console.info('[GitHub sync] devUsernames:', connDevUsernames, 'projectKeys:', projectKeys)
         for (const username of connDevUsernames) {
           const prs = await fetchUserPRs(username, conn.token, conn.orgOrUser)
           for (const pr of prs) {
             const keys = extractGithubJiraKeys(pr, projectKeys)
+            console.info('[GitHub sync] PR:', pr.html_url, 'title:', pr.title, 'branch:', pr.head?.ref, 'keys:', keys)
             if (!keys.length) continue
             const { date: pushDate, time: pushTime } = toLocalParts(new Date(pr.created_at))
             const isMerged = !!(pr.merged_at ?? pr.pull_request?.merged_at)
