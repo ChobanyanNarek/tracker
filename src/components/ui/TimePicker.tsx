@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 
 interface TimePickerProps {
   value: string // "HH:MM"
@@ -7,206 +7,69 @@ interface TimePickerProps {
   style?: React.CSSProperties
 }
 
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
-const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'))
-
-// Normalize free-typed input into "HH:MM" (24h), or '' when incomplete/invalid.
-// Accepts "9", "930", "9:30", "0930", "9 30" etc.
+// Accepts: "9", "930", "19", "1900", "9:30", "9 30", "09:30" etc.
 function normalizeTime(raw: string): string | null {
-  const digits = raw.replace(/[^0-9]/g, '')
-  if (!digits) return ''
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  const digits = trimmed.replace(/[^0-9]/g, '')
+  if (!digits) return null
   let h: number, m: number
-  if (digits.length <= 2) { h = parseInt(digits, 10); m = 0 }
-  else if (digits.length === 3) { h = parseInt(digits.slice(0, 1), 10); m = parseInt(digits.slice(1), 10) }
-  else { h = parseInt(digits.slice(0, 2), 10); m = parseInt(digits.slice(2, 4), 10) }
+  if (digits.length <= 2) {
+    h = parseInt(digits, 10); m = 0
+  } else if (digits.length === 3) {
+    h = parseInt(digits.slice(0, 1), 10); m = parseInt(digits.slice(1), 10)
+  } else {
+    h = parseInt(digits.slice(0, 2), 10); m = parseInt(digits.slice(2, 4), 10)
+  }
   if (isNaN(h) || isNaN(m) || h > 23 || m > 59) return null
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
-export default function TimePicker({ value, onChange, placeholder = '--:--', style }: TimePickerProps) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLInputElement>(null)
-  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({})
-  const hourRef = useRef<HTMLDivElement>(null)
-  const minRef = useRef<HTMLDivElement>(null)
-
-  // Local text buffer so the user can type freely; committed on blur/Enter.
+export default function TimePicker({ value, onChange, placeholder = 'hh:mm', style }: TimePickerProps) {
   const [draft, setDraft] = useState(value)
-  useEffect(() => { setDraft(value) }, [value])
+  const [invalid, setInvalid] = useState(false)
 
-  const commitDraft = () => {
+  useEffect(() => { setDraft(value); setInvalid(false) }, [value])
+
+  const commit = () => {
     const norm = normalizeTime(draft)
-    if (norm === null) { setDraft(value); return } // invalid → revert
-    onChange(norm)
-    setDraft(norm)
-  }
-
-  const [selHour, selMin] = value ? value.split(':') : ['', '']
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    if (norm === null) {
+      setInvalid(true)
+      setTimeout(() => { setDraft(value); setInvalid(false) }, 600)
+    } else {
+      setInvalid(false)
+      onChange(norm)
+      setDraft(norm)
     }
-    setTimeout(() => document.addEventListener('mousedown', handler), 10)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return
-    const rect = triggerRef.current.getBoundingClientRect()
-    const popupW = 148
-    const popupH = 220
-    const goUp = window.innerHeight - rect.bottom < popupH
-    const goLeft = rect.left + popupW > window.innerWidth - 8
-    const top = goUp ? rect.top - popupH - 4 : rect.bottom + 4
-    const left = goLeft
-      ? Math.max(8, rect.right - popupW)
-      : Math.min(rect.left, window.innerWidth - popupW - 8)
-    setPopupStyle({ position: 'fixed', top, left, zIndex: 9999 })
-    // Scroll selected into view
-    setTimeout(() => {
-      if (hourRef.current) {
-        const active = hourRef.current.querySelector('[data-active="true"]') as HTMLElement | null
-        if (active) hourRef.current.scrollTop = active.offsetTop - 40
-      }
-      if (minRef.current) {
-        const active = minRef.current.querySelector('[data-active="true"]') as HTMLElement | null
-        if (active) minRef.current.scrollTop = active.offsetTop - 40
-      }
-    }, 0)
-  }, [open])
-
-  const select = (h: string, m: string) => {
-    onChange(`${h}:${m}`)
   }
-
-  const colStyle: React.CSSProperties = {
-    overflowY: 'auto',
-    height: 180,
-    flex: 1,
-    scrollbarWidth: 'none',
-  }
-
-  const itemStyle = (active: boolean): React.CSSProperties => ({
-    padding: '7px 0',
-    textAlign: 'center',
-    fontFamily: 'var(--mono)',
-    fontSize: 13,
-    fontWeight: active ? 700 : 400,
-    color: active ? '#fff' : 'var(--text2)',
-    background: active ? 'var(--accent)' : 'transparent',
-    borderRadius: 7,
-    cursor: 'pointer',
-    transition: 'background .1s, color .1s',
-    margin: '1px 4px',
-  })
 
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block', ...style }}>
-      <div style={{ position: 'relative', display: 'inline-block' }}>
-        <input
-          ref={triggerRef}
-          value={draft}
-          placeholder={placeholder}
-          onChange={(e) => setDraft(e.target.value)}
-          onFocus={() => setOpen(true)}
-          onBlur={commitDraft}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { commitDraft(); setOpen(false); (e.target as HTMLInputElement).blur() }
-            else if (e.key === 'Escape') { setDraft(value); setOpen(false); (e.target as HTMLInputElement).blur() }
-          }}
-          inputMode="numeric"
-          style={{
-            fontFamily: 'var(--mono)',
-            fontSize: 11,
-            color: value ? 'var(--text)' : 'var(--text3)',
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 6,
-            padding: '3px 26px 3px 8px',
-            outline: 'none',
-            whiteSpace: 'nowrap',
-            minWidth: 72,
-            width: 72,
-            boxSizing: 'border-box',
-            textAlign: 'left',
-          }}
-        />
-        <svg
-          onClick={() => { setOpen((o) => !o); triggerRef.current?.focus() }}
-          width="12" height="12" viewBox="0 0 16 16" fill="none"
-          style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, cursor: 'pointer', color: 'var(--text3)' }}
-        >
-          <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5"/>
-          <path d="M8 5v3.5l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </div>
-
-      {open && (
-        <div style={{
-          ...popupStyle,
+    <div style={{ position: 'relative', display: 'inline-block', ...style }}>
+      <input
+        value={draft}
+        placeholder={placeholder}
+        onChange={(e) => { setDraft(e.target.value); setInvalid(false) }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur() }
+          else if (e.key === 'Escape') { setDraft(value); setInvalid(false); (e.target as HTMLInputElement).blur() }
+        }}
+        inputMode="numeric"
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 11,
+          color: invalid ? '#ef4444' : value ? 'var(--text)' : 'var(--text3)',
           background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 12,
-          boxShadow: 'var(--shadow)',
-          width: 148,
-          padding: '8px 0',
-          userSelect: 'none',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 0,
-        }}>
-          {/* header */}
-          <div style={{ display: 'flex', fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px', padding: '0 8px 6px', borderBottom: '1px solid var(--border)', gap: 0 }}>
-            <div style={{ flex: 1, textAlign: 'center' }}>Hour</div>
-            <div style={{ flex: 1, textAlign: 'center' }}>Min</div>
-          </div>
-
-          <div style={{ display: 'flex', flex: 1, gap: 0 }}>
-            {/* Hours column */}
-            <div ref={hourRef} style={{ ...colStyle, borderRight: '1px solid var(--border)' }}>
-              {HOURS.map((h) => (
-                <div
-                  key={h}
-                  data-active={h === selHour}
-                  onClick={() => select(h, selMin || '00')}
-                  style={itemStyle(h === selHour)}
-                >
-                  {h}
-                </div>
-              ))}
-            </div>
-
-            {/* Minutes column */}
-            <div ref={minRef} style={colStyle}>
-              {MINUTES.map((m) => (
-                <div
-                  key={m}
-                  data-active={m === selMin}
-                  onClick={() => select(selHour || '00', m)}
-                  style={itemStyle(m === selMin)}
-                >
-                  {m}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* clear */}
-          {value && (
-            <div style={{ borderTop: '1px solid var(--border)', padding: '6px 0 2px', textAlign: 'center' }}>
-              <button
-                onClick={() => { onChange(''); setOpen(false) }}
-                style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
-              >
-                Clear
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+          border: `1px solid ${invalid ? '#ef4444' : 'var(--border)'}`,
+          borderRadius: 6,
+          padding: '3px 8px',
+          outline: 'none',
+          minWidth: 54,
+          width: 54,
+          boxSizing: 'border-box',
+          transition: 'border-color .15s, color .15s',
+        }}
+      />
     </div>
   )
 }
