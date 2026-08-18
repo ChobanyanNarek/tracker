@@ -1691,7 +1691,8 @@ export const useStore = create<Store>((set, get) => {
             const keys = extractGithubJiraKeys(pr, projectKeys)
             if (!keys.length) continue
             const { date: pushDate, time: pushTime } = toLocalParts(new Date(pr.created_at))
-            prUrlToStatus.set(pr.html_url, pr.pull_request?.merged_at ? 'done' : 'review')
+            const isMerged = !!(pr.merged_at ?? pr.pull_request?.merged_at)
+            prUrlToStatus.set(pr.html_url, isMerged ? 'done' : 'review')
 
             const keySet = new Set(keys)
             const keyRes = keys.map((key) => new RegExp(`(^|[^A-Za-z0-9])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`, 'i'))
