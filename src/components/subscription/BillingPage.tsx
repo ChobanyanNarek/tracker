@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { jsPDF } from 'jspdf'
 import { getUserInfo } from '../../utils/auth'
 import {
   getSubscriptionStatus,
@@ -37,6 +38,105 @@ function maskCard(card: string | null) {
   if (!card) return '—'
   const clean = card.replace(/\s/g, '')
   return clean.length >= 4 ? `•••• ${clean.slice(-4)}` : card
+}
+
+function downloadReceipt(p: PaymentRecord, userEmail: string | null | undefined, userName: string) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const W = 210
+  const gray = '#6b7280'
+  const dark = '#111827'
+
+  // Header band
+  doc.setFillColor(17, 24, 39)
+  doc.rect(0, 0, W, 36, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(18)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Progressor', 14, 15)
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(180, 180, 180)
+  doc.text('Payment Receipt', 14, 22)
+  doc.text('progressor.work', 14, 28)
+
+  // Receipt number + date top-right
+  doc.setTextColor(180, 180, 180)
+  doc.setFontSize(8)
+  doc.text(`Receipt #${String(p.orderId).slice(-6).toUpperCase()}`, W - 14, 15, { align: 'right' })
+  doc.text(fmt(p.completedAt ?? p.createdAt), W - 14, 21, { align: 'right' })
+
+  // Status badge
+  const statusLabel = p.status.charAt(0).toUpperCase() + p.status.slice(1).toLowerCase()
+  doc.setFillColor(34, 197, 94)
+  doc.roundedRect(W - 38, 26, 24, 6, 2, 2, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'bold')
+  doc.text(statusLabel, W - 26, 30.2, { align: 'center' })
+
+  // Bill To section
+  let y = 52
+  doc.setTextColor(gray)
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.text('BILL TO', 14, y)
+  y += 6
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(dark)
+  doc.setFontSize(10)
+  doc.text(userName || 'Customer', 14, y)
+  if (userEmail) { y += 5; doc.setFontSize(9); doc.setTextColor(gray); doc.text(userEmail, 14, y) }
+
+  // Payment details table
+  y += 14
+  doc.setDrawColor(229, 231, 235)
+  doc.setLineWidth(0.3)
+  doc.line(14, y, W - 14, y)
+  y += 8
+
+  const row = (label: string, value: string) => {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(gray)
+    doc.text(label, 14, y)
+    doc.setTextColor(dark)
+    doc.setFont('helvetica', 'bold')
+    doc.text(value, W - 14, y, { align: 'right' })
+    y += 7
+  }
+
+  row('Description', 'Progressor Monthly Subscription')
+  row('Payment ID', p.paymentId?.toUpperCase().slice(0, 18) ?? '—')
+  row('Order ID', String(p.orderId))
+  row('Date', fmt(p.completedAt ?? p.createdAt))
+  if (p.cardNumber) row('Card', maskCard(p.cardNumber))
+
+  // Total line
+  y += 2
+  doc.line(14, y, W - 14, y)
+  y += 10
+  doc.setFontSize(11)
+  doc.setTextColor(gray)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Total Paid', 14, y)
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(17, 24, 39)
+  doc.text(`${Number(p.amount).toLocaleString()} ${p.currency}`, W - 14, y, { align: 'right' })
+
+  // Footer
+  y = 270
+  doc.setDrawColor(229, 231, 235)
+  doc.line(14, y, W - 14, y)
+  y += 6
+  doc.setFontSize(7.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(gray)
+  doc.text('Thank you for your subscription to Progressor.', W / 2, y, { align: 'center' })
+  y += 4
+  doc.text('For support: support@progressor.work', W / 2, y, { align: 'center' })
+
+  doc.save(`progressor-receipt-${String(p.orderId).slice(-6)}.pdf`)
 }
 
 export default function BillingPage({ onClose }: Props) {
@@ -186,6 +286,16 @@ export default function BillingPage({ onClose }: Props) {
                       </div>
                     </div>
 
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                    {p.status.toLowerCase() === 'completed' && (
+                      <button
+                        onClick={() => downloadReceipt(p, user?.email, displayName)}
+                        title="Download receipt"
+                        style={{ padding: '5px 10px', borderRadius: 7, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+                      >
+                        ↓ Receipt
+                      </button>
+                    )}
                     {p.status.toLowerCase() === 'completed' && (
                       refundConfirm === p.paymentId ? (
                         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -212,6 +322,7 @@ export default function BillingPage({ onClose }: Props) {
                         </button>
                       )
                     )}
+                    </div>
                   </div>
                 ))}
               </div>
