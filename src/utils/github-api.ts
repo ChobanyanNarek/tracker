@@ -28,8 +28,9 @@ function keysFromText(text: string, projectKeys: string[]): string[] {
 }
 
 export function extractJiraKeys(pr: GitHubPR, projectKeys: string[] = []): string[] {
-  // search title, body, and branch name (head ref) for Jira keys
-  const texts = [pr.title, pr.body ?? '', pr.head?.ref ?? ''].filter(Boolean).join(' ')
+  // Only use title and branch name — body is unreliable on stacked/merged PRs
+  // (it contains commit messages from base branches, producing false key matches)
+  const texts = [pr.title, pr.head?.ref ?? ''].filter(Boolean).join(' ')
   return keysFromText(texts, projectKeys)
 }
 
