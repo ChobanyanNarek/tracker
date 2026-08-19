@@ -34,7 +34,7 @@ export function extractJiraKeys(pr: GitHubPR, projectKeys: string[] = []): strin
 }
 
 async function enrichPRs(prs: GitHubPR[], headers: HeadersInit): Promise<GitHubPR[]> {
-  const toEnrich = prs.slice(0, 20)
+  const toEnrich = prs.slice(0, 100)
   const enriched = await Promise.allSettled(
     toEnrich.map(async (pr) => {
       const match = pr.html_url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
@@ -79,25 +79,35 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
   if (!repos.length) throw new Error(`GitHub: "${org}" is neither a readable org nor user — check the name and token`)
   console.info(`[GitHub sync] found ${repos.length} repos in ${org}`)
 
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   const byId = new Map<number, GitHubPR>()
 
+  // Use REST PRs API directly (more reliable + better rate limits than Search API)
   for (const repoSlug of repos) {
-    const queries = [
-      `is:pr+repo:${repoSlug}+state:open`,
-      `is:pr+repo:${repoSlug}+is:merged+merged:>${thirtyDaysAgo}`,
-    ]
-    for (const q of queries) {
-      const res = await fetch(`https://api.github.com/search/issues?q=${q}&per_page=100`, { headers })
-      if (!res.ok) continue
-      const data = await res.json() as { items: GitHubPR[] }
-      for (const item of data.items) byId.set(item.id, item)
+    for (const state of ['open', 'closed'] as const) {
+      let page = 1
+      while (page <= 5) {
+        const res = await fetch(`https://api.github.com/repos/${repoSlug}/pulls?state=${state}&per_page=100&page=${page}&sort=updated&direction=desc`, { headers })
+        if (!res.ok) break
+        const batch = await res.json() as (GitHubPR & { merged_at?: string | null })[]
+        let done = false
+        for (const pr of batch) {
+          // For closed PRs, skip unmerged and those older than 30 days
+          if (state === 'closed') {
+            if (!pr.merged_at) continue
+            if (new Date(pr.merged_at) < thirtyDaysAgo) { done = true; break }
+          }
+          byId.set(pr.id, pr)
+        }
+        if (batch.length < 100 || done) break
+        page++
+      }
     }
   }
 
   const all = [...byId.values()]
-  console.info(`[GitHub sync] fetched ${all.length} PRs from org ${org}, enriching details…`)
-  return enrichPRs(all, headers)
+  console.info(`[GitHub sync] fetched ${all.length} PRs from org ${org}`)
+  return all
 }
 
 export async function fetchUserPRs(username: string, token: string, orgOrUser?: string): Promise<GitHubPR[]> {
