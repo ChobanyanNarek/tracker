@@ -1750,20 +1750,44 @@ export const useStore = create<Store>((set, get) => {
         }
       }
 
+      // Build a map of github PR url → issue keys it actually matches, for stale-link removal
+      const prUrlToKeys = new Map<string, Set<string>>()
+      for (const pr of allPRs) {
+        const keys = extractGithubJiraKeys(pr, projectKeys)
+        if (keys.length) prUrlToKeys.set(pr.html_url, new Set(keys.map((k) => k.toUpperCase())))
+      }
+      // All GitHub PR urls fetched this sync
+      const fetchedGithubUrls = new Set(allPRs.map((p) => p.html_url))
+
       set((s) => withSave({
         ...s,
         tasks: s.tasks.map((t) => {
           const taskPatch = prPatches.get(t.id)
-          if (!taskPatch) return t
           let changed = false
           const jiras = (t.jiras ?? []).map((j) => {
             const identity = j.issueId ?? (j.url || null)
-            if (!identity) return j
-            const newPrs = taskPatch.get(identity)
-            if (!newPrs?.length) return j
-            const existingUrls = new Set((j.prs ?? []).map((p) => p.url))
+            const issueKey = (() => {
+              if (j.issueId) return j.issueId.toUpperCase()
+              const k = jiraDedupeKey(j.url, j.name)
+              return k && k !== 'name:' ? k.toUpperCase() : null
+            })()
+
+            // Remove stale GitHub PR links: fetched this sync but key doesn't match this issue
+            const filteredPrs = (j.prs ?? []).filter((p) => {
+              if (!p.url.includes('github.com')) return true  // keep non-GitHub links always
+              if (!fetchedGithubUrls.has(p.url)) return true  // not fetched = keep (might be from outside org)
+              if (!issueKey) return true  // no key to check against = keep
+              const prKeys = prUrlToKeys.get(p.url)
+              return !prKeys || prKeys.has(issueKey)  // keep only if PR actually mentions this issue
+            })
+            if (filteredPrs.length !== (j.prs ?? []).length) changed = true
+
+            if (!identity) return changed ? { ...j, prs: filteredPrs } : j
+            const newPrs = taskPatch?.get(identity)
+            if (!newPrs?.length) return changed ? { ...j, prs: filteredPrs } : j
+            const existingUrls = new Set(filteredPrs.map((p) => p.url))
             const toAdd = newPrs.filter((p) => !existingUrls.has(p.url))
-            if (!toAdd.length) return j
+            if (!toAdd.length) return changed ? { ...j, prs: filteredPrs } : j
             changed = true
             let newStatus = j.status
             for (const p of toAdd) {
@@ -1771,7 +1795,7 @@ export const useStore = create<Store>((set, get) => {
               if (st === 'done') { newStatus = 'done'; break }
               if (st === 'review' && newStatus !== 'done' && newStatus !== 'blocked') newStatus = 'review'
             }
-            return { ...j, prs: [...(j.prs ?? []), ...toAdd], status: newStatus }
+            return { ...j, prs: [...filteredPrs, ...toAdd], status: newStatus }
           })
           return changed ? { ...t, jiras } : t
         }),
