@@ -7,6 +7,7 @@ import ProjectSelector from './ProjectSelector'
 
 import DataDropdown from './DataDropdown'
 import ProfileModal from '../modals/ProfileModal'
+import BillingPage from '../subscription/BillingPage'
 import Icon from '../ui/Icon'
 
 interface TopBarProps {
@@ -100,6 +101,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
   const { setNotifsEnabled, notifsEnabled, setView, setSelectedDate, searchQuery, setSearchQuery } = useStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
+  const [billingOpen, setBillingOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
   const user = getUserInfo()
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
@@ -226,6 +228,17 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
             Admin Panel
           </button>
         )}
+        <button
+          onClick={() => { setProfileOpen(false); setBillingOpen(true) }}
+          style={{ width: '100%', padding: '9px 16px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 10, transition: 'background .12s' }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface2)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+        >
+          <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--surface3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--text2)' }}>
+            <Icon name="billing" size={13} />
+          </div>
+          Account & Billing
+        </button>
         <div style={{ height: 1, background: 'var(--border)', margin: '3px 0' }} />
         <button
           onClick={handleSignOut}
@@ -294,6 +307,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
         </div>
       </div>
       {profileModalOpen && <ProfileModal onClose={() => setProfileModalOpen(false)} />}
+      {billingOpen && <BillingPage onClose={() => setBillingOpen(false)} />}
       </>
     )
   }

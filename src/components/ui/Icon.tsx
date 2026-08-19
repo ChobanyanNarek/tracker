@@ -18,7 +18,7 @@ export type IconName =
   | 'check' | 'copy' | 'message' | 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
   | 'edit' | 'database' | 'download' | 'upload' | 'jira'
   | 'briefcase' | 'palm' | 'sun' | 'thermometer' | 'party' | 'flag' | 'timeline'
-  | 'notes' | 'pin' | 'star' | 'ban'
+  | 'notes' | 'pin' | 'star' | 'ban' | 'billing'
 
 // Brand colors — single source of truth (was duplicated across 3 files with divergent values)
 export const BRAND = {
@@ -97,6 +97,7 @@ const PATHS: Record<IconName, JSX.Element> = {
   pin: <><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 2h6l-1 7 3 3v2H7v-2l3-3-1-7z"/></>,
   star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   ban: <><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></>,
+  billing: <><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></>,
 }
 
 // Brand logo shapes (fill-based)

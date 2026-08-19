@@ -56,3 +56,35 @@ export async function getSubscriptionStatus(): Promise<PaymentStatus | null> {
     return res.json() as Promise<PaymentStatus>
   } catch { return null }
 }
+
+export interface PaymentRecord {
+  id: string
+  orderId: string
+  paymentId: string | null
+  amount: number
+  currency: string
+  status: string
+  cardNumber: string | null
+  cardHolderName: string | null
+  completedAt: string | null
+  subscriptionUntil: string | null
+  createdAt: string
+}
+
+export async function getPaymentHistory(): Promise<PaymentRecord[]> {
+  try {
+    const res = await fetch(`${API_URL}/payment/history`, { headers: authHeaders() })
+    if (!res.ok) return []
+    return res.json() as Promise<PaymentRecord[]>
+  } catch { return [] }
+}
+
+export async function refundPayment(paymentId: string): Promise<{ ok: boolean; message?: string }> {
+  const res = await fetch(`${API_URL}/payment/refund/${paymentId}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const body = await res.json().catch(() => ({})) as { ok?: boolean; message?: string }
+  if (!res.ok) throw new Error(body.message ?? 'Refund failed')
+  return body as { ok: boolean; message?: string }
+}
