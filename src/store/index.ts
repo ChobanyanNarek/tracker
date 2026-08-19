@@ -1706,12 +1706,14 @@ export const useStore = create<Store>((set, get) => {
 
       const prPatches = new Map<string, Map<string, PrEntry[]>>()
       const prUrlToStatus = new Map<string, JiraIssue['status']>()
+      const prUrlToKeys = new Map<string, Set<string>>()  // url → matched issue keys (uppercase)
       let linked = 0
       let updated = 0
 
       for (const pr of allPRs) {
         const keys = extractGithubJiraKeys(pr, projectKeys)
         console.info('[GitHub sync] PR:', pr.html_url, 'title:', pr.title, 'branch:', pr.head?.ref, 'keys:', keys)
+        prUrlToKeys.set(pr.html_url, new Set(keys.map((k) => k.toUpperCase())))
         if (!keys.length) continue
         const { date: pushDate, time: pushTime } = toLocalParts(new Date(pr.created_at))
         const isMerged = !!(pr.merged_at ?? pr.pull_request?.merged_at)
@@ -1750,12 +1752,6 @@ export const useStore = create<Store>((set, get) => {
         }
       }
 
-      // Build a map of github PR url → issue keys it actually matches, for stale-link removal
-      const prUrlToKeys = new Map<string, Set<string>>()
-      for (const pr of allPRs) {
-        const keys = extractGithubJiraKeys(pr, projectKeys)
-        if (keys.length) prUrlToKeys.set(pr.html_url, new Set(keys.map((k) => k.toUpperCase())))
-      }
       // All GitHub PR urls fetched this sync
       const fetchedGithubUrls = new Set(allPRs.map((p) => p.html_url))
 
