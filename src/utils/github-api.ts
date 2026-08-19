@@ -80,7 +80,7 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
     for (const scope of ['orgs', 'users'] as const) {
       let page = 1
       while (true) {
-        const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?per_page=100&page=${page}`, { headers })
+        const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100&page=${page}`, { headers })
         lastStatus = res.status
         if (!res.ok) {
           lastMsg = await res.text().catch(() => res.statusText)
@@ -96,7 +96,9 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
     if (!repos.length) {
       if (lastStatus === 401) throw new Error('GitHub 401: token invalid or expired — create a new PAT with repo scope')
       if (lastStatus === 403) throw new Error('GitHub 403: token does not have access to this org — check repo scope')
-      throw new Error(`GitHub: "${owner}" not found (${lastStatus}). Check the org name or paste the full URL from github.com. Details: ${lastMsg.slice(0, 200)}`)
+      // 200 + empty = org exists but token can only see 0 repos (private org, needs full `repo` scope)
+      // Fall through with empty repos — per-developer username fallback will still run
+      console.warn(`[GitHub sync] org "${owner}" returned 0 repos — token may need full "repo" scope for private repos`)
     }
   }
   console.info(`[GitHub sync] found ${repos.length} repos in ${owner}`)

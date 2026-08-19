@@ -73,8 +73,33 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     setTesting(true)
     setTestResult(null)
     try {
-      const prs = await fetchOrgPRs(conn.orgOrUser.trim(), conn.token.trim())
-      setTestResult({ ok: true, msg: `Connection successful ✓ — ${prs.length} PR${prs.length !== 1 ? 's' : ''} found` })
+      const { owner, repo: singleRepo } = normalizeGithubPath(conn.orgOrUser.trim())
+      const headers = {
+        Authorization: `Bearer ${conn.token.trim()}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      }
+      if (singleRepo) {
+        // Single repo — verify it exists and count open PRs
+        const res = await fetch(`https://api.github.com/repos/${singleRepo}/pulls?state=open&per_page=1`, { headers })
+        if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text().catch(() => res.statusText)}`)
+        setTestResult({ ok: true, msg: `Connection successful ✓ — repo ${singleRepo} is accessible` })
+      } else {
+        // Org/user — list repos
+        let repos: string[] = []
+        for (const scope of ['orgs', 'users'] as const) {
+          const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100`, { headers })
+          if (!res.ok) continue
+          const batch = await res.json() as { full_name: string }[]
+          repos = batch.map((r) => r.full_name)
+          if (repos.length) break
+        }
+        if (!repos.length) {
+          setTestResult({ ok: false, msg: `Token can see 0 repos under "${owner}". The token needs full "repo" scope (not just public_repo) to access private org repos. Go to github.com/settings/tokens and regenerate with repo scope.` })
+        } else {
+          setTestResult({ ok: true, msg: `Connection successful ✓ — ${repos.length} repo${repos.length !== 1 ? 's' : ''} found under ${owner}` })
+        }
+      }
     } catch (err) {
       setTestResult({ ok: false, msg: formatGithubError((err as Error).message) })
     }
