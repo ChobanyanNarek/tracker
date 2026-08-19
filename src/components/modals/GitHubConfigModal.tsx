@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
 import type { GitHubConfig } from '../../types'
-import { fetchOrgPRs } from '../../utils/github-api'
+import { fetchOrgPRs, normalizeGithubPath } from '../../utils/github-api'
 import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
 import Icon from '../ui/Icon'
@@ -104,13 +104,21 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         )}
       </div>
 
-      {/* org / user path */}
+      {/* org / repo path */}
       <div>
-        <span style={labelStyle}>Org / User name</span>
-        <input style={inputStyle} placeholder="mycompany or myusername" value={conn.orgOrUser} onChange={(e) => patch('orgOrUser', e.target.value)} />
-        {conn.orgOrUser.trim()
-          ? <div style={{ fontSize: 10, marginTop: 3, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>Will scan all repos under: <b>{conn.orgOrUser.trim()}</b></div>
-          : <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>The org or user in the GitHub URL: github.com/<b>mycompany</b></div>
+        <span style={labelStyle}>Org or Repo URL</span>
+        <input style={inputStyle} placeholder="https://github.com/mycompany or mycompany/myrepo" value={conn.orgOrUser} onChange={(e) => patch('orgOrUser', e.target.value)} />
+        {conn.orgOrUser.trim() ? (() => {
+          const { owner, repo } = normalizeGithubPath(conn.orgOrUser)
+          const normalized = repo ?? owner
+          const isFullUrl = conn.orgOrUser.trim().toLowerCase().startsWith('http')
+          return (
+            <div style={{ fontSize: 10, marginTop: 3, fontFamily: 'var(--mono)', color: isFullUrl ? '#f97316' : 'var(--text3)' }}>
+              Will use: <b>{normalized}</b> — {repo ? 'single repo' : 'all repos in org/user'}
+            </div>
+          )
+        })()
+          : <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Paste the GitHub org or repo URL, e.g. <b>https://github.com/mycompany</b></div>
         }
       </div>
 

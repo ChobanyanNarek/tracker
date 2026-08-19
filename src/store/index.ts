@@ -6,7 +6,7 @@ import { getJiras, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
-import { fetchUserPRs, fetchOrgPRs, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
+import { fetchUserPRs, fetchOrgPRs, normalizeGithubPath, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
 import { isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
 
@@ -1694,7 +1694,8 @@ export const useStore = create<Store>((set, get) => {
         }
 
         if (devUsernames.length > 0) {
-          const userPRs = await Promise.all(devUsernames.map((u) => fetchUserPRs(u, conn.token, conn.orgOrUser)))
+          const ownerScope = conn.orgOrUser.trim() ? normalizeGithubPath(conn.orgOrUser).owner : ''
+          const userPRs = await Promise.all(devUsernames.map((u) => fetchUserPRs(u, conn.token, ownerScope)))
           for (const prs of userPRs) for (const p of prs) prById.set(p.id, p)
         }
 

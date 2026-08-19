@@ -49,11 +49,20 @@ async function enrichPRs(prs: GitHubPR[], headers: HeadersInit): Promise<GitHubP
   return [...enriched.map((r, i) => r.status === 'fulfilled' ? r.value : toEnrich[i]), ...prs.slice(20)]
 }
 
-// Fetch ALL PRs from all repos in a GitHub org or user account (mirrors GitLab fetchGroupMRs)
+// Normalize a GitHub URL or path into { owner, repo? }
+// Accepts: https://github.com/myorg, https://github.com/myorg/myrepo, myorg, myorg/myrepo
+export function normalizeGithubPath(raw: string): { owner: string; repo?: string } {
+  const s = raw.replace(/^https?:\/\/github\.com\//i, '').replace(/\/$/, '').trim()
+  const parts = s.split('/')
+  return parts.length >= 2 ? { owner: parts[0], repo: parts.slice(0, 2).join('/') } : { owner: s }
+}
+
+// Fetch ALL PRs from all repos in a GitHub org/user, or a single repo (mirrors GitLab fetchGroupMRs)
 export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<GitHubPR[]> {
-  const org = orgOrUser.trim()
-  if (!org) throw new Error('Org / User path is empty — enter an org or user name (e.g. mycompany)')
+  if (!orgOrUser.trim()) throw new Error('GitHub path is empty — paste a GitHub org or repo URL (e.g. https://github.com/mycompany)')
   if (!token.trim()) throw new Error('Personal Access Token is empty')
+
+  const { owner, repo: singleRepo } = normalizeGithubPath(orgOrUser)
 
   const headers: HeadersInit = {
     Authorization: `Bearer ${token}`,
@@ -61,23 +70,27 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
     'X-GitHub-Api-Version': '2022-11-28',
   }
 
-  // Discover all repos in the org (try org first, then user)
+  // If a specific repo was given, use it directly; otherwise discover all repos in the org/user
   const repos: string[] = []
-  for (const scope of ['orgs', 'users'] as const) {
-    let page = 1
-    while (true) {
-      const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(org)}/repos?per_page=100&page=${page}`, { headers })
-      if (!res.ok) break
-      const batch = await res.json() as { full_name: string }[]
-      for (const r of batch) repos.push(r.full_name)
-      if (batch.length < 100) break
-      page++
+  if (singleRepo) {
+    repos.push(singleRepo)
+  } else {
+    for (const scope of ['orgs', 'users'] as const) {
+      let page = 1
+      while (true) {
+        const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?per_page=100&page=${page}`, { headers })
+        if (!res.ok) break
+        const batch = await res.json() as { full_name: string }[]
+        for (const r of batch) repos.push(r.full_name)
+        if (batch.length < 100) break
+        page++
+      }
+      if (repos.length) break
     }
-    if (repos.length) break
   }
 
-  if (!repos.length) throw new Error(`GitHub: "${org}" is neither a readable org nor user — check the name and token`)
-  console.info(`[GitHub sync] found ${repos.length} repos in ${org}`)
+  if (!repos.length) throw new Error(`GitHub: "${owner}" not found — paste the full org or repo URL from github.com`)
+  console.info(`[GitHub sync] found ${repos.length} repos in ${owner}`)
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   const byId = new Map<number, GitHubPR>()
@@ -106,7 +119,7 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
   }
 
   const all = [...byId.values()]
-  console.info(`[GitHub sync] fetched ${all.length} PRs from org ${org}`)
+  console.info(`[GitHub sync] fetched ${all.length} PRs from ${singleRepo ?? owner}`)
   return all
 }
 
