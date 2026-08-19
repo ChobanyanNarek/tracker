@@ -157,6 +157,15 @@ export async function adminRevokeSubscription(userId: string): Promise<boolean> 
   } catch { return false }
 }
 
+export async function adminRefundPayment(paymentId: string): Promise<{ ok: boolean; message?: string }> {
+  const res = await fetch(`${API_URL}/payment/refund/${paymentId}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const body = await res.json().catch(() => ({})) as { ok?: boolean; message?: string }
+  return { ok: res.ok && body.ok !== false, message: body.message }
+}
+
 export async function saveCloudState(data: Record<string, unknown>): Promise<boolean> {
   if (!getToken()) return false
   try {

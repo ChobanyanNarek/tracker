@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, adminGetPayments, adminGrantSubscription, adminRevokeSubscription, type AdminUser, type AdminPayment } from '../../utils/cloud-api'
+import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, adminGetPayments, adminGrantSubscription, adminRevokeSubscription, adminRefundPayment, type AdminUser, type AdminPayment } from '../../utils/cloud-api'
 import { clearToken } from '../../utils/auth'
 import ProfileModal from '../modals/ProfileModal'
 import Icon, { BRAND } from '../ui/Icon'
@@ -202,6 +202,8 @@ export default function AdminPage({ onBack: _onBack }: Props) {
   const [grantMonths, setGrantMonths] = useState('1')
   const [revokeTarget, setRevokeTarget] = useState<AdminUser | null>(null)
   const [busy, setBusy]              = useState(false)
+  const [refundConfirm, setRefundConfirm] = useState<string | null>(null)
+  const [refunding, setRefunding]    = useState<string | null>(null)
   const [isMobile, setIsMobile]      = useState(() => window.innerWidth < 768)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -366,7 +368,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                    {['User', 'Amount', 'Status', 'Card', 'Date', 'Sub Until'].map((h) => (
+                    {['User', 'Amount', 'Status', 'Card', 'Date', 'Sub Until', ''].map((h) => (
                       <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -388,6 +390,37 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                       </td>
                       <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
                         {p.subscriptionUntil ? p.subscriptionUntil.slice(0, 10) : '—'}
+                      </td>
+                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                        {p.status === 'completed' && (
+                          refundConfirm === p.paymentId ? (
+                            <div style={{ display: 'flex', gap: 5 }}>
+                              <button
+                                disabled={refunding === p.paymentId}
+                                onClick={async () => {
+                                  if (!p.paymentId) return
+                                  setRefunding(p.paymentId)
+                                  const res = await adminRefundPayment(p.paymentId)
+                                  setRefunding(null)
+                                  setRefundConfirm(null)
+                                  setToast({ msg: res.ok ? 'Refunded' : (res.message ?? 'Refund failed'), ok: res.ok })
+                                  if (res.ok) void loadPayments()
+                                }}
+                                style={{ padding: '4px 10px', borderRadius: 6, background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: refunding === p.paymentId ? 0.6 : 1 }}
+                              >
+                                {refunding === p.paymentId ? '…' : 'Yes'}
+                              </button>
+                              <button onClick={() => setRefundConfirm(null)} style={{ padding: '4px 8px', borderRadius: 6, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 11 }}>No</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setRefundConfirm(p.paymentId ?? null)}
+                              style={{ padding: '4px 10px', borderRadius: 6, background: 'var(--red-dim)', color: 'var(--red)', border: '1px solid var(--red-border)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                            >
+                              Refund
+                            </button>
+                          )
+                        )}
                       </td>
                     </tr>
                   ))}

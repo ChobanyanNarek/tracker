@@ -381,6 +381,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
       </div>
     </div>
     {profileModalOpen && <ProfileModal onClose={() => setProfileModalOpen(false)} />}
+    {billingOpen && <BillingPage onClose={() => setBillingOpen(false)} />}
     </>
   )
 }

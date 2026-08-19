@@ -5,7 +5,6 @@ import {
   getSubscriptionStatus,
   getPaymentHistory,
   initiatePayment,
-  refundPayment,
   type PaymentStatus,
   type PaymentRecord,
 } from '../../utils/payment-api'
@@ -145,9 +144,7 @@ export default function BillingPage({ onClose }: Props) {
   const [history, setHistory] = useState<PaymentRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [subscribing, setSubscribing] = useState(false)
-  const [refunding, setRefunding] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [refundConfirm, setRefundConfirm] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -171,23 +168,6 @@ export default function BillingPage({ onClose }: Props) {
     }
   }
 
-  async function handleRefund(paymentId: string) {
-    setRefunding(paymentId)
-    setError(null)
-    try {
-      const res = await refundPayment(paymentId)
-      if (!res.ok) {
-        setError(res.message ?? 'Refund failed')
-      } else {
-        await refresh()
-      }
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setRefunding(null)
-      setRefundConfirm(null)
-    }
-  }
 
   const active = status?.subscriptionActive ?? false
   const displayName = user ? ([user.firstName, user.lastName].filter(Boolean).join(' ') || user.email || 'Account') : 'Account'
@@ -286,43 +266,15 @@ export default function BillingPage({ onClose }: Props) {
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
                     {p.status.toLowerCase() === 'completed' && (
                       <button
                         onClick={() => downloadReceipt(p, user?.email, displayName)}
                         title="Download receipt"
-                        style={{ padding: '5px 10px', borderRadius: 7, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+                        style={{ padding: '5px 10px', borderRadius: 7, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}
                       >
                         ↓ Receipt
                       </button>
                     )}
-                    {p.status.toLowerCase() === 'completed' && (
-                      refundConfirm === p.paymentId ? (
-                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                          <button
-                            onClick={() => { if (p.paymentId) void handleRefund(p.paymentId) }}
-                            disabled={refunding === p.paymentId}
-                            style={{ padding: '5px 12px', borderRadius: 7, background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: refunding === p.paymentId ? 0.6 : 1 }}
-                          >
-                            {refunding === p.paymentId ? '…' : 'Yes, refund'}
-                          </button>
-                          <button
-                            onClick={() => setRefundConfirm(null)}
-                            style={{ padding: '5px 10px', borderRadius: 7, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12 }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setRefundConfirm(p.paymentId)}
-                          style={{ padding: '5px 12px', borderRadius: 7, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0 }}
-                        >
-                          Refund
-                        </button>
-                      )
-                    )}
-                    </div>
                   </div>
                 ))}
               </div>
