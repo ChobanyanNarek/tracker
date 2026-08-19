@@ -76,14 +76,12 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
     repos.push(singleRepo)
   } else {
     let lastStatus = 0
-    let lastMsg = ''
     for (const scope of ['orgs', 'users'] as const) {
       let page = 1
       while (true) {
         const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100&page=${page}`, { headers })
         lastStatus = res.status
         if (!res.ok) {
-          lastMsg = await res.text().catch(() => res.statusText)
           break
         }
         const batch = await res.json() as { full_name: string }[]

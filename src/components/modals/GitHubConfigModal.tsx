@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
 import type { GitHubConfig } from '../../types'
-import { fetchOrgPRs, normalizeGithubPath } from '../../utils/github-api'
+import { normalizeGithubPath } from '../../utils/github-api'
 import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
 import Icon from '../ui/Icon'
