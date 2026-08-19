@@ -1718,12 +1718,10 @@ export const useStore = create<Store>((set, get) => {
         prUrlToStatus.set(pr.html_url, isMerged ? 'done' : 'review')
 
         const keySet = new Set(keys)
-        const keyRes = keys.map((key) => new RegExp(`(^|[^A-Za-z0-9])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`, 'i'))
         const matchesIssue = (jira: JiraIssue) => {
           if (jira.issueId && keySet.has(jira.issueId.toUpperCase())) return true
           const k = jiraDedupeKey(jira.url, jira.name)
-          if (k && k !== 'name:' && keySet.has(k.toUpperCase())) return true
-          return keyRes.some((re) => re.test(jira.url ?? ''))
+          return !!(k && k !== 'name:' && keySet.has(k.toUpperCase()))
         }
 
         let matched = false
