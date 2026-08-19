@@ -186,11 +186,10 @@ function PayStatusPill({ status }: { status: AdminPayment['status'] }) {
 
 // ── Main component ─────────────────────────────────────────────────
 export default function AdminPage({ onBack: _onBack }: Props) {
-  const [tab, setTab]               = useState<'users' | 'payments'>('users')
   const [users, setUsers]           = useState<AdminUser[]>([])
-  const [payments, setPayments]     = useState<AdminPayment[]>([])
   const [loading, setLoading]       = useState(true)
-  const [payLoading, setPayLoading] = useState(false)
+  const [expandedUser, setExpandedUser] = useState<string | null>(null)
+  const [userPayments, setUserPayments] = useState<Record<string, AdminPayment[]>>({})
   const [toast, setToast]           = useState<{ msg: string; ok: boolean } | null>(null)
   const [deleteTarget, setDelTarget] = useState<AdminUser | null>(null)
   const [dataTarget, setDataTarget]  = useState<AdminUser | null>(null)
@@ -224,14 +223,18 @@ export default function AdminPage({ onBack: _onBack }: Props) {
     setLoading(false)
   }, [])
 
-  const loadPayments = useCallback(async () => {
-    setPayLoading(true)
-    setPayments(await adminGetPayments())
-    setPayLoading(false)
+  const loadUserPayments = useCallback(async (userId: string) => {
+    const all = await adminGetPayments()
+    const byUser: Record<string, AdminPayment[]> = {}
+    for (const p of all) {
+      if (!byUser[p.userId]) byUser[p.userId] = []
+      byUser[p.userId].push(p)
+    }
+    setUserPayments(byUser)
+    return byUser[userId] ?? []
   }, [])
 
   useEffect(() => { void load() }, [load])
-  useEffect(() => { if (tab === 'payments') void loadPayments() }, [tab, loadPayments])
 
   const handleLogout = () => {
     clearToken()
@@ -320,32 +323,13 @@ export default function AdminPage({ onBack: _onBack }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: `0 ${isMobile ? 16 : 24}px`, height: 54, borderBottom: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0, boxShadow: '0 1px 4px rgba(25,35,90,.07)' }}>
         <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 14px' }} />
         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>Admin Panel</span>
-        {!isMobile && !loading && tab === 'users' && (
+        {!isMobile && !loading && (
           <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>
             {users.length} user{users.length !== 1 ? 's' : ''}
           </span>
         )}
-        {/* Tab switcher */}
-        <div style={{ display: 'flex', gap: 2, margin: '0 16px', background: 'var(--surface2)', borderRadius: 8, padding: 3, border: '1px solid var(--border)' }}>
-          {(['users', 'payments'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{
-                padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600,
-                background: tab === t ? 'var(--surface)' : 'transparent',
-                color: tab === t ? 'var(--accent)' : 'var(--text3)',
-                boxShadow: tab === t ? '0 1px 4px rgba(25,35,90,.08)' : 'none',
-                transition: 'all .12s', textTransform: 'capitalize',
-              }}
-            >
-              {t === 'users' ? 'Users' : 'Payments'}
-            </button>
-          ))}
-        </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <HeaderBtn onClick={() => { if (tab === 'payments') void loadPayments(); else void load() }}><IcoRefresh /> {!isMobile && 'Refresh'}</HeaderBtn>
+          <HeaderBtn onClick={() => void load()}><IcoRefresh /> {!isMobile && 'Refresh'}</HeaderBtn>
           <HeaderBtn onClick={() => setSettingsOpen(true)}><IcoGear />{!isMobile && ' Settings'}</HeaderBtn>
           <HeaderBtn onClick={handleLogout}><IcoLogout />{!isMobile && ' Logout'}</HeaderBtn>
         </div>
@@ -353,85 +337,8 @@ export default function AdminPage({ onBack: _onBack }: Props) {
 
       {/* Body */}
       <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? 16 : 28 }}>
-        {/* ── Payments tab ── */}
-        {tab === 'payments' && (payLoading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, height: 240, color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
-            <Spinner /><span>Loading payments…</span>
-          </div>
-        ) : payments.length === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 240, color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
-            No payments yet
-          </div>
-        ) : (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 4px rgba(25,35,90,.07)' }}>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                    {['User', 'Amount', 'Status', 'Card', 'Date', 'Sub Until', ''].map((h) => (
-                      <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map((p, i) => (
-                    <tr key={p.id} style={{ borderBottom: i === payments.length - 1 ? 'none' : '1px solid rgba(222,225,237,.7)' }}>
-                      <td style={{ padding: '12px 16px' }}>
-                        <div style={{ fontWeight: 500, color: 'var(--text)', fontSize: 13 }}>{p.userName}</div>
-                        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{p.userEmail}</div>
-                      </td>
-                      <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                        {p.amount} {p.currency}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}><PayStatusPill status={p.status} /></td>
-                      <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{p.cardNumber ?? '—'}</td>
-                      <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
-                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}
-                      </td>
-                      <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
-                        {p.subscriptionUntil ? p.subscriptionUntil.slice(0, 10) : '—'}
-                      </td>
-                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                        {p.status === 'completed' && (
-                          refundConfirm === p.paymentId ? (
-                            <div style={{ display: 'flex', gap: 5 }}>
-                              <button
-                                disabled={refunding === p.paymentId}
-                                onClick={async () => {
-                                  if (!p.paymentId) return
-                                  setRefunding(p.paymentId)
-                                  const res = await adminRefundPayment(p.paymentId)
-                                  setRefunding(null)
-                                  setRefundConfirm(null)
-                                  setToast({ msg: res.ok ? 'Refunded' : (res.message ?? 'Refund failed'), ok: res.ok })
-                                  if (res.ok) void loadPayments()
-                                }}
-                                style={{ padding: '4px 10px', borderRadius: 6, background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: refunding === p.paymentId ? 0.6 : 1 }}
-                              >
-                                {refunding === p.paymentId ? '…' : 'Yes'}
-                              </button>
-                              <button onClick={() => setRefundConfirm(null)} style={{ padding: '4px 8px', borderRadius: 6, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 11 }}>No</button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setRefundConfirm(p.paymentId ?? null)}
-                              style={{ padding: '4px 10px', borderRadius: 6, background: 'var(--red-dim)', color: 'var(--red)', border: '1px solid var(--red-border)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-                            >
-                              Refund
-                            </button>
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
-
-        {/* ── Users tab ── */}
-        {tab === 'users' && (loading ? (
+        {/* ── Users ── */}
+        {loading ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, height: 240, color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
             <Spinner /><span>Loading users…</span>
           </div>
@@ -499,21 +406,85 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((u, i) => (
-                    <TableRow key={u.id} u={u} isLast={i === users.length - 1}
-                      onPhone={() => { setPhoneTarget(u); setNewPhone(u.phone ?? '') }}
-                      onPw={() => { setPwTarget(u); setNewPw('') }}
-                      onData={() => setDataTarget(u)}
-                      onDel={() => setDelTarget(u)}
-                      onGrant={() => { setGrantTarget(u); setGrantMonths('1') }}
-                      onRevoke={() => setRevokeTarget(u)}
-                    />
-                  ))}
+                  {users.map((u, i) => {
+                    const isExpanded = expandedUser === u.id
+                    const pList = userPayments[u.id] ?? []
+                    return (
+                      <>
+                        <TableRow key={u.id} u={u} isLast={i === users.length - 1 && !isExpanded}
+                          onPhone={() => { setPhoneTarget(u); setNewPhone(u.phone ?? '') }}
+                          onPw={() => { setPwTarget(u); setNewPw('') }}
+                          onData={() => setDataTarget(u)}
+                          onDel={() => setDelTarget(u)}
+                          onGrant={() => { setGrantTarget(u); setGrantMonths('1') }}
+                          onRevoke={() => setRevokeTarget(u)}
+                          onPayments={async () => {
+                            if (isExpanded) { setExpandedUser(null); return }
+                            await loadUserPayments(u.id)
+                            setExpandedUser(u.id)
+                          }}
+                          paymentsExpanded={isExpanded}
+                        />
+                        {isExpanded && (
+                          <tr key={`${u.id}-pay`} style={{ borderBottom: i === users.length - 1 ? 'none' : '1px solid var(--border)', background: 'var(--surface2)' }}>
+                            <td colSpan={6} style={{ padding: '0 0 12px 56px' }}>
+                              {pList.length === 0 ? (
+                                <span style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>No payments</span>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 8 }}>
+                                  {pList.map((p) => (
+                                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px' }}>
+                                      <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--text)', minWidth: 80 }}>{p.amount} {p.currency}</span>
+                                      <PayStatusPill status={p.status} />
+                                      <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}</span>
+                                      {p.cardNumber && <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>•••• {p.cardNumber.slice(-4)}</span>}
+                                      {p.subscriptionUntil && <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>until {p.subscriptionUntil.slice(0, 10)}</span>}
+                                      <div style={{ marginLeft: 'auto' }}>
+                                        {p.status === 'completed' && (
+                                          refundConfirm === p.paymentId ? (
+                                            <div style={{ display: 'flex', gap: 5 }}>
+                                              <button
+                                                disabled={refunding === p.paymentId}
+                                                onClick={async () => {
+                                                  if (!p.paymentId) return
+                                                  setRefunding(p.paymentId)
+                                                  const res = await adminRefundPayment(p.paymentId)
+                                                  setRefunding(null)
+                                                  setRefundConfirm(null)
+                                                  setToast({ msg: res.ok ? 'Refunded' : (res.message ?? 'Refund failed'), ok: res.ok })
+                                                  if (res.ok) { await loadUserPayments(u.id); void load() }
+                                                }}
+                                                style={{ padding: '3px 9px', borderRadius: 6, background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: refunding === p.paymentId ? 0.6 : 1 }}
+                                              >
+                                                {refunding === p.paymentId ? '…' : 'Yes, refund'}
+                                              </button>
+                                              <button onClick={() => setRefundConfirm(null)} style={{ padding: '3px 8px', borderRadius: 6, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 11 }}>Cancel</button>
+                                            </div>
+                                          ) : (
+                                            <button
+                                              onClick={() => setRefundConfirm(p.paymentId ?? null)}
+                                              style={{ padding: '3px 9px', borderRadius: 6, background: 'var(--red-dim)', color: 'var(--red)', border: '1px solid var(--red-border)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                                            >
+                                              Refund
+                                            </button>
+                                          )
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
-        ))}
+        )}
       </div>
 
       {/* ── Modals ── */}
@@ -673,7 +644,7 @@ function MobileActionBtn({ variant, onClick, children }: { variant: 'pw' | 'wipe
   )
 }
 
-function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void }) {
+function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, onPayments, paymentsExpanded }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void; onPayments: () => void; paymentsExpanded: boolean }) {
   const [hov, setHov] = useState(false)
   return (
     <tr
@@ -716,6 +687,7 @@ function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke }
           <ActionBtn variant="pw"   onClick={onPw}>  <IcoKey />   Password</ActionBtn>
           <ActionBtn variant="pw"   onClick={onGrant}><IcoStar /> Sub</ActionBtn>
           {u.subscriptionActive && <ActionBtn variant="wipe" onClick={onRevoke}><IcoBan /> Revoke</ActionBtn>}
+          <ActionBtn variant="pw"   onClick={onPayments}>💳 {paymentsExpanded ? 'Hide' : 'Payments'}</ActionBtn>
           <ActionBtn variant="wipe" onClick={onData}><IcoWipe />  Data    </ActionBtn>
           <ActionBtn variant="del"  onClick={onDel}> <IcoTrash /> Delete  </ActionBtn>
         </div>
