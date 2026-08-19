@@ -75,11 +75,17 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
   if (singleRepo) {
     repos.push(singleRepo)
   } else {
+    let lastStatus = 0
+    let lastMsg = ''
     for (const scope of ['orgs', 'users'] as const) {
       let page = 1
       while (true) {
         const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?per_page=100&page=${page}`, { headers })
-        if (!res.ok) break
+        lastStatus = res.status
+        if (!res.ok) {
+          lastMsg = await res.text().catch(() => res.statusText)
+          break
+        }
         const batch = await res.json() as { full_name: string }[]
         for (const r of batch) repos.push(r.full_name)
         if (batch.length < 100) break
@@ -87,9 +93,12 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
       }
       if (repos.length) break
     }
+    if (!repos.length) {
+      if (lastStatus === 401) throw new Error('GitHub 401: token invalid or expired — create a new PAT with repo scope')
+      if (lastStatus === 403) throw new Error('GitHub 403: token does not have access to this org — check repo scope')
+      throw new Error(`GitHub: "${owner}" not found (${lastStatus}). Check the org name or paste the full URL from github.com. Details: ${lastMsg.slice(0, 200)}`)
+    }
   }
-
-  if (!repos.length) throw new Error(`GitHub: "${owner}" not found — paste the full org or repo URL from github.com`)
   console.info(`[GitHub sync] found ${repos.length} repos in ${owner}`)
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
