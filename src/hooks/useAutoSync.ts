@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
 
 /** Background Jira / GitLab / GitHub syncing:
@@ -9,59 +9,64 @@ export function useAutoSync(onToast: (msg: string) => void) {
   const jiraConnections = useStore((s) => s.jiraConnections)
   const gitlabConnections = useStore((s) => s.gitlabConnections)
   const githubConnections = useStore((s) => s.githubConnections)
+  const cloudSyncing = useStore((s) => s.cloudSyncing)
+  const startupDone = useRef(false)
 
-  // Startup GitLab sync — ensures MR links appear after a browser refresh.
+  // Startup syncs — run once after cloud data finishes loading
   useEffect(() => {
-    const conns = useStore.getState().gitlabConnections
-    const stale = conns.find((c) => {
-      if (!c.enabled || !c.token || !c.groupPath) return false
-      const lastSyncMs = c.lastSync ? new Date(c.lastSync).getTime() : 0
-      return Date.now() - lastSyncMs > 30 * 60 * 1000
-    })
-    if (!stale) return
-    const timer = setTimeout(() => {
-      useStore.getState().syncGitlab()
-        .then(({ linked }) => { if (linked) onToast(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked`) })
-        .catch(() => {})
-    }, 2000)
-    return () => clearTimeout(timer)
-  }, [])
+    if (cloudSyncing) return           // data not loaded yet
+    if (startupDone.current) return    // already fired
+    startupDone.current = true
 
-  // Startup GitHub sync.
-  useEffect(() => {
-    const conns = useStore.getState().githubConnections
-    const stale = conns.find((c) => {
-      if (!c.enabled || !c.token) return false
-      const lastSyncMs = c.lastSync ? new Date(c.lastSync).getTime() : 0
-      return Date.now() - lastSyncMs > 30 * 60 * 1000
-    })
-    if (!stale) return
-    const timer = setTimeout(() => {
-      useStore.getState().syncGithub()
-        .then(({ linked }) => { if (linked) onToast(`GitHub synced — ${linked} PR${linked !== 1 ? 's' : ''} linked`) })
-        .catch(() => {})
-    }, 3000)
-    return () => clearTimeout(timer)
-  }, [])
+    const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
-  // Startup Jira sync — pull latest when data is stale, so a refresh reflects Jira.
-  useEffect(() => {
-    const conns = useStore.getState().jiraConnections
-    const stale = conns.find((c) => {
-      if (!c.enabled || !c.token) return false
-      const lastSyncMs = c.lastSync ? new Date(c.lastSync).getTime() : 0
-      return Date.now() - lastSyncMs > 5 * 60 * 1000
-    })
-    if (!stale) return
-    const timer = setTimeout(() => {
-      useStore.getState().syncJira()
-        .then(({ added, updated, removed }) => {
-          onToast(`Jira synced — ${added} added, ${updated} updated${removed ? `, ${removed} removed` : ''}`)
-        })
-        .catch((e) => { console.warn('[auto-sync] startup Jira sync failed:', e) })
-    }, 1500)
-    return () => clearTimeout(timer)
-  }, [])
+    // GitLab startup
+    ;(async () => {
+      const conns = useStore.getState().gitlabConnections
+      const stale = conns.find((c) => {
+        if (!c.enabled || !c.token || !c.groupPath) return false
+        return Date.now() - (c.lastSync ? new Date(c.lastSync).getTime() : 0) > 30 * 60 * 1000
+      })
+      if (stale) {
+        await delay(2000)
+        useStore.getState().syncGitlab()
+          .then(({ linked }) => { if (linked) onToast(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked`) })
+          .catch(() => {})
+      }
+    })()
+
+    // GitHub startup
+    ;(async () => {
+      const conns = useStore.getState().githubConnections
+      const stale = conns.find((c) => {
+        if (!c.enabled || !c.token || !c.orgOrUser) return false
+        return Date.now() - (c.lastSync ? new Date(c.lastSync).getTime() : 0) > 30 * 60 * 1000
+      })
+      if (stale) {
+        await delay(3000)
+        useStore.getState().syncGithub()
+          .then(({ linked }) => { if (linked) onToast(`GitHub synced — ${linked} PR${linked !== 1 ? 's' : ''} linked`) })
+          .catch(() => {})
+      }
+    })()
+
+    // Jira startup
+    ;(async () => {
+      const conns = useStore.getState().jiraConnections
+      const stale = conns.find((c) => {
+        if (!c.enabled || !c.token) return false
+        return Date.now() - (c.lastSync ? new Date(c.lastSync).getTime() : 0) > 5 * 60 * 1000
+      })
+      if (stale) {
+        await delay(1500)
+        useStore.getState().syncJira()
+          .then(({ added, updated, removed }) => {
+            onToast(`Jira synced — ${added} added, ${updated} updated${removed ? `, ${removed} removed` : ''}`)
+          })
+          .catch((e) => { console.warn('[auto-sync] startup Jira sync failed:', e) })
+      }
+    })()
+  }, [cloudSyncing])
 
   // Jira interval poll — use the smallest configured interval across all enabled connections
   useEffect(() => {
@@ -101,7 +106,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
 
   // GitHub interval poll
   useEffect(() => {
-    const active = githubConnections.filter((c) => c.enabled && c.syncInterval && c.token)
+    const active = githubConnections.filter((c) => c.enabled && c.syncInterval && c.token && c.orgOrUser)
     if (!active.length) return
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
@@ -111,7 +116,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
       } catch {}
     }, ms)
     return () => clearInterval(id)
-  }, [JSON.stringify(githubConnections.map((c) => [c.id, c.enabled, c.syncInterval, c.token]))])
+  }, [JSON.stringify(githubConnections.map((c) => [c.id, c.enabled, c.syncInterval, c.token, c.orgOrUser]))])
 
   // GitLab sync on window focus — throttled to once every 5 minutes
   useEffect(() => {
@@ -136,7 +141,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     const onFocus = () => {
       const conns = useStore.getState().githubConnections
       const stale = conns.some((c) => {
-        if (!c.enabled || !c.token) return false
+        if (!c.enabled || !c.token || !c.orgOrUser) return false
         const lastSyncMs = c.lastSync ? new Date(c.lastSync).getTime() : 0
         return Date.now() - lastSyncMs >= 5 * 60 * 1000
       })
