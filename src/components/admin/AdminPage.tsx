@@ -452,7 +452,13 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                                                   setRefunding(null)
                                                   setRefundConfirm(null)
                                                   setToast({ msg: res.ok ? 'Refunded' : (res.message ?? 'Refund failed'), ok: res.ok })
-                                                  if (res.ok) { await loadUserPayments(u.id); void load() }
+                                                  if (res.ok) {
+                                                    setUserPayments(prev => ({
+                                                      ...prev,
+                                                      [u.id]: (prev[u.id] ?? []).map(x => x.paymentId === p.paymentId ? { ...x, status: 'refunded' as const } : x),
+                                                    }))
+                                                    void load()
+                                                  }
                                                 }}
                                                 style={{ padding: '3px 9px', borderRadius: 6, background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: refunding === p.paymentId ? 0.6 : 1 }}
                                               >
