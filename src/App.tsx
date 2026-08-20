@@ -141,16 +141,18 @@ function AuthApp() {
     })
   }, [authed])
 
-  // Poll every 60s — log out if subscription revoked
+  // Poll every 30s — log out if subscription revoked
   useEffect(() => {
     if (!authed || isSuperAdmin()) return
     const id = setInterval(async () => {
-      const status = await getSubscriptionStatus()
-      if (status && !status.subscriptionActive) {
-        clearToken()
-        window.location.reload()
-      }
-    }, 30_000)
+      try {
+        const status = await getSubscriptionStatus()
+        if (status !== null && !status.subscriptionActive) {
+          clearToken()
+          window.location.reload()
+        }
+      } catch { /* ignore network errors */ }
+    }, 15_000)
     return () => clearInterval(id)
   }, [authed])
 
