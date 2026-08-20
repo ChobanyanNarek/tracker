@@ -48,7 +48,6 @@ const VIEW_ICONS: Record<string, ReactNode> = {
 function PaymentCallback({ onDone }: { onDone: () => void }) {
   const [status, setStatus] = useState<'loading' | 'success' | 'failed'>('loading')
   const [msg, setMsg] = useState('')
-  const [debugInfo, setDebugInfo] = useState('')
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -56,8 +55,6 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
     const paymentId = params.get('paymentID') ?? ''
     const responseCode = params.get('responseCode') ?? params.get('resposneCode') ?? ''
     const allParams = Object.fromEntries(params.entries())
-    setDebugInfo(JSON.stringify(allParams))
-    console.log('[PaymentCallback] params:', allParams)
 
     if (responseCode !== '00') {
       const desc = params.get('description') ?? ''
@@ -99,7 +96,6 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
             <p style={{ color: 'var(--text4)', fontSize: 12 }}>Redirecting back…</p>
           </>
         )}
-        {debugInfo && <p style={{ color: 'var(--text4)', fontSize: 11, fontFamily: 'monospace', marginTop: 20, wordBreak: 'break-all' }}>{debugInfo}</p>}
       </div>
     </div>
   )
