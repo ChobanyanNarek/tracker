@@ -155,7 +155,7 @@ function AuthApp() {
         clearToken()
         window.location.reload()
       }
-    }, 60_000)
+    }, 30_000)
     return () => clearInterval(id)
   }, [authed])
 
