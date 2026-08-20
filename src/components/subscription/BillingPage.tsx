@@ -40,7 +40,7 @@ function maskCard(card: string | null) {
 }
 
 
-const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill-rule="evenodd" fill="#ffffff" d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z"/><g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"><line x1="21" y1="7" x2="27" y2="5"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(60 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(120 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(180 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(240 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(300 24 24)"/></g></svg>`
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill-rule="evenodd" fill="#ffffff" d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z"/><g stroke="#111827" stroke-width="2.2" stroke-linecap="round"><line x1="21" y1="7" x2="27" y2="5"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(60 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(120 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(180 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(240 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(300 24 24)"/></g></svg>`
 
 function svgToDataUrl(svg: string, size: number): Promise<string> {
   return new Promise((resolve) => {
@@ -74,7 +74,7 @@ async function downloadReceipt(p: PaymentRecord, userEmail: string | null | unde
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(18)
   doc.setFont('helvetica', 'bold')
-  doc.text('Progressor', 36, 15)
+  doc.text('ProgressOr', 36, 15)
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(180, 180, 180)
