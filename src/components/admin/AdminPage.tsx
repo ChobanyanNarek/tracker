@@ -292,6 +292,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
     setBusy(false)
     if (ok) {
       showToast(`Subscription revoked for ${displayName(revokeTarget)}`)
+      setUsers(prev => prev.map(x => x.id === revokeTarget.id ? { ...x, subscriptionActive: false, subscriptionUntil: null } : x))
       setRevokeTarget(null)
       await load()
     } else {
@@ -458,6 +459,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                                                       ...prev,
                                                       [u.id]: (prev[u.id] ?? []).map(x => x.paymentId === p.paymentId ? { ...x, status: 'refunded' as const } : x),
                                                     }))
+                                                    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, subscriptionActive: false, subscriptionUntil: null } : x))
                                                     void load()
                                                   }
                                                 }}
