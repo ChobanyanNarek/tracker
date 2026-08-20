@@ -54,7 +54,6 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
     const orderId = params.get('orderID') ?? ''
     const paymentId = params.get('paymentID') ?? ''
     const responseCode = params.get('responseCode') ?? params.get('resposneCode') ?? ''
-    const allParams = Object.fromEntries(params.entries())
 
     if (responseCode !== '00') {
       const desc = params.get('description') ?? ''
