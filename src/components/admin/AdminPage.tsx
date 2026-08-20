@@ -381,7 +381,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                     { v: 'pw',   icon: <IcoPhone />, label: 'Phone',    action: () => { setPhoneTarget(u); setNewPhone(u.phone ?? '') } },
                     { v: 'pw',   icon: <IcoKey />,   label: 'Password', action: () => { setPwTarget(u); setNewPw('') } },
                     { v: 'pw',   icon: <IcoStar />, label: 'Sub',   action: () => { setGrantTarget(u); setGrantMonths('1') } },
-                    ...(u.subscriptionActive ? [{ v: 'wipe' as const, icon: <IcoBan />, label: 'Revoke Sub', action: () => setRevokeTarget(u) }] : []),
+                    ...(u.subscriptionActive && !(userPayments[u.id] ?? []).some(p => p.status === 'refunded') ? [{ v: 'wipe' as const, icon: <IcoBan />, label: 'Revoke Sub', action: () => setRevokeTarget(u) }] : []),
                     { v: 'wipe', icon: <IcoWipe />,  label: 'Data',     action: () => setDataTarget(u) },
                     { v: 'del',  icon: <IcoTrash />, label: 'Delete',   action: () => setDelTarget(u) },
                   ] as const).map(({ v, icon, label, action }) => (
@@ -424,6 +424,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                             setExpandedUser(u.id)
                           }}
                           paymentsExpanded={isExpanded}
+                          hasCompletedPayment={(userPayments[u.id] ?? []).some(p => p.status === 'refunded')}
                         />
                         {isExpanded && (
                           <tr key={`${u.id}-pay`} style={{ borderBottom: i === users.length - 1 ? 'none' : '1px solid var(--border)', background: 'var(--surface2)' }}>
@@ -650,7 +651,7 @@ function MobileActionBtn({ variant, onClick, children }: { variant: 'pw' | 'wipe
   )
 }
 
-function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, onPayments, paymentsExpanded }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void; onPayments: () => void; paymentsExpanded: boolean }) {
+function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, onPayments, paymentsExpanded, hasCompletedPayment }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void; onPayments: () => void; paymentsExpanded: boolean; hasCompletedPayment: boolean }) {
   const [hov, setHov] = useState(false)
   return (
     <tr
@@ -692,7 +693,7 @@ function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, 
           <ActionBtn variant="pw"   onClick={onPhone}><IcoPhone /> Phone   </ActionBtn>
           <ActionBtn variant="pw"   onClick={onPw}>  <IcoKey />   Password</ActionBtn>
           <ActionBtn variant="pw"   onClick={onGrant}><IcoStar /> Sub</ActionBtn>
-          {u.subscriptionActive && <ActionBtn variant="wipe" onClick={onRevoke}><IcoBan /> Revoke</ActionBtn>}
+          {u.subscriptionActive && !hasCompletedPayment && <ActionBtn variant="wipe" onClick={onRevoke}><IcoBan /> Revoke</ActionBtn>}
           <ActionBtn variant="pw"   onClick={onPayments}>💳 {paymentsExpanded ? 'Hide' : 'Payments'}</ActionBtn>
           <ActionBtn variant="wipe" onClick={onData}><IcoWipe />  Data    </ActionBtn>
           <ActionBtn variant="del"  onClick={onDel}> <IcoTrash /> Delete  </ActionBtn>
