@@ -40,7 +40,27 @@ function maskCard(card: string | null) {
 }
 
 
-function downloadReceipt(p: PaymentRecord, userEmail: string | null | undefined, userName: string) {
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill-rule="evenodd" fill="#ffffff" d="M24,3 A21,21 0 1,0 24,45 A21,21 0 1,0 24,3 Z M24,9 A15,15 0 1,0 24,39 A15,15 0 1,0 24,9 Z"/><g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"><line x1="21" y1="7" x2="27" y2="5"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(60 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(120 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(180 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(240 24 24)"/><line x1="21" y1="7" x2="27" y2="5" transform="rotate(300 24 24)"/></g></svg>`
+
+function svgToDataUrl(svg: string, size: number): Promise<string> {
+  return new Promise((resolve) => {
+    const blob = new Blob([svg], { type: 'image/svg+xml' })
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = size; canvas.height = size
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, size, size)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.src = url
+  })
+}
+
+async function downloadReceipt(p: PaymentRecord, userEmail: string | null | undefined, userName: string) {
+  const logoDataUrl = await svgToDataUrl(LOGO_SVG, 128)
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const W = 210
   const gray = '#6b7280'
@@ -49,24 +69,7 @@ function downloadReceipt(p: PaymentRecord, userEmail: string | null | undefined,
   // Header band
   doc.setFillColor(17, 24, 39)
   doc.rect(0, 0, W, 36, 'F')
-
-  // Draw ring logo (matches app icon style)
-  const cx = 22, cy = 18, r = 9, ringW = 2.5
-  doc.setDrawColor(255, 255, 255)
-  doc.setLineWidth(ringW)
-  doc.circle(cx, cy, r, 'S')
-  // dashes on the ring
-  const dashes = 8
-  for (let i = 0; i < dashes; i++) {
-    const angle = (i / dashes) * Math.PI * 2
-    const x1 = cx + (r - 1) * Math.cos(angle)
-    const y1 = cy + (r - 1) * Math.sin(angle)
-    const x2 = cx + (r + 1) * Math.cos(angle)
-    const y2 = cy + (r + 1) * Math.sin(angle)
-    doc.setLineWidth(1.2)
-    doc.setDrawColor(17, 24, 39)
-    doc.line(x1, y1, x2, y2)
-  }
+  doc.addImage(logoDataUrl, 'PNG', 8, 7, 22, 22)
 
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(18)
@@ -288,7 +291,7 @@ export default function BillingPage({ onClose }: Props) {
 
                     {p.status.toLowerCase() === 'completed' && (
                       <button
-                        onClick={() => downloadReceipt(p, user?.email, displayName)}
+                        onClick={() => { void downloadReceipt(p, user?.email, displayName) }}
                         title="Download receipt"
                         style={{ padding: '5px 10px', borderRadius: 7, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}
                       >
