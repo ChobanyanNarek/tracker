@@ -1846,7 +1846,10 @@ export const useStore = create<Store>((set, get) => {
 })
 
 function applyCloudState(cloud: Record<string, unknown> | null) {
-  cloudSyncReady = true
+  // Only mark ready when we actually received data. A null response means the user is
+  // unauthenticated — setting cloudSyncReady here would allow withSave to overwrite real
+  // cloud data with an empty freshState() after a token-clear + reload.
+  if (cloud !== null) cloudSyncReady = true
   useStore.setState((s) => ({
     ...s,
     cloudSyncing: false,
@@ -1884,8 +1887,11 @@ export async function syncCloudToStore(): Promise<void> {
   useStore.setState({ cloudSyncing: true })
   try {
     const cloud = await loadCloudState()
+    // After login the user is authenticated — safe to enable saves even if cloud is empty.
+    cloudSyncReady = true
     applyCloudState(cloud)
   } catch {
+    cloudSyncReady = true
     useStore.setState({ cloudSyncing: false })
   }
 }
