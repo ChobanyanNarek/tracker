@@ -157,12 +157,24 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
             const prDateLabel = p.date
               ? formatDate(p.date) + (p.time ? ' at ' + p.time : '')
               : null
+            const stateColors: Record<string, { bg: string; color: string }> = {
+              draft:  { bg: 'var(--surface2)', color: 'var(--text3)' },
+              open:   { bg: '#dcfce7', color: '#16a34a' },
+              merged: { bg: '#ede9fe', color: '#7c3aed' },
+              closed: { bg: '#fee2e2', color: '#dc2626' },
+            }
+            const sc = p.state ? stateColors[p.state] : null
             return lbl ? (
               <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <a className="elink" href={p.url} target="_blank" rel="noreferrer" style={{ fontSize: 10 }}>
                   <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
                   {lbl}
                 </a>
+                {sc && (
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: sc.bg, color: sc.color, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                    {p.state}
+                  </span>
+                )}
                 {prDateLabel && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{prDateLabel}</span>}
               </span>
             ) : null

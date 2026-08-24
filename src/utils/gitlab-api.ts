@@ -8,6 +8,8 @@ export interface GitLabMR {
   web_url: string
   created_at: string
   state: 'opened' | 'merged' | 'closed'
+  draft?: boolean
+  work_in_progress?: boolean
   author: { id: number; username: string; name: string }
   assignees: { id: number; username: string }[]
 }

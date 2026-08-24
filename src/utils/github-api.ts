@@ -7,6 +7,7 @@ export interface GitHubPR {
   created_at: string
   updated_at?: string
   state: 'open' | 'closed'
+  draft?: boolean
   user: { login: string }
   pull_request?: { merged_at: string | null }
   // head ref (branch name) — populated when fetching full PR details

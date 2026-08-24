@@ -77,10 +77,13 @@ export interface JiraConfig {
   projectId?: string                        // if set, this connection belongs to a specific project; empty = global
 }
 
+export type PrState = 'open' | 'draft' | 'merged' | 'closed'
+
 export interface PrEntry {
   url: string
   date: string
   time: string
+  state?: PrState
 }
 
 export interface StatusHistoryEntry {

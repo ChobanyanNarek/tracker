@@ -1563,6 +1563,12 @@ export const useStore = create<Store>((set, get) => {
         }
 
         const { date: pushDate, time: pushTime } = toLocalParts(new Date(mr.created_at))
+        const isDraft = !!(mr.draft ?? mr.work_in_progress ?? /^(Draft|WIP):/i.test(mr.title))
+        const mrPrState: import('../types').PrState =
+          mr.state === 'merged' ? 'merged'
+          : mr.state === 'closed' ? 'closed'
+          : isDraft ? 'draft'
+          : 'open'
         mrUrlToStatus.set(mr.web_url, 'done')
 
         const keySet = new Set(keys)
@@ -1588,8 +1594,10 @@ export const useStore = create<Store>((set, get) => {
             const taskPatch = prPatches.get(task.id)!
             const existing = taskPatch.get(identity) ?? []
             if (!existing.some((p) => p.url === mr.web_url)) {
-              taskPatch.set(identity, [...existing, { url: mr.web_url, date: pushDate, time: pushTime }])
+              taskPatch.set(identity, [...existing, { url: mr.web_url, date: pushDate, time: pushTime, state: mrPrState }])
               addedSomewhere = true
+            } else {
+              taskPatch.set(identity, existing.map((p) => p.url === mr.web_url ? { ...p, state: mrPrState } : p))
             }
           }
         }
@@ -1620,10 +1628,15 @@ export const useStore = create<Store>((set, get) => {
             const identity = j.issueId ?? (j.url || null)
             if (!identity) return j
             const newPrs = taskPatch.get(identity)
-            if (!newPrs?.length) return j
             const existingUrls = new Set((j.prs ?? []).map((p) => p.url))
-            const toAdd = newPrs.filter((p) => !existingUrls.has(p.url))
-            if (!toAdd.length) return j
+            const toAdd = (newPrs ?? []).filter((p) => !existingUrls.has(p.url))
+            // Update state on existing PRs even if no new ones added
+            const updatedExisting = (j.prs ?? []).map((p) => {
+              const patch = (newPrs ?? []).find((np) => np.url === p.url)
+              return patch?.state ? { ...p, state: patch.state } : p
+            })
+            const stateChanged = updatedExisting.some((p, i) => p.state !== (j.prs ?? [])[i]?.state)
+            if (!toAdd.length && !stateChanged) return j
             changed = true
             let newStatus = j.status
             for (const p of toAdd) {
@@ -1631,7 +1644,7 @@ export const useStore = create<Store>((set, get) => {
               if (st === 'done') { newStatus = 'done'; break }
               if (st === 'review' && newStatus !== 'done' && newStatus !== 'blocked') newStatus = 'review'
             }
-            return { ...j, prs: [...(j.prs ?? []), ...toAdd], status: newStatus }
+            return { ...j, prs: [...updatedExisting, ...toAdd], status: newStatus }
           })
           return changed ? { ...t, jiras } : t
         }),
@@ -1707,6 +1720,7 @@ export const useStore = create<Store>((set, get) => {
       const prPatches = new Map<string, Map<string, PrEntry[]>>()
       const prUrlToStatus = new Map<string, JiraIssue['status']>()
       const prUrlToKeys = new Map<string, Set<string>>()  // url → matched issue keys (uppercase)
+      const prUrlToState = new Map<string, import('../types').PrState>()
       let linked = 0
       let updated = 0
 
@@ -1718,6 +1732,12 @@ export const useStore = create<Store>((set, get) => {
         const { date: pushDate, time: pushTime } = toLocalParts(new Date(pr.created_at))
         const isMerged = !!(pr.merged_at ?? pr.pull_request?.merged_at)
         prUrlToStatus.set(pr.html_url, isMerged ? 'done' : 'review')
+        const ghPrState: import('../types').PrState =
+          isMerged ? 'merged'
+          : pr.state === 'closed' ? 'closed'
+          : pr.draft ? 'draft'
+          : 'open'
+        prUrlToState.set(pr.html_url, ghPrState)
 
         const keySet = new Set(keys)
         const matchesIssue = (jira: JiraIssue) => {
@@ -1739,9 +1759,12 @@ export const useStore = create<Store>((set, get) => {
             if (!prPatches.has(task.id)) prPatches.set(task.id, new Map())
             const taskPatch = prPatches.get(task.id)!
             const existing = taskPatch.get(identity) ?? []
+            const ghState = prUrlToState.get(pr.html_url)
             if (!existing.some((p) => p.url === pr.html_url)) {
-              taskPatch.set(identity, [...existing, { url: pr.html_url, date: pushDate, time: pushTime }])
+              taskPatch.set(identity, [...existing, { url: pr.html_url, date: pushDate, time: pushTime, state: ghState }])
               addedSomewhere = true
+            } else {
+              taskPatch.set(identity, existing.map((p) => p.url === pr.html_url ? { ...p, state: ghState } : p))
             }
           }
         }
@@ -1780,10 +1803,17 @@ export const useStore = create<Store>((set, get) => {
 
             if (!identity) return changed ? { ...j, prs: filteredPrs } : j
             const newPrs = taskPatch?.get(identity)
-            if (!newPrs?.length) return changed ? { ...j, prs: filteredPrs } : j
-            const existingUrls = new Set(filteredPrs.map((p) => p.url))
+            // Update state on existing PRs
+            const updatedFiltered = filteredPrs.map((p) => {
+              const patch = (newPrs ?? []).find((np) => np.url === p.url)
+              return patch?.state ? { ...p, state: patch.state } : p
+            })
+            const stateUpdated = updatedFiltered.some((p, i) => p.state !== filteredPrs[i]?.state)
+            if (stateUpdated) changed = true
+            if (!newPrs?.length) return changed ? { ...j, prs: updatedFiltered } : j
+            const existingUrls = new Set(updatedFiltered.map((p) => p.url))
             const toAdd = newPrs.filter((p) => !existingUrls.has(p.url))
-            if (!toAdd.length) return changed ? { ...j, prs: filteredPrs } : j
+            if (!toAdd.length) return changed ? { ...j, prs: updatedFiltered } : j
             changed = true
             let newStatus = j.status
             for (const p of toAdd) {
@@ -1791,7 +1821,7 @@ export const useStore = create<Store>((set, get) => {
               if (st === 'done') { newStatus = 'done'; break }
               if (st === 'review' && newStatus !== 'done' && newStatus !== 'blocked') newStatus = 'review'
             }
-            return { ...j, prs: [...filteredPrs, ...toAdd], status: newStatus }
+            return { ...j, prs: [...updatedFiltered, ...toAdd], status: newStatus }
           })
           return changed ? { ...t, jiras } : t
         }),
