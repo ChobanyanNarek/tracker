@@ -1,10 +1,69 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { JiraIssue, JiraConfig } from '../../types'
+import { useState, useRef, useEffect } from 'react'
+import type { JiraIssue, JiraConfig, PrEntry } from '../../types'
 import { PRIORITY_CONF } from '../../constants'
 import { dlInfo, formatDate } from '../../utils/dates'
 import { prLabel, jiraLabel } from '../../utils/format'
 import StatusSelect from '../ui/StatusSelect'
+
+function PrHistoryPopover({ p }: { p: PrEntry }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const stateColors: Record<string, { bg: string; color: string }> = {
+    draft:  { bg: 'var(--surface2)', color: 'var(--text3)' },
+    open:   { bg: '#dcfce7', color: '#16a34a' },
+    merged: { bg: '#ede9fe', color: '#7c3aed' },
+    closed: { bg: '#fee2e2', color: '#dc2626' },
+  }
+  const sc = p.state ? stateColors[p.state] : null
+
+  return (
+    <span ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+      {sc && (
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: sc.bg, color: sc.color, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+          {p.state}
+        </span>
+      )}
+      {p.stateHistory?.length ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', color: 'var(--text3)', fontSize: 9, lineHeight: 1, display: 'flex', alignItems: 'center' }}
+          title="State history"
+        >
+          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1a4 4 0 1 0 0 8A4 4 0 0 0 5 1Zm0 1.2a2.8 2.8 0 1 1 0 5.6A2.8 2.8 0 0 1 5 2.2Zm-.5 1v2.1l1.5 1-.4.6L4 5.5V3.2h.5Z"/></svg>
+        </button>
+      ) : null}
+      {open && p.stateHistory?.length ? (
+        <span style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 200, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', padding: '8px 12px', minWidth: 180, whiteSpace: 'nowrap' }}>
+          {p.stateHistory.map((e, i) => {
+            const d = new Date(e.at)
+            const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            const dot = stateColors[e.state]
+            return (
+              <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: i < p.stateHistory!.length - 1 ? 6 : 0 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot?.color ?? 'var(--text3)', flexShrink: 0 }} />
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.3px', minWidth: 44 }}>{e.state}</span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text)' }}>{dateStr} {timeStr}</span>
+              </span>
+            )
+          })}
+        </span>
+      ) : null}
+    </span>
+  )
+}
 
 interface Props {
   issue: JiraIssue
@@ -157,31 +216,13 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
             const prDateLabel = p.date
               ? formatDate(p.date) + (p.time ? ' at ' + p.time : '')
               : null
-            const stateColors: Record<string, { bg: string; color: string }> = {
-              draft:  { bg: 'var(--surface2)', color: 'var(--text3)' },
-              open:   { bg: '#dcfce7', color: '#16a34a' },
-              merged: { bg: '#ede9fe', color: '#7c3aed' },
-              closed: { bg: '#fee2e2', color: '#dc2626' },
-            }
-            const sc = p.state ? stateColors[p.state] : null
-            const historyTooltip = p.stateHistory?.length
-              ? p.stateHistory.map((e) => {
-                  const d = new Date(e.at)
-                  const label = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                  return `${e.state.toUpperCase()}: ${label}`
-                }).join('\n')
-              : null
             return lbl ? (
               <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <a className="elink" href={p.url} target="_blank" rel="noreferrer" style={{ fontSize: 10 }}>
                   <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
                   {lbl}
                 </a>
-                {sc && (
-                  <span title={historyTooltip ?? undefined} style={{ fontFamily: 'var(--mono)', fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: sc.bg, color: sc.color, textTransform: 'uppercase', letterSpacing: '.4px', cursor: historyTooltip ? 'help' : 'default' }}>
-                    {p.state}
-                  </span>
-                )}
+                <PrHistoryPopover p={p} />
                 {prDateLabel && <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{prDateLabel}</span>}
               </span>
             ) : null
