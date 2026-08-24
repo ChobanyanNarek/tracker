@@ -1,0 +1,165 @@
+<title>Subscription Policy</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --text2: #374151;
+    --text3: #6b7280;
+    --accent: #4f46e5;
+    --accent-dim: #eef2ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1117; --surface: #1a1d27; --border: #2d3148;
+      --text: #f3f4f6; --text2: #d1d5db; --text3: #9ca3af;
+      --accent: #818cf8; --accent-dim: #1e1b4b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2d3148;
+    --text: #f3f4f6; --text2: #d1d5db; --text3: #9ca3af;
+    --accent: #818cf8; --accent-dim: #1e1b4b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.75; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; position: sticky; top: 0; z-index: 100; }
+  .header-inner { max-width: 720px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 52px; gap: 16px; }
+  .logo { font-weight: 700; font-size: 15px; color: var(--text); text-decoration: none; flex-shrink: 0; }
+  nav { display: flex; overflow-x: auto; scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav a { font-size: 12px; color: var(--text3); text-decoration: none; padding: 0 10px; white-space: nowrap; transition: color .15s; }
+  nav a:hover { color: var(--accent); }
+  main { max-width: 720px; margin: 0 auto; padding: 48px 24px 80px; }
+  .doc-header { margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+  .doc-label { font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
+  h1 { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1.3; margin-bottom: 12px; }
+  .doc-meta { font-size: 13px; color: var(--text3); }
+  section { margin-bottom: 36px; }
+  h2 { font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 12px; padding-top: 8px; display: flex; align-items: baseline; gap: 10px; }
+  .section-num { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-dim); padding: 2px 7px; border-radius: 4px; flex-shrink: 0; }
+  p { color: var(--text2); margin-bottom: 12px; }
+  p:last-child { margin-bottom: 0; }
+  ul { color: var(--text2); padding-left: 20px; margin-bottom: 12px; }
+  li { margin-bottom: 6px; }
+  .highlight-box { background: var(--accent-dim); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 14px 16px; margin-bottom: 16px; font-size: 14px; color: var(--text2); }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .info-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .info-card-label { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+  .info-card-value { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .info-card-desc { font-size: 12px; color: var(--text3); margin-top: 4px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .divider { height: 1px; background: var(--border); margin: 40px 0; }
+  strong { color: var(--text); font-weight: 600; }
+  footer { border-top: 1px solid var(--border); padding: 24px; text-align: center; font-size: 12px; color: var(--text3); background: var(--surface); }
+  @media (max-width: 480px) { .info-grid { grid-template-columns: 1fr; } }
+</style>
+
+<header>
+  <div class="header-inner">
+    <a class="logo" href="https://progressor.work">ProgressOr</a>
+    <nav>
+      <a href="#plan">Plan Details</a>
+      <a href="#billing">Billing</a>
+      <a href="#access">Access &amp; Expiry</a>
+      <a href="#renewal">Renewal</a>
+      <a href="#changes">Price Changes</a>
+      <a href="#contact">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="doc-header">
+    <div class="doc-label">Legal</div>
+    <h1>Subscription Policy</h1>
+    <div class="doc-meta">Effective date: 24 August 2026 &nbsp;&middot;&nbsp; ProgressOr &nbsp;&middot;&nbsp; <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a></div>
+  </div>
+
+  <div class="highlight-box">
+    ProgressOr operates on a simple monthly subscription with no hidden fees, no auto-renewal, and no lock-in. You pay when you choose to.
+  </div>
+
+  <section id="plan">
+    <h2><span class="section-num">01</span> Plan Details</h2>
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="info-card-label">Billing cycle</div>
+        <div class="info-card-value">Monthly</div>
+        <div class="info-card-desc">Access for 30 days from payment date</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-label">Auto-renewal</div>
+        <div class="info-card-value">No</div>
+        <div class="info-card-desc">You renew manually when you choose to</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-label">Users per account</div>
+        <div class="info-card-value">1</div>
+        <div class="info-card-desc">Each account is for one individual user</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-label">Free trial</div>
+        <div class="info-card-value">None</div>
+        <div class="info-card-desc">Refund available within 7 days if unsatisfied</div>
+      </div>
+    </div>
+    <p>The subscription grants full access to all features of the Service including project boards, dashboards, Jira/GitLab/GitHub integrations, sprint tracking, and notes.</p>
+  </section>
+
+  <div class="divider"></div>
+
+  <section id="billing">
+    <h2><span class="section-num">02</span> Billing &amp; Payment</h2>
+    <ul>
+      <li><strong>Payment processor:</strong> all payments are handled securely by Ameriabank vPOS. We never store your full card details.</li>
+      <li><strong>Accepted methods:</strong> Visa and Mastercard debit/credit cards.</li>
+      <li><strong>Currency:</strong> AMD (Armenian Dram). The price is shown in AMD at checkout.</li>
+      <li><strong>Receipt:</strong> a payment receipt is emailed to you automatically after each successful payment, with a PDF attached.</li>
+      <li><strong>Failed payments:</strong> if a payment fails, your subscription is not activated. Try again with a different card or contact your bank.</li>
+    </ul>
+  </section>
+
+  <section id="access">
+    <h2><span class="section-num">03</span> Access &amp; Expiry</h2>
+    <ul>
+      <li>Your subscription starts immediately upon successful payment and lasts for <strong>30 days</strong> (or the period shown at checkout).</li>
+      <li>You will receive an <strong>email reminder 1 day before expiry</strong> with a direct link to renew.</li>
+      <li>When your subscription expires, you lose access to the application but <strong>your data is retained for 30 days</strong>. If you renew within that window, all your data is restored exactly as you left it.</li>
+      <li>After 30 days of no renewal, we may permanently delete your account data. We will notify you before doing so.</li>
+    </ul>
+  </section>
+
+  <section id="renewal">
+    <h2><span class="section-num">04</span> Renewal</h2>
+    <p>To renew, log in to ProgressOr, open your profile, and click <strong>Renew subscription</strong>. You can also renew directly from the reminder email we send before expiry.</p>
+    <p>Renewals extend your access by one month from the renewal date, not from the original expiry date. Early renewals stack &mdash; renewing before expiry adds time on top of your remaining days.</p>
+  </section>
+
+  <section id="changes">
+    <h2><span class="section-num">05</span> Price Changes</h2>
+    <p>We may change the subscription price at any time. We will notify existing users by email at least <strong>30 days</strong> before a price change takes effect. You can renew at the current price before the change date if you wish to lock it in for an additional month.</p>
+  </section>
+
+  <section id="admin">
+    <h2><span class="section-num">06</span> Admin-Granted Subscriptions</h2>
+    <p>In some cases, ProgressOr may grant subscription access manually (e.g. for trials, partnerships, or support resolutions). Such grants are provided at our discretion and are not subject to the refund policy.</p>
+  </section>
+
+  <section id="contact">
+    <h2><span class="section-num">07</span> Contact</h2>
+    <p>For billing questions or subscription issues:</p>
+    <p><strong>ProgressOr</strong><br>
+    Email: <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a></p>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 ProgressOr &nbsp;&middot;&nbsp; <a href="https://progressor.work">progressor.work</a> &nbsp;&middot;&nbsp;
+  <a href="/terms">Terms of Service</a> &nbsp;&middot;&nbsp;
+  <a href="/privacy">Privacy Policy</a> &nbsp;&middot;&nbsp;
+  <a href="/refund">Refund Policy</a>
+</footer>

@@ -1,0 +1,164 @@
+<title>Refund Policy</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --text2: #374151;
+    --text3: #6b7280;
+    --accent: #4f46e5;
+    --accent-dim: #eef2ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1117; --surface: #1a1d27; --border: #2d3148;
+      --text: #f3f4f6; --text2: #d1d5db; --text3: #9ca3af;
+      --accent: #818cf8; --accent-dim: #1e1b4b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2d3148;
+    --text: #f3f4f6; --text2: #d1d5db; --text3: #9ca3af;
+    --accent: #818cf8; --accent-dim: #1e1b4b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.75; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; position: sticky; top: 0; z-index: 100; }
+  .header-inner { max-width: 720px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 52px; gap: 16px; }
+  .logo { font-weight: 700; font-size: 15px; color: var(--text); text-decoration: none; flex-shrink: 0; }
+  nav { display: flex; overflow-x: auto; scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav a { font-size: 12px; color: var(--text3); text-decoration: none; padding: 0 10px; white-space: nowrap; transition: color .15s; }
+  nav a:hover { color: var(--accent); }
+  main { max-width: 720px; margin: 0 auto; padding: 48px 24px 80px; }
+  .doc-header { margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+  .doc-label { font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
+  h1 { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1.3; margin-bottom: 12px; }
+  .doc-meta { font-size: 13px; color: var(--text3); }
+  section { margin-bottom: 36px; }
+  h2 { font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 12px; padding-top: 8px; display: flex; align-items: baseline; gap: 10px; }
+  .section-num { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-dim); padding: 2px 7px; border-radius: 4px; flex-shrink: 0; }
+  p { color: var(--text2); margin-bottom: 12px; }
+  p:last-child { margin-bottom: 0; }
+  ul { color: var(--text2); padding-left: 20px; margin-bottom: 12px; }
+  li { margin-bottom: 6px; }
+  .highlight-box { background: var(--accent-dim); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 14px 16px; margin-bottom: 16px; font-size: 14px; color: var(--text2); }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; display: flex; gap: 14px; margin-bottom: 16px; }
+  .steps li::before { content: counter(step); display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; min-width: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; margin-top: 4px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .divider { height: 1px; background: var(--border); margin: 40px 0; }
+  strong { color: var(--text); font-weight: 600; }
+  footer { border-top: 1px solid var(--border); padding: 24px; text-align: center; font-size: 12px; color: var(--text3); background: var(--surface); }
+</style>
+
+<header>
+  <div class="header-inner">
+    <a class="logo" href="https://progressor.work">ProgressOr</a>
+    <nav>
+      <a href="#eligibility">Eligibility</a>
+      <a href="#process">How to Request</a>
+      <a href="#timeline">Timeline</a>
+      <a href="#exclusions">Exclusions</a>
+      <a href="#contact">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="doc-header">
+    <div class="doc-label">Legal</div>
+    <h1>Refund Policy</h1>
+    <div class="doc-meta">Effective date: 24 August 2026 &nbsp;&middot;&nbsp; ProgressOr &nbsp;&middot;&nbsp; <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a></div>
+  </div>
+
+  <div class="highlight-box">
+    If you are not satisfied with ProgressOr, you can request a full refund within <strong>7 days</strong> of your payment. No lengthy forms &mdash; just email us with your order ID.
+  </div>
+
+  <section id="eligibility">
+    <h2><span class="section-num">01</span> Eligibility</h2>
+    <p>You are eligible for a refund if <strong>all</strong> of the following conditions are met:</p>
+    <ul>
+      <li>Your refund request is made within <strong>7 calendar days</strong> of the payment date.</li>
+      <li>You have not made extensive use of the Service during that period (e.g. the account has not been actively used for project tracking across multiple sessions).</li>
+      <li>This is your first refund request for this account.</li>
+    </ul>
+    <p>Partial refunds (e.g. for unused days remaining in a subscription period) are not available. Refunds are for the full payment amount or not at all.</p>
+  </section>
+
+  <div class="divider"></div>
+
+  <section id="process">
+    <h2><span class="section-num">02</span> How to Request a Refund</h2>
+    <ul class="steps">
+      <li>
+        <div>
+          <strong>Email us</strong> at <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a> with the subject line: <em>Refund Request</em>.
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Include your order ID</strong> — this is the transaction reference shown in your payment receipt email.
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Briefly describe</strong> why you are requesting a refund (optional, but helpful for us to improve the product).
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>We will review</strong> your request within 2 business days and reply with a decision.
+        </div>
+      </li>
+    </ul>
+  </section>
+
+  <section id="timeline">
+    <h2><span class="section-num">03</span> Refund Timeline</h2>
+    <p>Once a refund is approved:</p>
+    <ul>
+      <li>The refund is processed back to the original payment card via Ameriabank vPOS.</li>
+      <li>Processing typically takes <strong>5&ndash;10 business days</strong> to appear on your statement, depending on your bank.</li>
+      <li>Your subscription access is revoked immediately upon approval.</li>
+    </ul>
+    <p>We will send you a confirmation email once the refund has been initiated.</p>
+  </section>
+
+  <section id="exclusions">
+    <h2><span class="section-num">04</span> Exclusions</h2>
+    <p>Refunds will <strong>not</strong> be issued in the following cases:</p>
+    <ul>
+      <li>The 7-day window has passed since the payment date.</li>
+      <li>The account showed significant active use during the refund window.</li>
+      <li>The subscription was granted by an administrator (not purchased directly).</li>
+      <li>The request appears to be abusive or fraudulent (e.g. repeated refund requests, chargebacks filed simultaneously).</li>
+      <li>The account was suspended or terminated due to a violation of the Terms of Service.</li>
+    </ul>
+    <p>We reserve the right to decline refund requests at our discretion in exceptional circumstances, with a written explanation provided.</p>
+  </section>
+
+  <section id="chargebacks">
+    <h2><span class="section-num">05</span> Chargebacks</h2>
+    <p>If you initiate a chargeback with your bank before contacting us, we may be unable to process a voluntary refund. Please reach out to us first &mdash; we respond within 2 business days and will resolve legitimate issues promptly.</p>
+  </section>
+
+  <section id="contact">
+    <h2><span class="section-num">06</span> Contact</h2>
+    <p>To request a refund or ask a billing question:</p>
+    <p><strong>ProgressOr</strong><br>
+    Email: <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a><br>
+    Subject line: <em>Refund Request</em></p>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 ProgressOr &nbsp;&middot;&nbsp; <a href="https://progressor.work">progressor.work</a> &nbsp;&middot;&nbsp;
+  <a href="/terms">Terms of Service</a> &nbsp;&middot;&nbsp;
+  <a href="/privacy">Privacy Policy</a> &nbsp;&middot;&nbsp;
+  <a href="/subscription">Subscription Policy</a>
+</footer>

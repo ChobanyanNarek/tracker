@@ -3,6 +3,8 @@
     { "source": "/admin.html", "destination": "/admin.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/terms", "destination": "/terms.html" },
+    { "source": "/subscription", "destination": "/subscription.html" },
+    { "source": "/refund", "destination": "/refund.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
