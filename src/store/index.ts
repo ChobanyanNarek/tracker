@@ -1587,15 +1587,15 @@ export const useStore = create<Store>((set, get) => {
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
-            if ((jira.prs ?? []).some((p) => p.url === mr.web_url)) continue
             const identity = jira.issueId ?? (jira.url || null)
             if (!identity) continue
             if (!prPatches.has(task.id)) prPatches.set(task.id, new Map())
             const taskPatch = prPatches.get(task.id)!
             const existing = taskPatch.get(identity) ?? []
             if (!existing.some((p) => p.url === mr.web_url)) {
+              const alreadyInJira = (jira.prs ?? []).some((p) => p.url === mr.web_url)
               taskPatch.set(identity, [...existing, { url: mr.web_url, date: pushDate, time: pushTime, state: mrPrState }])
-              addedSomewhere = true
+              if (!alreadyInJira) addedSomewhere = true
             } else {
               taskPatch.set(identity, existing.map((p) => p.url === mr.web_url ? { ...p, state: mrPrState } : p))
             }
@@ -1753,7 +1753,6 @@ export const useStore = create<Store>((set, get) => {
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
-            if ((jira.prs ?? []).some((p) => p.url === pr.html_url)) continue
             const identity = jira.issueId ?? (jira.url || null)
             if (!identity) continue
             if (!prPatches.has(task.id)) prPatches.set(task.id, new Map())
@@ -1761,8 +1760,9 @@ export const useStore = create<Store>((set, get) => {
             const existing = taskPatch.get(identity) ?? []
             const ghState = prUrlToState.get(pr.html_url)
             if (!existing.some((p) => p.url === pr.html_url)) {
+              const alreadyInJira = (jira.prs ?? []).some((p) => p.url === pr.html_url)
               taskPatch.set(identity, [...existing, { url: pr.html_url, date: pushDate, time: pushTime, state: ghState }])
-              addedSomewhere = true
+              if (!alreadyInJira) addedSomewhere = true
             } else {
               taskPatch.set(identity, existing.map((p) => p.url === pr.html_url ? { ...p, state: ghState } : p))
             }
