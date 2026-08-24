@@ -1,0 +1,292 @@
+<title>Terms of Service</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --text2: #374151;
+    --text3: #6b7280;
+    --accent: #4f46e5;
+    --accent-dim: #eef2ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2d3148;
+      --text: #f3f4f6;
+      --text2: #d1d5db;
+      --text3: #9ca3af;
+      --accent: #818cf8;
+      --accent-dim: #1e1b4b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2d3148;
+    --text: #f3f4f6;
+    --text2: #d1d5db;
+    --text3: #9ca3af;
+    --accent: #818cf8;
+    --accent-dim: #1e1b4b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.75;
+  }
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    gap: 16px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text);
+    flex-shrink: 0;
+  }
+  nav {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  nav::-webkit-scrollbar { display: none; }
+  nav a {
+    font-size: 12px;
+    color: var(--text3);
+    text-decoration: none;
+    padding: 0 10px;
+    white-space: nowrap;
+    transition: color .15s;
+  }
+  nav a:hover { color: var(--accent); }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+  .doc-header {
+    margin-bottom: 40px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .doc-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.3;
+    margin-bottom: 12px;
+  }
+  .doc-meta {
+    font-size: 13px;
+    color: var(--text3);
+  }
+  section { margin-bottom: 36px; }
+  h2 {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 12px;
+    padding-top: 8px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .section-num {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-dim);
+    padding: 2px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  p { color: var(--text2); margin-bottom: 12px; }
+  p:last-child { margin-bottom: 0; }
+  ul, ol {
+    color: var(--text2);
+    padding-left: 20px;
+    margin-bottom: 12px;
+  }
+  li { margin-bottom: 6px; }
+  .highlight-box {
+    background: var(--accent-dim);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: var(--text2);
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 40px 0;
+  }
+  strong { color: var(--text); font-weight: 600; }
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 24px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text3);
+    background: var(--surface);
+  }
+</style>
+
+<header>
+  <div class="header-inner">
+    <a class="logo" href="https://progressor.work">ProgressOr</a>
+    <nav>
+      <a href="#account">Account</a>
+      <a href="#subscription">Subscription</a>
+      <a href="#use">Acceptable Use</a>
+      <a href="#ip">Intellectual Property</a>
+      <a href="#liability">Liability</a>
+      <a href="#termination">Termination</a>
+      <a href="#contact">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="doc-header">
+    <div class="doc-label">Legal</div>
+    <h1>Terms of Service</h1>
+    <div class="doc-meta">Effective date: 24 August 2026 &nbsp;·&nbsp; ProgressOr &nbsp;·&nbsp; <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a></div>
+  </div>
+
+  <div class="highlight-box">
+    Please read these Terms carefully before using ProgressOr. By creating an account or using the Service, you agree to be bound by these Terms.
+  </div>
+
+  <section id="intro">
+    <p>These Terms of Service ("Terms") govern your access to and use of the ProgressOr web application ("Service") operated by ProgressOr ("we", "us", "our"). The Service is available at <a href="https://progressor.work">progressor.work</a>.</p>
+    <p>These Terms are governed by the laws of the Republic of Armenia. For users located in the European Union, applicable EU consumer and data protection regulations also apply.</p>
+  </section>
+
+  <div class="divider"></div>
+
+  <section id="account">
+    <h2><span class="section-num">01</span> Account Registration</h2>
+    <ul>
+      <li>You must be at least 16 years old to create an account.</li>
+      <li>You must provide accurate, current, and complete information during registration.</li>
+      <li>You are responsible for maintaining the confidentiality of your credentials and for all activity under your account.</li>
+      <li>You must notify us immediately at <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a> if you suspect unauthorized access to your account.</li>
+      <li>One person may not maintain more than one account without our written consent.</li>
+    </ul>
+  </section>
+
+  <section id="subscription">
+    <h2><span class="section-num">02</span> Subscription & Payments</h2>
+    <p>Access to the Service requires an active paid subscription.</p>
+    <ul>
+      <li><strong>Billing:</strong> Subscriptions are billed on a monthly basis. The current price is displayed at the time of purchase.</li>
+      <li><strong>Payment processing:</strong> Payments are processed securely by Ameriabank vPOS. We do not store your full card details.</li>
+      <li><strong>Renewal:</strong> Subscriptions do not auto-renew. You must manually renew before your expiry date to maintain access.</li>
+      <li><strong>Access on expiry:</strong> When your subscription expires, your data is retained for 30 days. After that period we may delete it.</li>
+    </ul>
+    <h2 style="font-size:15px; margin-top:20px;"><strong>Refund Policy</strong></h2>
+    <p>Refunds may be requested within <strong>7 days</strong> of a payment, provided you have not made extensive use of the Service during that period. To request a refund, email <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a> with your order ID. Approved refunds are processed back to the original payment method within 5–10 business days.</p>
+    <p>We reserve the right to decline refund requests that appear abusive or fraudulent.</p>
+  </section>
+
+  <section id="use">
+    <h2><span class="section-num">03</span> Acceptable Use</h2>
+    <p>You agree not to:</p>
+    <ul>
+      <li>Use the Service for any unlawful purpose or in violation of any applicable law.</li>
+      <li>Attempt to gain unauthorized access to any part of the Service or its infrastructure.</li>
+      <li>Reverse-engineer, decompile, or disassemble any part of the Service.</li>
+      <li>Transmit viruses, malware, or any code designed to harm or disrupt systems.</li>
+      <li>Scrape, crawl, or systematically extract data from the Service without our written consent.</li>
+      <li>Resell, sublicense, or otherwise commercialize access to the Service without our authorization.</li>
+      <li>Impersonate another person or entity.</li>
+    </ul>
+    <p>We reserve the right to suspend or terminate accounts that violate these rules without prior notice.</p>
+  </section>
+
+  <section id="data">
+    <h2><span class="section-num">04</span> Your Data</h2>
+    <p>You retain ownership of all content and data you create within the Service ("Your Data"). By using the Service, you grant us a limited, non-exclusive license to store, process, and display Your Data solely to provide the Service to you.</p>
+    <p>You can export Your Data at any time using the Export function in the application. You can request deletion of Your Data by contacting us.</p>
+    <p>We do not claim intellectual property rights over Your Data.</p>
+  </section>
+
+  <section id="integrations">
+    <h2><span class="section-num">05</span> Third-Party Integrations</h2>
+    <p>The Service allows you to connect to third-party services (Jira, GitLab, GitHub). You are responsible for ensuring you have the right to use those credentials and that your use of such integrations complies with the respective third-party terms. We are not responsible for the availability or behavior of third-party services.</p>
+  </section>
+
+  <section id="ip">
+    <h2><span class="section-num">06</span> Intellectual Property</h2>
+    <p>The Service, including its design, code, features, and branding, is owned by ProgressOr and protected by applicable intellectual property laws. Nothing in these Terms grants you a right to use our name, logo, or trademarks without prior written consent.</p>
+  </section>
+
+  <section id="liability">
+    <h2><span class="section-num">07</span> Disclaimer & Limitation of Liability</h2>
+    <p>The Service is provided <strong>"as is"</strong> without warranties of any kind, express or implied, including fitness for a particular purpose or uninterrupted availability.</p>
+    <p>To the maximum extent permitted by law, ProgressOr shall not be liable for any indirect, incidental, special, or consequential damages arising from your use of or inability to use the Service, even if we have been advised of the possibility of such damages.</p>
+    <p>Our total liability for any claim arising from these Terms shall not exceed the amount you paid us in the 3 months preceding the claim.</p>
+  </section>
+
+  <section id="termination">
+    <h2><span class="section-num">08</span> Termination</h2>
+    <p>You may stop using the Service at any time. You may request account deletion by emailing us.</p>
+    <p>We may suspend or terminate your account immediately if you breach these Terms, engage in fraudulent activity, or if we are required to do so by law. In such cases, no refund will be issued.</p>
+    <p>Upon termination, your right to use the Service ceases immediately. Provisions that by their nature survive termination (data retention, liability limitations, intellectual property) shall remain in effect.</p>
+  </section>
+
+  <section id="changes">
+    <h2><span class="section-num">09</span> Changes to These Terms</h2>
+    <p>We may update these Terms at any time. We will notify registered users by email at least 14 days before material changes take effect. Continued use of the Service after the effective date constitutes acceptance of the updated Terms.</p>
+    <p>If you do not agree to the updated Terms, you must stop using the Service and may request a prorated refund for unused subscription time.</p>
+  </section>
+
+  <section id="contact">
+    <h2><span class="section-num">10</span> Contact</h2>
+    <p>For questions about these Terms:</p>
+    <p><strong>ProgressOr</strong><br>
+    Email: <a href="mailto:progressor.tracker@gmail.com">progressor.tracker@gmail.com</a><br>
+    Website: <a href="https://progressor.work">progressor.work</a></p>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 ProgressOr &nbsp;·&nbsp; <a href="https://progressor.work">progressor.work</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
+</footer>

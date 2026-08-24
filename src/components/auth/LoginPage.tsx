@@ -486,6 +486,12 @@ export default function LoginPage({ onAuth, adminMode }: Props) {
             {loading ? '…' : tab === 'login' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
+        <p style={{ marginTop: 20, fontSize: 11, color: 'var(--text3)', textAlign: 'center', lineHeight: 1.6 }}>
+          By continuing you agree to our{' '}
+          <a href="/terms" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Terms of Service</a>
+          {' '}and{' '}
+          <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Privacy Policy</a>
+        </p>
       </div>
     </div>
   )
