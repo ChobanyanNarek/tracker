@@ -492,11 +492,6 @@ export default function LoginPage({ onAuth, adminMode }: Props) {
           {' '}and{' '}
           <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Privacy Policy</a>
         </p>
-        <p style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', textAlign: 'center', lineHeight: 1.6 }}>
-          <a href="/subscription" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Subscription Policy</a>
-          {' '}&middot;{' '}
-          <a href="/refund" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Refund Policy</a>
-        </p>
       </div>
     </div>
   )

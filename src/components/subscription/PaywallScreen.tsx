@@ -175,6 +175,12 @@ export default function PaywallScreen({ onSubscribed }: Props) {
         >
           Sign out
         </button>
+
+        <div style={{ marginTop: 16, fontSize: 11, color: 'var(--text3)', lineHeight: 1.8 }}>
+          <a href="/subscription" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Subscription Policy</a>
+          {' · '}
+          <a href="/refund" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Refund Policy</a>
+        </div>
       </div>
     </div>
   )
