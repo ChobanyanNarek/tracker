@@ -242,15 +242,13 @@ export default function BillingPage({ onClose }: Props) {
                       </div>
                     )}
                   </div>
-                  {!active && (
-                    <button
-                      onClick={() => { void handleSubscribe() }}
-                      disabled={subscribing}
-                      style={{ padding: '8px 18px', borderRadius: 9, background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 600, fontSize: 13, opacity: subscribing ? 0.6 : 1 }}
-                    >
-                      {subscribing ? 'Redirecting…' : 'Subscribe — 10 AMD/mo'}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => { void handleSubscribe() }}
+                    disabled={subscribing}
+                    style={{ padding: '8px 18px', borderRadius: 9, background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 600, fontSize: 13, opacity: subscribing ? 0.6 : 1 }}
+                  >
+                    {subscribing ? 'Redirecting…' : active ? 'Renew — 10 AMD/mo' : 'Subscribe — 10 AMD/mo'}
+                  </button>
                 </div>
               </div>
             )}
@@ -305,6 +303,17 @@ export default function BillingPage({ onClose }: Props) {
           </section>
 
         </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', marginTop: 24, paddingTop: 16, textAlign: 'center', fontSize: 11, color: 'var(--text3)', lineHeight: 1.8 }}>
+          <a href="/subscription" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Subscription Policy</a>
+          {' · '}
+          <a href="/refund" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Refund Policy</a>
+          {' · '}
+          <a href="/terms" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Terms</a>
+          {' · '}
+          <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Privacy</a>
+        </div>
+
       </div>
     </div>
   )

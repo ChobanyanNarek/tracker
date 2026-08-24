@@ -206,6 +206,16 @@ export default function ProfileModal({ onClose }: Props) {
           {pwSaving ? 'Changing…' : 'Change Password'}
         </button>
       </div>
+
+      <div style={{ borderTop: '1px solid var(--border)', marginTop: 24, paddingTop: 14, textAlign: 'center', fontSize: 11, color: 'var(--text3)', lineHeight: 1.8 }}>
+        <a href="/subscription" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Subscription Policy</a>
+        {' · '}
+        <a href="/refund" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Refund Policy</a>
+        {' · '}
+        <a href="/terms" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Terms</a>
+        {' · '}
+        <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: 'var(--text3)', textDecoration: 'none' }}>Privacy</a>
+      </div>
     </Modal>
   )
 }
