@@ -1635,12 +1635,16 @@ export const useStore = create<Store>((set, get) => {
             const newPrs = taskPatch.get(identity)
             const existingUrls = new Set((j.prs ?? []).map((p) => p.url))
             const toAdd = (newPrs ?? []).filter((p) => !existingUrls.has(p.url))
-            // Update state on existing PRs even if no new ones added
+            // Update state + stateHistory on existing PRs even if no new ones added
             const updatedExisting = (j.prs ?? []).map((p) => {
               const patch = (newPrs ?? []).find((np) => np.url === p.url)
-              return patch?.state ? { ...p, state: patch.state } : p
+              if (!patch) return p
+              return { ...p, ...(patch.state ? { state: patch.state } : {}), ...(patch.stateHistory ? { stateHistory: patch.stateHistory } : {}) }
             })
-            const stateChanged = updatedExisting.some((p, i) => p.state !== (j.prs ?? [])[i]?.state)
+            const stateChanged = updatedExisting.some((p, i) => {
+              const orig = (j.prs ?? [])[i]
+              return p.state !== orig?.state || JSON.stringify(p.stateHistory) !== JSON.stringify(orig?.stateHistory)
+            })
             if (!toAdd.length && !stateChanged) return j
             changed = true
             let newStatus = j.status
@@ -1817,12 +1821,16 @@ export const useStore = create<Store>((set, get) => {
 
             if (!identity) return changed ? { ...j, prs: filteredPrs } : j
             const newPrs = taskPatch?.get(identity)
-            // Update state on existing PRs
+            // Update state + stateHistory on existing PRs
             const updatedFiltered = filteredPrs.map((p) => {
               const patch = (newPrs ?? []).find((np) => np.url === p.url)
-              return patch?.state ? { ...p, state: patch.state } : p
+              if (!patch) return p
+              return { ...p, ...(patch.state ? { state: patch.state } : {}), ...(patch.stateHistory ? { stateHistory: patch.stateHistory } : {}) }
             })
-            const stateUpdated = updatedFiltered.some((p, i) => p.state !== filteredPrs[i]?.state)
+            const stateUpdated = updatedFiltered.some((p, i) => {
+              const orig = filteredPrs[i]
+              return p.state !== orig?.state || JSON.stringify(p.stateHistory) !== JSON.stringify(orig?.stateHistory)
+            })
             if (stateUpdated) changed = true
             if (!newPrs?.length) return changed ? { ...j, prs: updatedFiltered } : j
             const existingUrls = new Set(updatedFiltered.map((p) => p.url))
