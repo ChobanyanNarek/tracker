@@ -1569,6 +1569,11 @@ export const useStore = create<Store>((set, get) => {
           : mr.state === 'closed' ? 'closed'
           : isDraft ? 'draft'
           : 'open'
+        const mrStateHistory: import('../types').PrStateEvent[] = [
+          { state: isDraft ? 'draft' : 'open', at: mr.created_at },
+          ...(mr.merged_at ? [{ state: 'merged' as const, at: mr.merged_at }] : []),
+          ...(mr.closed_at && !mr.merged_at ? [{ state: 'closed' as const, at: mr.closed_at }] : []),
+        ]
         mrUrlToStatus.set(mr.web_url, 'done')
 
         const keySet = new Set(keys)
@@ -1594,10 +1599,10 @@ export const useStore = create<Store>((set, get) => {
             const existing = taskPatch.get(identity) ?? []
             if (!existing.some((p) => p.url === mr.web_url)) {
               const alreadyInJira = (jira.prs ?? []).some((p) => p.url === mr.web_url)
-              taskPatch.set(identity, [...existing, { url: mr.web_url, date: pushDate, time: pushTime, state: mrPrState }])
+              taskPatch.set(identity, [...existing, { url: mr.web_url, date: pushDate, time: pushTime, state: mrPrState, stateHistory: mrStateHistory }])
               if (!alreadyInJira) addedSomewhere = true
             } else {
-              taskPatch.set(identity, existing.map((p) => p.url === mr.web_url ? { ...p, state: mrPrState } : p))
+              taskPatch.set(identity, existing.map((p) => p.url === mr.web_url ? { ...p, state: mrPrState, stateHistory: mrStateHistory } : p))
             }
           }
         }
@@ -1721,6 +1726,7 @@ export const useStore = create<Store>((set, get) => {
       const prUrlToStatus = new Map<string, JiraIssue['status']>()
       const prUrlToKeys = new Map<string, Set<string>>()  // url → matched issue keys (uppercase)
       const prUrlToState = new Map<string, import('../types').PrState>()
+      const prUrlToHistory = new Map<string, import('../types').PrStateEvent[]>()
       let linked = 0
       let updated = 0
 
@@ -1738,6 +1744,13 @@ export const useStore = create<Store>((set, get) => {
           : pr.draft ? 'draft'
           : 'open'
         prUrlToState.set(pr.html_url, ghPrState)
+        const mergedAt = pr.merged_at ?? pr.pull_request?.merged_at ?? null
+        const closedAt = pr.closed_at ?? null
+        prUrlToHistory.set(pr.html_url, [
+          { state: pr.draft ? 'draft' as const : 'open' as const, at: pr.created_at },
+          ...(mergedAt ? [{ state: 'merged' as const, at: mergedAt }] : []),
+          ...(closedAt && !mergedAt ? [{ state: 'closed' as const, at: closedAt }] : []),
+        ])
 
         const keySet = new Set(keys)
         const matchesIssue = (jira: JiraIssue) => {
@@ -1759,12 +1772,13 @@ export const useStore = create<Store>((set, get) => {
             const taskPatch = prPatches.get(task.id)!
             const existing = taskPatch.get(identity) ?? []
             const ghState = prUrlToState.get(pr.html_url)
+            const ghHistory = prUrlToHistory.get(pr.html_url)
             if (!existing.some((p) => p.url === pr.html_url)) {
               const alreadyInJira = (jira.prs ?? []).some((p) => p.url === pr.html_url)
-              taskPatch.set(identity, [...existing, { url: pr.html_url, date: pushDate, time: pushTime, state: ghState }])
+              taskPatch.set(identity, [...existing, { url: pr.html_url, date: pushDate, time: pushTime, state: ghState, stateHistory: ghHistory }])
               if (!alreadyInJira) addedSomewhere = true
             } else {
-              taskPatch.set(identity, existing.map((p) => p.url === pr.html_url ? { ...p, state: ghState } : p))
+              taskPatch.set(identity, existing.map((p) => p.url === pr.html_url ? { ...p, state: ghState, stateHistory: ghHistory } : p))
             }
           }
         }

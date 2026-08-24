@@ -164,6 +164,13 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
               closed: { bg: '#fee2e2', color: '#dc2626' },
             }
             const sc = p.state ? stateColors[p.state] : null
+            const historyTooltip = p.stateHistory?.length
+              ? p.stateHistory.map((e) => {
+                  const d = new Date(e.at)
+                  const label = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  return `${e.state.toUpperCase()}: ${label}`
+                }).join('\n')
+              : null
             return lbl ? (
               <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <a className="elink" href={p.url} target="_blank" rel="noreferrer" style={{ fontSize: 10 }}>
@@ -171,7 +178,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
                   {lbl}
                 </a>
                 {sc && (
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: sc.bg, color: sc.color, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                  <span title={historyTooltip ?? undefined} style={{ fontFamily: 'var(--mono)', fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: sc.bg, color: sc.color, textTransform: 'uppercase', letterSpacing: '.4px', cursor: historyTooltip ? 'help' : 'default' }}>
                     {p.state}
                   </span>
                 )}

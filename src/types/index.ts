@@ -79,11 +79,17 @@ export interface JiraConfig {
 
 export type PrState = 'open' | 'draft' | 'merged' | 'closed'
 
+export interface PrStateEvent {
+  state: PrState
+  at: string  // ISO timestamp
+}
+
 export interface PrEntry {
   url: string
   date: string
   time: string
   state?: PrState
+  stateHistory?: PrStateEvent[]
 }
 
 export interface StatusHistoryEntry {

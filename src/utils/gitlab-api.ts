@@ -7,6 +7,8 @@ export interface GitLabMR {
   source_branch: string
   web_url: string
   created_at: string
+  merged_at?: string | null
+  closed_at?: string | null
   state: 'opened' | 'merged' | 'closed'
   draft?: boolean
   work_in_progress?: boolean

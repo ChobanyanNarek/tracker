@@ -13,6 +13,7 @@ export interface GitHubPR {
   // head ref (branch name) — populated when fetching full PR details
   head?: { ref: string }
   merged_at?: string | null
+  closed_at?: string | null
 }
 
 function keysFromText(text: string, projectKeys: string[]): string[] {
