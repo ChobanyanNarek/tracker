@@ -49,7 +49,7 @@ function PrHistoryPopover({ p }: { p: PrEntry }) {
           {p.stateHistory.map((e, i) => {
             const d = new Date(e.at)
             const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
             const dot = stateColors[e.state]
             return (
               <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: i < p.stateHistory!.length - 1 ? 6 : 0 }}>
