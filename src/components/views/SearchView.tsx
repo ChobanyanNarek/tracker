@@ -95,7 +95,12 @@ export default function SearchView() {
     let cancelled = false
     setLoading(true)
     setFetchFailed(false)
-    const handle = setTimeout(() => {
+
+    // The backend intermittently 500s under load — retry a couple of times
+    // with backoff before surfacing failure, instead of making the user
+    // manually retype/refresh to get a fresh attempt.
+    const RETRY_DELAYS_MS = [800, 2000]
+    const runFetch = (attempt: number) => {
       void searchTasks({
         q: q || undefined,
         projectId: searchProjectId !== 'ALL' ? searchProjectId : undefined,
@@ -104,13 +109,22 @@ export default function SearchView() {
         take: PAGE_SIZE,
       }).then((result) => {
         if (cancelled) return
+        if (!result) {
+          if (attempt < RETRY_DELAYS_MS.length) {
+            setTimeout(() => runFetch(attempt + 1), RETRY_DELAYS_MS[attempt])
+            return
+          }
+          setLoading(false)
+          setFetchFailed(true); setRemoteTasks([]); setTotalPages(1); setTotalCount(0)
+          return
+        }
         setLoading(false)
-        if (!result) { setFetchFailed(true); setRemoteTasks([]); setTotalPages(1); setTotalCount(0); return }
         setRemoteTasks(result.data)
         setTotalPages(Math.max(1, result.meta.pageCount))
         setTotalCount(result.meta.itemCount)
       })
-    }, DEBOUNCE_MS)
+    }
+    const handle = setTimeout(() => runFetch(0), DEBOUNCE_MS)
     return () => { cancelled = true; clearTimeout(handle) }
   }, [q, statusFilter, searchProjectId, page])
 
