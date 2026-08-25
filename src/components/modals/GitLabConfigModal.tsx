@@ -5,7 +5,7 @@ import { fetchGroupMRs, normalizeGroupPath } from '../../utils/gitlab-api'
 import { jiraDedupeKey } from '../../utils/format'
 import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
-import Icon from '../ui/Icon'
+import Icon, { BrandIcon } from '../ui/Icon'
 
 interface Props { onClose: () => void; projectId?: string }
 
@@ -113,7 +113,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         <span style={labelStyle}>Group / Subgroup path</span>
         <input style={inputStyle} placeholder="mycompany or mycompany/subgroup" value={conn.groupPath} onChange={(e) => patch('groupPath', e.target.value)} />
         {conn.groupPath.trim()
-          ? <div style={{ fontSize: 10, marginTop: 3, fontFamily: 'var(--mono)', color: norm !== conn.groupPath.trim() ? '#f97316' : 'var(--text3)' }}>Will use: <b>{norm}</b></div>
+          ? <div style={{ fontSize: 10, marginTop: 3, fontFamily: 'var(--mono)', color: norm !== conn.groupPath.trim() ? 'var(--orange)' : 'var(--text3)' }}>Will use: <b>{norm}</b></div>
           : <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>The path in the GitLab URL: gitlab.com/<b>mycompany</b></div>
         }
       </div>
@@ -154,7 +154,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {/* test result + button */}
       {testResult && (
-        <div style={{ fontSize: 11, padding: '7px 10px', borderRadius: 6, background: testResult.ok ? '#dcfce7' : '#fee2e2', color: testResult.ok ? '#15803d' : '#b91c1c', border: `1px solid ${testResult.ok ? '#86efac' : '#fca5a5'}`, fontFamily: 'var(--mono)' }}>
+        <div style={{ fontSize: 11, padding: '7px 10px', borderRadius: 6, background: testResult.ok ? 'var(--green-dim)' : 'var(--red-dim)', color: testResult.ok ? 'var(--green)' : 'var(--red)', border: `1px solid ${testResult.ok ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)' }}>
           {testResult.msg}
         </div>
       )}
@@ -296,7 +296,7 @@ export default function GitLabConfigModal({ onClose, projectId }: Props) {
 
   return (
     <Modal
-      title="🦊 GitLab Connections"
+      title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><BrandIcon brand="gitlab" size={16} /> GitLab Connections</span>}
       zIndex={1000}
       onClose={onClose}
       bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 16 }}

@@ -5,6 +5,7 @@ import { todayStr, formatDate } from '../../utils/dates'
 import type { Developer, Project, JiraIssue } from '../../types'
 import DatePicker from '../ui/DatePicker'
 import { resolveGroups } from '../../utils/status-groups'
+import Icon from '../ui/Icon'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -338,12 +339,7 @@ export default function TimelineView() {
       <div style={{ flex: 1, overflow: 'auto', position: 'relative' }} ref={containerRef}>
         {isEmpty ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: 'var(--text3)' }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity={0.4}>
-              <rect x="3" y="4" width="18" height="18" rx="2"/>
-              <line x1="3" y1="10" x2="21" y2="10"/>
-              <line x1="8" y1="2" x2="8" y2="6"/>
-              <line x1="16" y1="2" x2="16" y2="6"/>
-            </svg>
+            <Icon name="calendar" size={32} strokeWidth={1.5} style={{ opacity: 0.4 }} />
             <span style={{ fontSize: 13 }}>No issues with deadlines in this window</span>
             <span style={{ fontSize: 11, opacity: 0.7 }}>Toggle "Show all issues" or navigate to a different period</span>
           </div>

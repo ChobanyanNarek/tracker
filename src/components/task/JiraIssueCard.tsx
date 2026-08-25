@@ -6,6 +6,7 @@ import { PRIORITY_CONF } from '../../constants'
 import { dlInfo, formatDate } from '../../utils/dates'
 import { prLabel, jiraLabel } from '../../utils/format'
 import StatusSelect from '../ui/StatusSelect'
+import Icon, { BrandIcon } from '../ui/Icon'
 
 function PrHistoryPopover({ p }: { p: PrEntry }) {
   const [open, setOpen] = useState(false)
@@ -22,9 +23,9 @@ function PrHistoryPopover({ p }: { p: PrEntry }) {
 
   const stateColors: Record<string, { bg: string; color: string }> = {
     draft:  { bg: 'var(--surface2)', color: 'var(--text3)' },
-    open:   { bg: '#dcfce7', color: '#16a34a' },
-    merged: { bg: '#ede9fe', color: '#7c3aed' },
-    closed: { bg: '#fee2e2', color: '#dc2626' },
+    open:   { bg: 'var(--green-dim)', color: 'var(--green)' },
+    merged: { bg: 'var(--purple-dim)', color: 'var(--purple)' },
+    closed: { bg: 'var(--red-dim)', color: 'var(--red)' },
   }
   const sc = p.state ? stateColors[p.state] : null
 
@@ -117,7 +118,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.opacity = '1' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.opacity = '0.7' }}
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <Icon name="eye" size={11} />
         </button>
       </div>
     )
@@ -167,7 +168,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.opacity = '1' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.opacity = '0.5' }}
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+          <Icon name="pen" size={11} />
         </button>
         <button
           onClick={() => onHide(issue.issueId, issue.url ?? '')}
@@ -176,7 +177,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text2)'; e.currentTarget.style.opacity = '1' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.opacity = '0.5' }}
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <Icon name="eye-off" size={11} />
         </button>
         <button
           onClick={() => onDelete(issue.issueId, issue.url ?? '')}
@@ -191,7 +192,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {issue.url && (
           <a className="elink jira" href={issue.url} target="_blank" rel="noreferrer" style={{ fontSize: 10 }}>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.35V2.84a.84.84 0 0 0-.84-.84zM6.77 6.8a4.362 4.362 0 0 0 4.34 4.34h1.79v1.71a4.362 4.362 0 0 0 4.34 4.34V7.63a.84.84 0 0 0-.83-.83zM2 11.6c0 2.4 1.95 4.34 4.35 4.34h1.78v1.72c.01 2.39 1.95 4.34 4.35 4.34v-9.57a.84.84 0 0 0-.84-.83z"/></svg>
+            <BrandIcon brand="jira" size={9} />
             {jiraLbl ?? 'Jira'}
           </a>
         )}

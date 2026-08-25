@@ -69,7 +69,7 @@ export default function Calendar() {
           let opacity: string | number = 1
 
           if (isActive) { bg = 'var(--accent-dim)'; border = '1px solid var(--accent)'; textColor = 'var(--accent)' }
-          else if (holiday) { bg = '#cffafe'; border = '1px solid #a5f3fc'; textColor = '#0891b2' }
+          else if (holiday) { bg = 'var(--teal-dim)'; border = '1px solid var(--teal-border)'; textColor = 'var(--teal)' }
           else if (weekend) { bg = 'var(--surface3)'; textColor = 'var(--text3)'; opacity = 0.7 }
 
           return (

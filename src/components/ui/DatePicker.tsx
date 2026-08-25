@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import Icon from './Icon'
 
 interface DatePickerProps {
   value: string
@@ -164,7 +165,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Select date
               onClick={prevMonth}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', padding: '2px 6px', borderRadius: 5, lineHeight: 1, display: 'flex', alignItems: 'center' }}
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 11L5 7l4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <Icon name="chevron-left" size={14} strokeWidth={1.6} />
             </button>
             <span style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
               {MONTHS[nav.month]} {nav.year}
@@ -173,7 +174,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Select date
               onClick={nextMonth}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', padding: '2px 6px', borderRadius: 5, lineHeight: 1, display: 'flex', alignItems: 'center' }}
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <Icon name="chevron-right" size={14} strokeWidth={1.6} />
             </button>
           </div>
 

@@ -4,7 +4,7 @@ import type { GitHubConfig } from '../../types'
 import { normalizeGithubPath } from '../../utils/github-api'
 import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
-import Icon from '../ui/Icon'
+import Icon, { BrandIcon } from '../ui/Icon'
 
 interface Props { onClose: () => void; projectId?: string }
 
@@ -138,7 +138,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
           const normalized = repo ?? owner
           const isFullUrl = conn.orgOrUser.trim().toLowerCase().startsWith('http')
           return (
-            <div style={{ fontSize: 10, marginTop: 3, fontFamily: 'var(--mono)', color: isFullUrl ? '#f97316' : 'var(--text3)' }}>
+            <div style={{ fontSize: 10, marginTop: 3, fontFamily: 'var(--mono)', color: isFullUrl ? 'var(--orange)' : 'var(--text3)' }}>
               Will use: <b>{normalized}</b> — {repo ? 'single repo' : 'all repos in org/user'}
             </div>
           )
@@ -183,7 +183,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {/* test result + button */}
       {testResult && (
-        <div style={{ fontSize: 11, padding: '7px 10px', borderRadius: 6, background: testResult.ok ? '#dcfce7' : '#fee2e2', color: testResult.ok ? '#15803d' : '#b91c1c', border: `1px solid ${testResult.ok ? '#86efac' : '#fca5a5'}`, fontFamily: 'var(--mono)' }}>
+        <div style={{ fontSize: 11, padding: '7px 10px', borderRadius: 6, background: testResult.ok ? 'var(--green-dim)' : 'var(--red-dim)', color: testResult.ok ? 'var(--green)' : 'var(--red)', border: `1px solid ${testResult.ok ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)' }}>
           {testResult.msg}
         </div>
       )}
@@ -299,7 +299,7 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
 
   return (
     <Modal
-      title="🐙 GitHub Connections"
+      title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><BrandIcon brand="github" size={16} /> GitHub Connections</span>}
       zIndex={1000}
       onClose={onClose}
       bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 16 }}

@@ -58,9 +58,9 @@ export default function TimePicker({ value, onChange, placeholder = 'hh:mm', sty
         style={{
           fontFamily: 'var(--mono)',
           fontSize: 11,
-          color: invalid ? '#ef4444' : value ? 'var(--text)' : 'var(--text3)',
+          color: invalid ? 'var(--red)' : value ? 'var(--text)' : 'var(--text3)',
           background: 'var(--surface)',
-          border: `1px solid ${invalid ? '#ef4444' : 'var(--border)'}`,
+          border: `1px solid ${invalid ? 'var(--red)' : 'var(--border)'}`,
           borderRadius: 6,
           padding: '3px 8px',
           outline: 'none',

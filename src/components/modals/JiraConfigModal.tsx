@@ -4,7 +4,7 @@ import type { JiraConfig, JiraStatusMapping, StatusGroup, StatusGroupColor } fro
 import { fetchJiraIssues, fetchJiraStatuses, fetchJiraBoards, type JiraStatusInfo, type JiraBoardInfo } from '../../utils/jira-api'
 import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX } from '../../utils/status-groups'
 import Modal from '../ui/Modal'
-import Icon from '../ui/Icon'
+import Icon, { BrandIcon } from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
 
 interface Props { onClose: () => void; projectId?: string }
@@ -402,7 +402,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 
       {/* test */}
       {testResult && (
-        <div style={{ fontSize: 11, padding: '7px 10px', borderRadius: 6, background: testResult.ok ? '#dcfce7' : '#fee2e2', color: testResult.ok ? '#15803d' : '#b91c1c', border: `1px solid ${testResult.ok ? '#86efac' : '#fca5a5'}`, fontFamily: 'var(--mono)' }}>
+        <div style={{ fontSize: 11, padding: '7px 10px', borderRadius: 6, background: testResult.ok ? 'var(--green-dim)' : 'var(--red-dim)', color: testResult.ok ? 'var(--green)' : 'var(--red)', border: `1px solid ${testResult.ok ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)' }}>
           {testResult.msg}
         </div>
       )}
@@ -522,7 +522,7 @@ export default function JiraConfigModal({ onClose, projectId }: Props) {
 
   return (
     <Modal
-      title="🔗 Jira Connections"
+      title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><BrandIcon brand="jira" size={16} /> Jira Connections</span>}
       zIndex={1000}
       onClose={onClose}
       bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 16 }}

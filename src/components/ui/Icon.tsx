@@ -16,9 +16,9 @@ export type IconName =
   | 'eye' | 'eye-off' | 'key' | 'wipe' | 'phone' | 'refresh'
   | 'calendar' | 'clock' | 'external' | 'link' | 'chart' | 'list'
   | 'check' | 'copy' | 'message' | 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
-  | 'edit' | 'database' | 'download' | 'upload' | 'jira'
+  | 'edit' | 'database' | 'download' | 'upload'
   | 'briefcase' | 'palm' | 'sun' | 'thermometer' | 'party' | 'flag' | 'timeline'
-  | 'notes' | 'pin' | 'star' | 'ban' | 'billing'
+  | 'notes' | 'pin' | 'star' | 'ban' | 'billing' | 'folder' | 'archive' | 'pen'
 
 // Brand colors — single source of truth (was duplicated across 3 files with divergent values)
 export const BRAND = {
@@ -92,18 +92,21 @@ const PATHS: Record<IconName, JSX.Element> = {
   review: <><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></>,
   done: <><circle cx="12" cy="12" r="9"/><polyline points="8.5 12 11 14.5 15.5 9.5"/></>,
   blocked: <><circle cx="12" cy="12" r="9"/><line x1="6" y1="6" x2="18" y2="18"/></>,
-  jira: <path d="M11.53 2 6.77 6.76a1 1 0 0 0 0 1.42l4.76 4.76 4.77-4.76a1 1 0 0 0 0-1.42L11.53 2zM6.76 6.77 2 11.53l4.76 4.76 4.77-4.76-4.77-4.76zM16.29 6.77l-4.76 4.76 4.76 4.76L21.05 11.53l-4.76-4.76z"/>,
   notes: <><path d="M4 3h11l5 5v13a0 0 0 0 1 0 0H4a0 0 0 0 1 0 0V3z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></>,
   pin: <><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 2h6l-1 7 3 3v2H7v-2l3-3-1-7z"/></>,
   star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   ban: <><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></>,
   billing: <><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></>,
+  folder: <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>,
+  archive: <><rect x="2.25" y="3" width="19.5" height="4.5" rx="1.5"/><path d="M3.75 7.5v11.25a1.5 1.5 0 0 0 1.5 1.5h13.5a1.5 1.5 0 0 0 1.5-1.5V7.5"/><line x1="9" y1="13.5" x2="15" y2="13.5"/></>,
+  pen: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>,
 }
 
 // Brand logo shapes (fill-based)
-const BRAND_PATHS: Record<'gitlab' | 'github', JSX.Element> = {
+const BRAND_PATHS: Record<'gitlab' | 'github' | 'jira', JSX.Element> = {
   gitlab: <path d="M4.845.904c-.435 0-.82.28-.955.692L.31 13.16a1.352 1.352 0 0 0 .477 1.492L12 23.25l11.213-8.598a1.352 1.352 0 0 0 .477-1.492L20.11 1.596A.999.999 0 0 0 19.155.904h-.002a.998.998 0 0 0-.952.69l-2.49 7.647H8.29L5.8 1.594A.999.999 0 0 0 4.845.904z"/>,
   github: <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>,
+  jira: <path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.35V2.84a.84.84 0 0 0-.84-.84zM6.77 6.8a4.362 4.362 0 0 0 4.34 4.34h1.79v1.71a4.362 4.362 0 0 0 4.34 4.34V7.63a.84.84 0 0 0-.83-.83zM2 11.6c0 2.4 1.95 4.34 4.35 4.34h1.78v1.72c.01 2.39 1.95 4.34 4.35 4.34v-9.57a.84.84 0 0 0-.84-.83z"/>,
 }
 
 export default function Icon({ name, size = 14, color = 'currentColor', strokeWidth = 2, className, style, spinning, title }: IconProps) {
@@ -125,7 +128,7 @@ export default function Icon({ name, size = 14, color = 'currentColor', strokeWi
 }
 
 // Brand logo icon (fill-based, brand-colored)
-export function BrandIcon({ brand, size = 14, color, style }: { brand: 'gitlab' | 'github'; size?: number; color?: string; style?: CSSProperties }) {
+export function BrandIcon({ brand, size = 14, color, style }: { brand: 'gitlab' | 'github' | 'jira'; size?: number; color?: string; style?: CSSProperties }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color ?? BRAND[brand]} style={{ flexShrink: 0, ...style }} aria-hidden="true">
       {BRAND_PATHS[brand]}

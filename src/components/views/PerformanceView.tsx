@@ -7,6 +7,7 @@ import { fmtWorkHours, tzDateTimeLabel } from '../../utils/working-hours'
 import { hexRgb, initials } from '../../utils/format'
 import { STATUS_LABEL, STATUS_COLOR } from '../../constants'
 import EmptyState from '../ui/EmptyState'
+import Icon, { BrandIcon } from '../ui/Icon'
 
 type RangeKey = 'month' | '30d' | 'quarter' | 'all'
 
@@ -20,19 +21,19 @@ const RANGE_LABELS: Record<RangeKey, string> = {
 const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 const VERDICT_CONF: Record<Verdict, { label: string; color: string; dim: string }> = {
-  great:        { label: 'Great',             color: '#16a34a', dim: 'rgba(22,163,74,.12)' },
-  onTimeBlocky: { label: 'On time · blocked', color: '#0891b2', dim: 'rgba(8,145,178,.12)' },
-  lateSolid:    { label: 'Late · solid work', color: '#d97706', dim: 'rgba(217,119,6,.12)' },
-  lateBlocky:   { label: 'Late · blocked',    color: '#dc2626', dim: 'rgba(220,38,38,.12)' },
-  ongoing:      { label: 'In progress',       color: '#2563eb', dim: 'rgba(37,99,235,.12)' },
-  overdue:      { label: 'Overdue',           color: '#dc2626', dim: 'rgba(220,38,38,.12)' },
-  insufficient: { label: 'No data',           color: '#9aa0b8', dim: 'rgba(154,160,184,.12)' },
+  great:        { label: 'Great',             color: 'var(--green)',  dim: 'var(--green-dim)' },
+  onTimeBlocky: { label: 'On time · blocked', color: 'var(--teal)',   dim: 'var(--teal-dim)' },
+  lateSolid:    { label: 'Late · solid work', color: 'var(--amber)',  dim: 'var(--amber-dim)' },
+  lateBlocky:   { label: 'Late · blocked',    color: 'var(--red)',    dim: 'var(--red-dim)' },
+  ongoing:      { label: 'In progress',       color: 'var(--accent)', dim: 'var(--accent-dim)' },
+  overdue:      { label: 'Overdue',           color: 'var(--red)',    dim: 'var(--red-dim)' },
+  insufficient: { label: 'No data',           color: 'var(--text3)',  dim: 'var(--surface3)' },
 }
 
-const GREEN = '#16a34a'
-const AMBER = '#d97706'
-const RED = '#dc2626'
-const BLUE = '#2563eb'
+const GREEN = 'var(--green)'
+const AMBER = 'var(--amber)'
+const RED = 'var(--red)'
+const BLUE = 'var(--accent)'
 
 function pad2(n: number): string { return String(n).padStart(2, '0') }
 function localDateStr(d: Date): string {
@@ -210,8 +211,8 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <VerdictChip verdict={issue.verdict} />
               <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>{dev.name}</span>
-              {issue.reworkCount > 0 && <span style={chip(AMBER, 'rgba(217,119,6,.12)')}>🔁 rework ×{issue.reworkCount}</span>}
-              {issue.suspect && <span style={chip(AMBER, 'rgba(217,119,6,.12)')}>⚠ MR before In Progress</span>}
+              {issue.reworkCount > 0 && <span style={{ ...chip(AMBER, 'rgba(217,119,6,.12)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="refresh" size={9} /> rework ×{issue.reworkCount}</span>}
+              {issue.suspect && <span style={{ ...chip(AMBER, 'rgba(217,119,6,.12)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="info" size={9} /> MR before In Progress</span>}
             </div>
           </div>
           <button onClick={onClose} className="icon-btn" style={{ fontSize: 16 }}>✕</button>
@@ -219,9 +220,9 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {issue.url && <a className="elink jira" href={issue.url} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>🔗 Jira issue</a>}
+            {issue.url && <a className="elink jira" href={issue.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><BrandIcon brand="jira" size={10} /> Jira issue</a>}
             {issue.prUrls.map((u, i) => (
-              <a key={u} className="elink" href={u} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>🦊 PR/MR{issue.prUrls.length > 1 ? ` #${i + 1}` : ''}</a>
+              <a key={u} className="elink" href={u} target="_blank" rel="noreferrer" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="link" size={10} /> PR/MR{issue.prUrls.length > 1 ? ` #${i + 1}` : ''}</a>
             ))}
             {!issue.url && !issue.prUrls.length && <span style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>No external links</span>}
           </div>
@@ -231,7 +232,7 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
           <div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>Timing (local time)</div>
             {row('Started (first In Progress)', issue.startMs ? tzDateTimeLabel(issue.startMs, LOCAL_TZ) : '—')}
-            {row('Deadline', <>{tzDateTimeLabel(issue.deadlineMs, LOCAL_TZ)}{issue.deadlineAssumed && <span style={{ color: AMBER }}> ⚠ end of day assumed</span>}</>)}
+            {row('Deadline', <>{tzDateTimeLabel(issue.deadlineMs, LOCAL_TZ)}{issue.deadlineAssumed && <span style={{ color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 3 }}> <Icon name="info" size={9} /> end of day assumed</span>}</>)}
             {row('Delivery (last MR push)', issue.deliveryMs ? `${tzDateTimeLabel(issue.deliveryMs, LOCAL_TZ)}${issue.deliverySource === 'status' ? ' (from status)' : ''}` : 'not delivered')}
             {issue.deliveryDeltaH != null && row('Delivery vs deadline', <span style={{ color: issue.deliveryDeltaH <= 0 ? GREEN : RED }}>{fmtDelta(issue.deliveryDeltaH)}</span>)}
           </div>
@@ -287,8 +288,8 @@ function IssueRow({ issue, onClick, dim }: { issue: IssuePerf; onClick: () => vo
       <VerdictChip verdict={issue.verdict} />
       <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {issue.name}
-        {issue.reworkCount > 0 && <span title={`Went back to In Progress ${issue.reworkCount}× after review`} style={{ color: AMBER }}> 🔁{issue.reworkCount}</span>}
-        {issue.suspect && <span title="MR pushed before first In Progress — status history may be incomplete" style={{ color: AMBER }}> ⚠</span>}
+        {issue.reworkCount > 0 && <span title={`Went back to In Progress ${issue.reworkCount}× after review`} style={{ color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 2 }}> <Icon name="refresh" size={9} />{issue.reworkCount}</span>}
+        {issue.suspect && <span title="MR pushed before first In Progress — status history may be incomplete" style={{ color: AMBER, display: 'inline-flex', alignItems: 'center' }}> <Icon name="info" size={9} /></span>}
       </span>
       <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', flexShrink: 0 }}>
         {issue.verdict === 'insufficient' ? (

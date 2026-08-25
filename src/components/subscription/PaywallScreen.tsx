@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { clearToken, getUserInfo } from '../../utils/auth'
 import { initiatePayment, getSubscriptionStatus } from '../../utils/payment-api'
+import Icon from '../ui/Icon'
 
 interface Props {
   onSubscribed: () => void
@@ -80,10 +81,7 @@ export default function PaywallScreen({ onSubscribed }: Props) {
           background: 'var(--accent-dim)', color: 'var(--accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
+          <Icon name="key" size={26} strokeWidth={1.7} />
         </div>
 
         <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: '-.4px', marginBottom: 10, textAlign: 'center' }}>
@@ -120,9 +118,7 @@ export default function PaywallScreen({ onSubscribed }: Props) {
             'Cloud sync across devices',
           ].map((f) => (
             <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text2)' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
+              <Icon name="check" size={16} color="var(--accent)" strokeWidth={2.2} />
               {f}
             </div>
           ))}

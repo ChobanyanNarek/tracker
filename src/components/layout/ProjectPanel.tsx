@@ -32,37 +32,6 @@ const SCHED_DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const PANEL_W = 280
 const EDIT_W = 320
 
-// ── Icons ───────────────────────────────────────────────────────────────────
-
-const IcoFolder = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-  </svg>
-)
-const IcoPencil = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-  </svg>
-)
-const IcoTrash = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="3 6 5 6 21 6"/>
-    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-    <path d="M10 11v6M14 11v6"/>
-    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-  </svg>
-)
-const IcoClock = () => (
-  <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"/><path d="M8 5v3l2 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-)
-const IcoArchive = () => (
-  <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2" width="13" height="3" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 5v7.5a1 1 0 001 1h9a1 1 0 001-1V5" stroke="currentColor" strokeWidth="1.5"/><path d="M6 9h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-)
-const IcoChevronLeft = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-)
-
 // ── Shared field styles ──────────────────────────────────────────────────────
 
 const field: React.CSSProperties = {
@@ -100,26 +69,36 @@ function DayPicker({ value, onChange }: { value: number[]; onChange: (v: number[
 
 // ── Sortable dev row ─────────────────────────────────────────────────────────
 
-interface DevRowProps {
-  dev: Developer
-  schedulingId: string | null
-  archivingId: string | null
-  schedDraft: WorkSchedule
-  archiveDate: string
-  onScheduleToggle: (id: string) => void
-  onArchiveToggle: (id: string) => void
-  onScheduleSave: () => void
-  onScheduleCancel: () => void
-  onArchiveConfirm: (id: string) => void
-  onArchiveCancel: () => void
-  onDeleteRequest: (id: string) => void
-  setSchedDraft: React.Dispatch<React.SetStateAction<WorkSchedule>>
-  setArchiveDate: (d: string) => void
+// Owns the scheduling/archiving drawer state shared by every dev row (only one
+// row can have a drawer open at a time) and the actions that mutate it — kept
+// out of SortableDevRow's props so that component takes one bundle instead of
+// 14 individual props.
+function useDevRowActions(archiveDeveloper: (id: string, archivedAt: string) => void, onDeleteRequest: (id: string) => void) {
+  const [schedulingId, setSchedulingId] = useState<string | null>(null)
+  const [schedDraft, setSchedDraft] = useState<WorkSchedule>(DEFAULT_WORK_SCHEDULE)
+  const [archivingId, setArchivingId] = useState<string | null>(null)
+  const [archiveDate, setArchiveDate] = useState(todayStr())
+
+  return {
+    schedulingId, archivingId, schedDraft, archiveDate, setSchedDraft, setArchiveDate,
+    onScheduleToggle: (dev: Developer) => { setSchedDraft(getSchedule(dev)); setSchedulingId(id => id === dev.id ? null : dev.id); setArchivingId(null) },
+    onArchiveToggle: (id: string) => { setArchivingId(prev => prev === id ? null : id); setArchiveDate(todayStr()); setSchedulingId(null) },
+    onScheduleSave: () => setSchedulingId(null),
+    onScheduleCancel: () => setSchedulingId(null),
+    onArchiveConfirm: (id: string) => { archiveDeveloper(id, archiveDate); setArchivingId(null) },
+    onArchiveCancel: () => setArchivingId(null),
+    onDeleteRequest,
+  }
 }
 
-function SortableDevRow({ dev, schedulingId, archivingId, schedDraft, archiveDate,
-  onScheduleToggle, onArchiveToggle, onScheduleSave, onScheduleCancel,
-  onArchiveConfirm, onArchiveCancel, onDeleteRequest, setSchedDraft, setArchiveDate }: DevRowProps) {
+type DevRowActions = ReturnType<typeof useDevRowActions>
+
+function SortableDevRow({ dev, actions }: { dev: Developer; actions: DevRowActions }) {
+  const {
+    schedulingId, archivingId, schedDraft, archiveDate, setSchedDraft, setArchiveDate,
+    onScheduleToggle, onArchiveToggle, onScheduleSave, onScheduleCancel,
+    onArchiveConfirm, onArchiveCancel, onDeleteRequest,
+  } = actions
   const { updateDeveloperSchedule } = useStore()
   const isScheduling = schedulingId === dev.id
   const isArchiving = archivingId === dev.id
@@ -143,17 +122,17 @@ function SortableDevRow({ dev, schedulingId, archivingId, schedDraft, archiveDat
           <div style={{ fontSize: 11, color: 'var(--text3)' }}>{dev.role}</div>
         </div>
 
-        <button onClick={e => { e.stopPropagation(); onScheduleToggle(dev.id) }} title="Schedule"
+        <button onClick={e => { e.stopPropagation(); onScheduleToggle(dev) }} title="Schedule"
           style={{ background: isScheduling ? 'var(--accent-dim)' : 'none', border: `1.5px solid ${isScheduling ? 'var(--accent)' : 'var(--border)'}`, color: isScheduling ? 'var(--accent)' : 'var(--text3)', width: 30, height: 30, borderRadius: 7, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
           onMouseEnter={e => { if (!isScheduling) { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
           onMouseLeave={e => { if (!isScheduling) { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
-        ><IcoClock /></button>
+        ><Icon name="clock" size={13} /></button>
 
         <button onClick={e => { e.stopPropagation(); onArchiveToggle(dev.id) }} title="Archive"
-          style={{ background: isArchiving ? '#fef3c720' : 'none', border: `1.5px solid ${isArchiving ? 'var(--amber)' : 'var(--border)'}`, color: isArchiving ? 'var(--amber)' : 'var(--text3)', width: 30, height: 30, borderRadius: 7, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+          style={{ background: isArchiving ? 'var(--amber-dim)' : 'none', border: `1.5px solid ${isArchiving ? 'var(--amber)' : 'var(--border)'}`, color: isArchiving ? 'var(--amber)' : 'var(--text3)', width: 30, height: 30, borderRadius: 7, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
           onMouseEnter={e => { if (!isArchiving) { e.currentTarget.style.color = 'var(--amber)'; e.currentTarget.style.borderColor = 'var(--amber)' } }}
           onMouseLeave={e => { if (!isArchiving) { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
-        ><IcoArchive /></button>
+        ><Icon name="archive" size={13} /></button>
       </div>
 
       {isScheduling && (
@@ -200,7 +179,7 @@ function SortableDevRow({ dev, schedulingId, archivingId, schedDraft, archiveDat
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Archive {dev.name}</div>
           <input type="date" value={archiveDate} onChange={e => setArchiveDate(e.target.value)} style={{ background: 'var(--surface2)', border: '1.5px solid var(--border)', color: 'var(--text)', padding: '7px 10px', borderRadius: 7, fontSize: 13, width: '100%', outline: 'none' }} />
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => onArchiveConfirm(dev.id)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1.5px solid var(--amber)', background: '#fef3c720', color: 'var(--amber)', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Archive</button>
+            <button onClick={() => onArchiveConfirm(dev.id)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1.5px solid var(--amber)', background: 'var(--amber-dim)', color: 'var(--amber)', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Archive</button>
             <button onClick={onArchiveCancel} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
           </div>
           <button onClick={() => onDeleteRequest(dev.id)} style={{ padding: '7px 0', borderRadius: 8, border: '1.5px solid var(--border)', background: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 13, opacity: 0.8 }}>Delete permanently</button>
@@ -249,10 +228,6 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
   const [devName, setDevName] = useState('')
   const [devRole, setDevRole] = useState('')
   const [devColor, setDevColor] = useState('#2563eb')
-  const [schedulingId, setSchedulingId] = useState<string | null>(null)
-  const [schedDraft, setSchedDraft] = useState<WorkSchedule>(DEFAULT_WORK_SCHEDULE)
-  const [archivingId, setArchivingId] = useState<string | null>(null)
-  const [archiveDate, setArchiveDate] = useState(todayStr())
   const [showArchived, setShowArchived] = useState(false)
   const [deletingDevId, setDeletingDevId] = useState<string | null>(null)
   const [deletingProjId, setDeletingProjId] = useState<string | null>(null)
@@ -263,6 +238,8 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
     addDeveloper, archiveDeveloper, unarchiveDeveloper, removeDeveloper, reorderDeveloper,
     syncJira, syncGitlab, syncGithub,
   } = useStore()
+
+  const devRowActions = useDevRowActions(archiveDeveloper, (id) => setDeletingDevId(id))
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
@@ -298,7 +275,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
     setEditMode(p.mode ?? 'kanban')
     setEditJiraBoardId(p.jiraBoardId != null ? String(p.jiraBoardId) : '')
     setEditJiraConnectionId(p.jiraConnectionId ?? '')
-    setShowDevForm(false); setSchedulingId(null); setArchivingId(null)
+    setShowDevForm(false); devRowActions.onScheduleCancel(); devRowActions.onArchiveCancel()
   }
 
   const handleSaveEdit = async () => {
@@ -399,7 +376,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
             <div>
               <label style={label}>Color</label>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                {PALETTE.map(c => <div key={c} onClick={() => setColor(c)} style={{ width: 22, height: 22, borderRadius: 6, background: c, cursor: 'pointer', border: `2.5px solid ${c === color ? '#1e293b' : 'transparent'}`, transform: c === color ? 'scale(1.2)' : '', transition: 'all .15s' }} />)}
+                {PALETTE.map(c => <div key={c} onClick={() => setColor(c)} style={{ width: 22, height: 22, borderRadius: 6, background: c, cursor: 'pointer', border: `2.5px solid ${c === color ? 'var(--text)' : 'transparent'}`, transform: c === color ? 'scale(1.2)' : '', transition: 'all .15s' }} />)}
               </div>
             </div>
             <div>
@@ -423,7 +400,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
             onMouseLeave={e => { if (selectedProject !== 'ALL') { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'var(--surface2)' } }}
           >
             <div style={{ width: 38, height: 38, borderRadius: 10, background: selectedProject === 'ALL' ? 'var(--accent-dim)' : 'var(--surface3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: selectedProject === 'ALL' ? 'var(--accent)' : 'var(--text3)', flexShrink: 0 }}>
-              <IcoFolder />
+              <Icon name="folder" size={16} />
             </div>
             <span style={{ fontSize: 14, fontWeight: 600, color: selectedProject === 'ALL' ? 'var(--accent)' : 'var(--text2)' }}>All projects</span>
           </div>
@@ -466,14 +443,14 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                       style={{ background: isEditing ? 'var(--accent-dim)' : 'none', border: `1.5px solid ${isEditing ? 'var(--accent)' : 'var(--border)'}`, color: isEditing ? 'var(--accent)' : 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                       onMouseEnter={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
                       onMouseLeave={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
-                    ><IcoPencil /></button>
+                    ><Icon name="edit" size={13} /></button>
                     <button
                       onClick={e => { e.stopPropagation(); setDeletingProjId(p.id) }}
                       title="Delete"
                       style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                       onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)' }}
                       onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-                    ><IcoTrash /></button>
+                    ><Icon name="trash" size={13} /></button>
                   </div>
                 </div>
               )
@@ -505,7 +482,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
             <button onClick={() => setEditingProjId(null)} style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 26, height: 26, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text3)' }}
-            ><IcoChevronLeft /></button>
+            ><Icon name="chevron-left" size={16} strokeWidth={2.5} /></button>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{editingProj?.name ?? '…'}</div>
               <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 1 }}>Edit project</div>
@@ -542,7 +519,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                 <div style={section}>
                   <label style={label}>Color</label>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {PALETTE.map(c => <div key={c} onClick={() => setEditColor(c)} style={{ width: 20, height: 20, borderRadius: 5, background: c, cursor: 'pointer', border: `2px solid ${c === editColor ? '#1e293b' : 'transparent'}`, transform: c === editColor ? 'scale(1.2)' : '', transition: 'all .15s' }} />)}
+                    {PALETTE.map(c => <div key={c} onClick={() => setEditColor(c)} style={{ width: 20, height: 20, borderRadius: 5, background: c, cursor: 'pointer', border: `2px solid ${c === editColor ? 'var(--text)' : 'transparent'}`, transform: c === editColor ? 'scale(1.2)' : '', transition: 'all .15s' }} />)}
                   </div>
                 </div>
                 <div style={section}>
@@ -656,18 +633,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext items={activeDevs.map(d => d.id)} strategy={verticalListSortingStrategy}>
                       {activeDevs.map(dev => (
-                        <SortableDevRow key={dev.id} dev={dev}
-                          schedulingId={schedulingId} archivingId={archivingId}
-                          schedDraft={schedDraft} archiveDate={archiveDate}
-                          onScheduleToggle={id => { setSchedDraft(getSchedule(dev)); setSchedulingId(schedulingId === id ? null : id); setArchivingId(null) }}
-                          onArchiveToggle={id => { setArchivingId(archivingId === id ? null : id); setArchiveDate(todayStr()); setSchedulingId(null) }}
-                          onScheduleSave={() => setSchedulingId(null)}
-                          onScheduleCancel={() => setSchedulingId(null)}
-                          onArchiveConfirm={id => { archiveDeveloper(id, archiveDate); setArchivingId(null) }}
-                          onArchiveCancel={() => setArchivingId(null)}
-                          onDeleteRequest={id => setDeletingDevId(id)}
-                          setSchedDraft={setSchedDraft} setArchiveDate={setArchiveDate}
-                        />
+                        <SortableDevRow key={dev.id} dev={dev} actions={devRowActions} />
                       ))}
                     </SortableContext>
                   </DndContext>
@@ -760,7 +726,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
           title={`Remove ${deletingDev.name} permanently?`}
           message="The developer and ALL their checkpoints will be permanently removed. Consider archiving instead."
           confirmLabel="Delete forever"
-          onConfirm={() => { removeDeveloper(deletingDev.id); setDeletingDevId(null); setArchivingId(null) }}
+          onConfirm={() => { removeDeveloper(deletingDev.id); setDeletingDevId(null); devRowActions.onArchiveCancel() }}
           onCancel={() => setDeletingDevId(null)}
         />
       )}
