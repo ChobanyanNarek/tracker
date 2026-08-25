@@ -1,21 +1,47 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useStore, getBoardScope, jiraOnBoard } from '../../../store'
 import { resolveIssueDisplay } from '../../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey } from '../../../utils/format'
 import { copyText } from '../../../utils/clipboard'
 import { formatDate } from '../../../utils/dates'
+import { getAllReleaseNoteTasks, type RemoteTask } from '../../../utils/cloud-api'
 import Icon from '../../ui/Icon'
 import DatePicker from '../../ui/DatePicker'
-import type { Developer, JiraConfig, Task } from '../../../types'
+import LoadingSpinner from '../../ui/LoadingSpinner'
+import type { Developer, JiraConfig, Status, Task } from '../../../types'
 import { btnBase, inputStyle, fmtSeconds, genColId, IssueRow } from './shared'
 import Pagination from '../../ui/Pagination'
 import { usePagination } from '../../../hooks/usePagination'
 
 const PAGE_SIZE = 25
 
+// Reconstruct a Task-shaped object from a server RemoteTask row so the
+// existing getJiras()/rendering logic (built around the local Task type)
+// keeps working unmodified — mirrors SearchView's toLocalTask.
+function toLocalTask(remote: RemoteTask): Task {
+  return {
+    id: remote.clientId,
+    devId: remote.devId,
+    projectId: remote.projectId,
+    title: remote.title,
+    status: remote.status as Status,
+    jira: '',
+    jiras: remote.jiras as unknown as Task['jiras'],
+    pr: '',
+    prs: [],
+    deadline: '',
+    deadlineTime: '',
+    reviewDate: '',
+    reviewTime: '',
+    comment: remote.comment ?? '',
+    date: remote.date,
+    ...(remote.rest as Partial<Task>),
+  }
+}
+
 export default function KanbanReleaseNotes() {
   const state = useStore()
-  const { tasks, developers, projects, selectedProject, selectedDev, jiraConnections, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = state
+  const { developers, projects, selectedProject, selectedDev, jiraConnections, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = state
   const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
   const hpd = conn?.hoursPerDay ?? 8
   const boardScope = getBoardScope(state)
@@ -41,14 +67,38 @@ export default function KanbanReleaseNotes() {
   const [editingColId, setEditingColId] = useState<string | null>(null)
   const [editingColLabel, setEditingColLabel] = useState('')
 
+  // Server-fetched tasks for the current project + date range — replaces
+  // reading the entire local task list. Status-group filtering/pagination
+  // below all stay client-side; the backend has no concept of status groups.
+  const [remoteTasks, setRemoteTasks] = useState<RemoteTask[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [fetchFailed, setFetchFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setFetchFailed(false)
+    void getAllReleaseNoteTasks({
+      projectId: selectedProject !== 'ALL' ? selectedProject : undefined,
+      dateFrom: startDate,
+      dateTo: endDate,
+    }).then((result) => {
+      if (cancelled) return
+      setLoading(false)
+      if (!result) { setFetchFailed(true); setRemoteTasks([]); return }
+      setRemoteTasks(result)
+    })
+    return () => { cancelled = true }
+  }, [selectedProject, startDate, endDate])
+
   const cols: { id: string; label: string }[] = releaseNoteColumns ?? []
   const rnData: Record<string, { hidden?: boolean; selected?: boolean; customFields?: Record<string, string> }> = releaseNoteData ?? {}
 
-  // All unique issues across all tasks, deduplicated by key, filtered by board scope + created date
+  // All unique issues across the fetched tasks, deduplicated by key, filtered by board scope + created date
   const allRows = useMemo((): IssueRow[] => {
     const map = new Map<string, IssueRow>()
-    tasks.forEach((t: Task) => {
-      if (selectedProject !== 'ALL' && t.projectId !== selectedProject) return
+    ;(remoteTasks ?? []).forEach((remote) => {
+      const t = toLocalTask(remote)
       if (memberIds && !memberIds.has(t.devId)) return
       if (selectedDev !== 'ALL' && t.devId !== selectedDev) return
       getJiras(t).forEach((j) => {
@@ -65,7 +115,7 @@ export default function KanbanReleaseNotes() {
       })
     })
     return Array.from(map.values())
-  }, [tasks, selectedProject, selectedDev, startDate, endDate, boardScope, memberIds])
+  }, [remoteTasks, selectedDev, startDate, endDate, boardScope, memberIds])
 
   // Status groups from integration settings, in order
   const statusGroups: { id: string; label: string; color: string }[] = useMemo(() => {
@@ -272,7 +322,11 @@ export default function KanbanReleaseNotes() {
         </div>
       </div>
 
-      {(groupedRows.byGroup.size === 0 && groupedRows.ungrouped.length === 0) ? (
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}><LoadingSpinner size={16} /> Loading…</div>
+      ) : fetchFailed ? (
+        <div style={{ color: 'var(--red)', fontStyle: 'italic', fontSize: 13 }}>Couldn't load release notes — check your connection.</div>
+      ) : (groupedRows.byGroup.size === 0 && groupedRows.ungrouped.length === 0) ? (
         <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No issues found for this date range and status filter.</div>
       ) : (
         <>

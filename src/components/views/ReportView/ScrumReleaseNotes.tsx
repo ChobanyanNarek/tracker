@@ -4,8 +4,10 @@ import { resolveIssueDisplay } from '../../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey } from '../../../utils/format'
 import { copyText } from '../../../utils/clipboard'
 import { formatDate, formatDateTime } from '../../../utils/dates'
+import { getAllReleaseNoteTasks, type RemoteTask } from '../../../utils/cloud-api'
 import Icon from '../../ui/Icon'
-import type { Developer, JiraConfig, JiraIssue, Sprint, Task } from '../../../types'
+import LoadingSpinner from '../../ui/LoadingSpinner'
+import type { Developer, JiraConfig, JiraIssue, Sprint, Status, Task } from '../../../types'
 import { btnBase, inputStyle, fmtSeconds, genColId } from './shared'
 import Pagination from '../../ui/Pagination'
 import { usePagination } from '../../../hooks/usePagination'
@@ -14,9 +16,32 @@ const PAGE_SIZE = 25
 
 type SprintIssueRow = { j: JiraIssue; devId: string }
 
+// Reconstruct a Task-shaped object from a server RemoteTask row — mirrors
+// SearchView's / KanbanReleaseNotes's toLocalTask.
+function toLocalTask(remote: RemoteTask): Task {
+  return {
+    id: remote.clientId,
+    devId: remote.devId,
+    projectId: remote.projectId,
+    title: remote.title,
+    status: remote.status as Status,
+    jira: '',
+    jiras: remote.jiras as unknown as Task['jiras'],
+    pr: '',
+    prs: [],
+    deadline: '',
+    deadlineTime: '',
+    reviewDate: '',
+    reviewTime: '',
+    comment: remote.comment ?? '',
+    date: remote.date,
+    ...(remote.rest as Partial<Task>),
+  }
+}
+
 export default function ScrumReleaseNotes() {
   const state = useStore()
-  const { tasks, developers, projects, sprints, selectedProject, selectedDev, jiraConnections, releaseNoteData, updateReleaseNoteIssue, releaseNoteColumns, setReleaseNoteColumns } = state
+  const { developers, projects, sprints, selectedProject, selectedDev, jiraConnections, releaseNoteData, updateReleaseNoteIssue, releaseNoteColumns, setReleaseNoteColumns } = state
   const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
   const hpd = conn?.hoursPerDay ?? 8
   const boardScope = getBoardScope(state)
@@ -38,6 +63,33 @@ export default function ScrumReleaseNotes() {
   )
 
   const [selectedSprintId, setSelectedSprintId] = useState(() => projectSprints[0]?.id ?? '')
+
+  // Server-fetched tasks from the sprint start date onward (open-ended — a
+  // carried-over issue may still show up on a task dated well after the
+  // sprint ended, so there's no upper date bound to give the backend).
+  const sprintForFetch = projectSprints.find((s) => s.id === selectedSprintId)
+  const [remoteTasks, setRemoteTasks] = useState<RemoteTask[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [fetchFailed, setFetchFailed] = useState(false)
+
+  useEffect(() => {
+    if (!sprintForFetch) { setRemoteTasks([]); return }
+    let cancelled = false
+    setLoading(true)
+    setFetchFailed(false)
+    void getAllReleaseNoteTasks({
+      projectId: selectedProject !== 'ALL' ? selectedProject : undefined,
+      dateFrom: sprintForFetch.startDate,
+    }).then((result) => {
+      if (cancelled) return
+      setLoading(false)
+      if (!result) { setFetchFailed(true); setRemoteTasks([]); return }
+      setRemoteTasks(result)
+    })
+    return () => { cancelled = true }
+  }, [selectedProject, sprintForFetch?.id, sprintForFetch?.startDate])
+
+  const tasks = useMemo(() => (remoteTasks ?? []).map(toLocalTask), [remoteTasks])
 
   // When the project/board changes, the previously selected sprint may no longer belong
   // to the current board — reset to the first valid sprint (or none) to avoid showing
@@ -404,12 +456,20 @@ export default function ScrumReleaseNotes() {
             </div>
           )}
 
-          <IssueTable rows={completed} label="✅ Completed" />
-          <IssueTable rows={carriedOver} label="🔄 Carried Over" />
-          <IssueTable rows={blocked} label="⚠️ Blocked During Sprint" />
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}><LoadingSpinner size={16} /> Loading…</div>
+          ) : fetchFailed ? (
+            <div style={{ color: 'var(--red)', fontStyle: 'italic', fontSize: 13 }}>Couldn't load release notes — check your connection.</div>
+          ) : (
+            <>
+              <IssueTable rows={completed} label="✅ Completed" />
+              <IssueTable rows={carriedOver} label="🔄 Carried Over" />
+              <IssueTable rows={blocked} label="⚠️ Blocked During Sprint" />
 
-          {completed.length === 0 && carriedOver.length === 0 && blocked.length === 0 && (
-            <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No issues found for this sprint.</div>
+              {completed.length === 0 && carriedOver.length === 0 && blocked.length === 0 && (
+                <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No issues found for this sprint.</div>
+              )}
+            </>
           )}
         </>
       )}

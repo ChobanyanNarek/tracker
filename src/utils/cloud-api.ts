@@ -136,12 +136,12 @@ export async function adminGetPayments(): Promise<AdminPayment[]> {
   } catch { return [] }
 }
 
-export async function adminGrantSubscription(userId: string, months: number): Promise<boolean> {
+export async function adminGrantSubscription(userId: string, months: number, days: number): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/admin/pm-tracker/users/${userId}/subscription`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ months }),
+      body: JSON.stringify({ months: months || undefined, days: days || undefined }),
     })
     return res.ok
   } catch { return false }
@@ -179,4 +179,96 @@ export async function saveCloudState(data: Record<string, unknown>): Promise<boo
   } catch {
     return false
   }
+}
+
+// ── Server-side task search & release-notes pagination ──────────────────────
+// Mirrors the backend's PmTrackerTaskDto — a mirror row of a frontend Task,
+// kept in sync server-side (see progressor-backend PR #1). jiras/rest carry
+// the same shape as Task.jiras / everything else on Task respectively.
+export interface RemoteTask {
+  id: string
+  createdAt: string
+  updatedAt: string
+  clientId: string
+  devId: string
+  projectId: string
+  title: string
+  status: string
+  date: string
+  comment: string | null
+  jiras: Record<string, unknown>[]
+  rest: Record<string, unknown>
+}
+
+export interface PageMeta {
+  page: number
+  take: number
+  itemCount: number
+  pageCount: number
+  hasPreviousPage: boolean
+  hasNextPage: boolean
+}
+
+export interface PagedResult<T> {
+  data: T[]
+  meta: PageMeta
+}
+
+async function fetchPaged<T>(path: string, params: Record<string, string | number | undefined>): Promise<PagedResult<T> | null> {
+  if (!getToken()) return null
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') qs.set(k, String(v))
+  }
+  try {
+    const res = await fetch(`${API_URL}${path}?${qs.toString()}`, { headers: authHeaders() })
+    if (res.status === 401) { clearToken(); return null }
+    if (!res.ok) return null
+    return await res.json() as PagedResult<T>
+  } catch {
+    return null
+  }
+}
+
+export function searchTasks(params: {
+  q?: string
+  projectId?: string
+  status?: string
+  page?: number
+  take?: number
+}): Promise<PagedResult<RemoteTask> | null> {
+  return fetchPaged<RemoteTask>('/pm-tracker/tasks/search', params)
+}
+
+export function getReleaseNoteTasks(params: {
+  projectId?: string
+  dateFrom?: string
+  dateTo?: string
+  page?: number
+  take?: number
+}): Promise<PagedResult<RemoteTask> | null> {
+  return fetchPaged<RemoteTask>('/pm-tracker/tasks/release-notes', params)
+}
+
+const MAX_TAKE = 50
+// Backend release-note-status grouping/pagination all happens client-side
+// (the backend only knows projectId/date-range, not status groups), so
+// Release Notes needs every task in the range, not one server page — this
+// loops through pages to build the complete set. Bounded to 40 pages
+// (2000 tasks) as a hard safety cap against a runaway date range.
+export async function getAllReleaseNoteTasks(params: {
+  projectId?: string
+  dateFrom?: string
+  dateTo?: string
+}): Promise<RemoteTask[] | null> {
+  const all: RemoteTask[] = []
+  let page = 1
+  for (let i = 0; i < 40; i++) {
+    const result = await getReleaseNoteTasks({ ...params, page, take: MAX_TAKE })
+    if (!result) return all.length ? all : null
+    all.push(...result.data)
+    if (!result.meta.hasNextPage) break
+    page++
+  }
+  return all
 }

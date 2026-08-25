@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore, getBoardScope, jiraOnBoard } from '../../store'
 import { STATUS_LABEL } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
 import { dlInfo } from '../../utils/dates'
+import { searchTasks, type RemoteTask } from '../../utils/cloud-api'
 import type { Status, Task, JiraIssue, Developer, Project } from '../../types'
 import EmptyState from '../ui/EmptyState'
 import Icon from '../ui/Icon'
 import Pagination from '../ui/Pagination'
-import { usePagination } from '../../hooks/usePagination'
+import LoadingSpinner from '../ui/LoadingSpinner'
 
 const PAGE_SIZE = 25
+const DEBOUNCE_MS = 300
 
 type StatusFilter = 'ALL' | Status
 
@@ -29,12 +31,44 @@ interface PlainResult {
   proj: Project | undefined
 }
 
+// Reconstruct a Task-shaped object from a server RemoteTask row so the
+// existing getJiras()/rendering logic (built around the local Task type)
+// keeps working unmodified. `rest` carries every Task field beyond the ones
+// the backend broke out into real columns (pr, prs, deadline, etc — see
+// syncTasksFromState on the backend, which is the mirror of this).
+function toLocalTask(remote: RemoteTask): Task {
+  return {
+    id: remote.clientId,
+    devId: remote.devId,
+    projectId: remote.projectId,
+    title: remote.title,
+    status: remote.status as Status,
+    jira: '',
+    jiras: remote.jiras as unknown as JiraIssue[],
+    pr: '',
+    prs: [],
+    deadline: '',
+    deadlineTime: '',
+    reviewDate: '',
+    reviewTime: '',
+    comment: remote.comment ?? '',
+    date: remote.date,
+    ...(remote.rest as Partial<Task>),
+  }
+}
+
 export default function SearchView() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(false)
+  const [remoteTasks, setRemoteTasks] = useState<RemoteTask[]>([])
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [fetchFailed, setFetchFailed] = useState(false)
 
   const state = useStore()
   const {
-    tasks, developers, projects, selectedProject,
+    developers, projects, selectedProject,
     searchQuery, setSearchQuery, jiraConnections,
     setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView,
   } = state
@@ -43,101 +77,86 @@ export default function SearchView() {
   // Scope search to the selected project's board just like Daily / Reports:
   // when a board is selected, only its issues appear; hidden issues are excluded.
   const boardScope = getBoardScope(state)
-  const memberIds = selectedProject === 'ALL'
-    ? null
-    : (() => {
-        const p = projects.find((pr) => pr.id === selectedProject)
-        return p?.members?.length ? new Set(p.members) : new Set<string>()
-      })()
 
-  const q = searchQuery.trim().toLowerCase()
+  const q = searchQuery.trim()
+
+  // Reset to page 1 whenever the query/filters change, then fetch that page.
+  useEffect(() => { setPage(1) }, [q, statusFilter, selectedProject])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setFetchFailed(false)
+    const handle = setTimeout(() => {
+      void searchTasks({
+        q: q || undefined,
+        projectId: selectedProject !== 'ALL' ? selectedProject : undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        page,
+        take: PAGE_SIZE,
+      }).then((result) => {
+        if (cancelled) return
+        setLoading(false)
+        if (!result) { setFetchFailed(true); setRemoteTasks([]); setTotalPages(1); setTotalCount(0); return }
+        setRemoteTasks(result.data)
+        setTotalPages(Math.max(1, result.meta.pageCount))
+        setTotalCount(result.meta.itemCount)
+      })
+    }, DEBOUNCE_MS)
+    return () => { cancelled = true; clearTimeout(handle) }
+  }, [q, statusFilter, selectedProject, page])
 
   const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
   const devById = new Map(developers.map((d) => [d.id, d]))
   const projById = new Map(projects.map((p) => [p.id, p]))
 
-  // ── Build issue-centric index (deduplicated by issueId / dedupeKey) ──────────
-  // For each unique issue, keep the task with the most recent date.
-  const issueMap = new Map<string, IssueResult>()
-  const plainMap = new Map<string, PlainResult>()  // tasks with no jiras
+  // Expand this page's tasks into per-issue cards, applying the board-scope
+  // filtering the backend doesn't know about — same behavior as before,
+  // just applied to a server-fetched page instead of the full local list.
+  const issueResults: IssueResult[] = []
+  const plainResults: PlainResult[] = []
+  const seenIssueKeys = new Set<string>()
+  const seenPlainKeys = new Set<string>()
 
-  for (const task of tasks) {
-    if (archivedIds.has(task.devId)) continue
-    if (selectedProject !== 'ALL' && task.projectId !== selectedProject) continue
-    if (memberIds && !memberIds.has(task.devId)) continue
-
+  for (const remote of remoteTasks) {
+    if (archivedIds.has(remote.devId)) continue
+    const task = toLocalTask(remote)
     const jiras = getJiras(task)
+
     if (jiras.length) {
       for (const issue of jiras) {
         if (issue.hidden) continue
         if (!jiraOnBoard(issue, boardScope)) continue
+        if (statusFilter !== 'ALL' && issue.status !== statusFilter) continue
         const dk = jiraLabel(issue.url) ?? jiraDedupeKey(issue.url, issue.name)
         const key = `${task.devId}|${dk}`
-        const ex = issueMap.get(key)
-        if (!ex || task.date > ex.task.date) {
-          issueMap.set(key, {
-            key,
-            issue,
-            task,
-            dev: devById.get(task.devId),
-            proj: projById.get(task.projectId),
-            issueKey: jiraLabel(issue.url),
-          })
-        }
+        if (seenIssueKeys.has(key)) continue
+        seenIssueKeys.add(key)
+        issueResults.push({
+          key,
+          issue,
+          task,
+          dev: devById.get(task.devId),
+          proj: projById.get(task.projectId),
+          issueKey: jiraLabel(issue.url),
+        })
       }
     } else if (task.title || task.comment) {
-      // Plain tasks without jiras — deduplicate by devId+title
+      if (statusFilter !== 'ALL' && task.status !== statusFilter) continue
       const pk = `${task.devId}|title:${task.title}`
-      const ex = plainMap.get(pk)
-      if (!ex || task.date > ex.task.date) {
-        plainMap.set(pk, { task, dev: devById.get(task.devId), proj: projById.get(task.projectId) })
-      }
+      if (seenPlainKeys.has(pk)) continue
+      seenPlainKeys.add(pk)
+      plainResults.push({ task, dev: devById.get(task.devId), proj: projById.get(task.projectId) })
     }
   }
 
-  // ── Filter ────────────────────────────────────────────────────────────────────
-  const matchIssue = (r: IssueResult): boolean => {
-    if (statusFilter !== 'ALL' && r.issue.status !== statusFilter) return false
-    if (!q) return true
-    const issueKey = r.issueKey?.toLowerCase() ?? ''
-    return (
-      issueKey.includes(q) ||
-      r.issue.name.toLowerCase().includes(q) ||
-      r.issue.url.toLowerCase().includes(q) ||
-      (r.issue.comment ?? '').toLowerCase().includes(q) ||
-      (r.dev?.name ?? '').toLowerCase().includes(q) ||
-      (r.proj?.name ?? '').toLowerCase().includes(q) ||
-      r.task.date.includes(q)
-    )
-  }
-
-  const matchPlain = (r: PlainResult): boolean => {
-    if (statusFilter !== 'ALL' && r.task.status !== statusFilter) return false
-    if (!q) return true
-    return (
-      r.task.title.toLowerCase().includes(q) ||
-      (r.task.comment ?? '').toLowerCase().includes(q) ||
-      (r.dev?.name ?? '').toLowerCase().includes(q) ||
-      (r.proj?.name ?? '').toLowerCase().includes(q) ||
-      r.task.date.includes(q)
-    )
-  }
-
-  const issueResults = [...issueMap.values()].filter(matchIssue)
-  const plainResults = [...plainMap.values()].filter(matchPlain)
-
-  const totalCount = issueResults.length + plainResults.length
-
-  // Merge into one date-sorted list so pagination reflects a single
-  // continuous result set instead of paginating issues and plain tasks
-  // independently (which would desync page numbers from what's on screen).
+  // Merge into one date-sorted list, matching the server page's own order —
+  // a single continuous list rather than issues-then-plain-tasks blocks.
   type MergedResult = { kind: 'issue'; r: IssueResult } | { kind: 'plain'; r: PlainResult }
-  const merged: MergedResult[] = [
+  const pageItems: MergedResult[] = [
     ...issueResults.map((r): MergedResult => ({ kind: 'issue', r })),
     ...plainResults.map((r): MergedResult => ({ kind: 'plain', r })),
   ].sort((a, b) => b.r.task.date.localeCompare(a.r.task.date))
-
-  const { pageItems, page, setPage, totalPages } = usePagination(merged, PAGE_SIZE)
 
   // ── Highlight helper ──────────────────────────────────────────────────────────
   const escHtml = (s: string) =>
@@ -174,6 +193,7 @@ export default function SearchView() {
           placeholder="Search by issue key (NML-123), name, developer, project…"
           style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: 'var(--text)', background: 'transparent' }}
         />
+        {loading && <LoadingSpinner size={14} />}
         {q && (
           <button onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 14, padding: '2px 4px' }}>✕</button>
         )}
@@ -194,13 +214,15 @@ export default function SearchView() {
 
       {/* count */}
       <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
-        {q || statusFilter !== 'ALL'
-          ? `${totalCount} result${totalCount !== 1 ? 's' : ''}${q ? ` for "${q}"` : ''}`
-          : `${totalCount} issue${totalCount !== 1 ? 's' : ''} total`}
+        {fetchFailed
+          ? 'Search is temporarily unavailable — check your connection.'
+          : q || statusFilter !== 'ALL'
+            ? `${totalCount} task${totalCount !== 1 ? 's' : ''} matched${q ? ` "${q}"` : ''}`
+            : `${totalCount} task${totalCount !== 1 ? 's' : ''} total`}
       </div>
 
       {/* results */}
-      {totalCount === 0 ? (
+      {!loading && pageItems.length === 0 ? (
         <EmptyState icon="search" title="No results" hint="Try different keywords or filters" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
