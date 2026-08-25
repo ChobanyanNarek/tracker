@@ -276,7 +276,7 @@ function mdToHtml(src: string): string {
     const chk = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/)
     if (chk) {
       const done = chk[1].toLowerCase() === 'x'
-      return `<div class="nv-chk-line${done ? ' done' : ''}">☑ ${inline(chk[2])}</div>`
+      return `<div>${done ? '☑' : '☐'} ${inline(chk[2])}</div>`
     }
     const li = line.match(/^\s*[-*]\s+(.*)$/)
     if (li) return `<div>• ${inline(li[1])}</div>`
@@ -290,12 +290,19 @@ function htmlToMd(html: string): string {
   return html
     .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '## $1')
     .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
+    .replace(/<b>(.*?)<\/b>/gi, '**$1**')
     .replace(/<code>(.*?)<\/code>/gi, '`$1`')
     .replace(/<br\s*\/?>/gi, '')
     .replace(/<div[^>]*>/gi, '\n')
     .replace(/<\/div>/gi, '')
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
     .replace(/^[\n]/, '')
+    .split('\n').map((line) => {
+      if (/^• /.test(line)) return '- ' + line.slice(2)
+      if (/^☑ /.test(line)) return '- [x] ' + line.slice(2)
+      if (/^☐ /.test(line)) return '- [ ] ' + line.slice(2)
+      return line
+    }).join('\n')
 }
 
 function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDelete }: {
@@ -340,24 +347,42 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
     }
   }
 
+  const insertHtmlAtCursor = (html: string) => {
+    const sel = window.getSelection()
+    if (!sel || !sel.rangeCount) return
+    const range = sel.getRangeAt(0)
+    range.deleteContents()
+    const tpl = document.createElement('div')
+    tpl.innerHTML = html
+    const frag = document.createDocumentFragment()
+    let lastNode: Node | null = null
+    Array.from(tpl.childNodes).forEach((n) => { lastNode = frag.appendChild(n) })
+    range.insertNode(frag)
+    if (lastNode) {
+      const r = document.createRange()
+      r.setStartAfter(lastNode)
+      r.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(r)
+    }
+  }
+
   const applyFmt = (action: FmtAction) => {
     const el = bodyRef.current
     if (!el) return
     el.focus()
-    // For bold, use execCommand; for others insert markdown at cursor via selection
+    const sel = window.getSelection()
+    const selText = sel && sel.rangeCount ? sel.getRangeAt(0).toString() : ''
     if (action.label === 'B') {
       document.execCommand('bold')
-    } else {
-      const sel = window.getSelection()
-      if (!sel || !sel.rangeCount) return
-      const range = sel.getRangeAt(0)
-      const selText = range.toString()
-      const { text } = action.apply(selText, '')
-      range.deleteContents()
-      range.insertNode(document.createTextNode(text))
-      range.collapse(false)
-      sel.removeAllRanges()
-      sel.addRange(range)
+    } else if (action.label === 'H') {
+      insertHtmlAtCursor(`<div><h3 class="nv-mdh">${selText || 'Heading'}</h3></div><div><br></div>`)
+    } else if (action.label === '•') {
+      insertHtmlAtCursor(`<div>• ${selText || 'Item'}</div>`)
+    } else if (action.label === '☐') {
+      insertHtmlAtCursor(`<div>☐ ${selText || 'Task'}</div>`)
+    } else if (action.label === '`') {
+      insertHtmlAtCursor(`<code>${selText || 'code'}</code>`)
     }
     handleInput()
   }
