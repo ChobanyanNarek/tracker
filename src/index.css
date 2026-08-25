@@ -362,3 +362,7 @@ input:focus, select:focus, textarea:focus {
 .nv-md li.nv-chk .nv-box { width: 16px; height: 16px; border: 1.6px solid var(--border2); border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .nv-md li.nv-chk.done .nv-box { background: var(--green); border-color: var(--green); }
 .nv-md li.nv-chk.done span { text-decoration: line-through; color: var(--text3); }
+.nv-editor:empty::before { content: attr(data-placeholder); color: var(--text3); font-style: italic; pointer-events: none; }
+.nv-editor div { min-height: 1.62em; }
+.nv-editor strong { color: var(--text); font-weight: 660; }
+.nv-editor code { font-family: var(--mono); font-size: 12px; background: var(--surface3); padding: 1px 5px; border-radius: 4px; color: var(--text); }

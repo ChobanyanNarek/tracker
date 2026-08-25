@@ -56,43 +56,6 @@ function joinReminder(date: string, time: string): string | undefined {
   return `${date}T${time || '09:00'}`
 }
 
-// ── minimal, safe markdown renderer (bold, lists, checkboxes, inline code) ──────
-function renderMarkdown(src: string, onToggleCheck?: (lineIdx: number) => void): JSX.Element[] {
-  const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!))
-  const inline = (s: string) =>
-    esc(s)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-  const lines = src.split('\n')
-  const out: JSX.Element[] = []
-  let list: JSX.Element[] = []
-  const flush = () => { if (list.length) { out.push(<ul key={`ul-${out.length}`}>{list}</ul>); list = [] } }
-  lines.forEach((raw, i) => {
-    const line = raw.replace(/\s+$/, '')
-    const chk = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/)
-    if (chk) {
-      const done = chk[1].toLowerCase() === 'x'
-      list.push(
-        <li key={i} className={`nv-chk${done ? ' done' : ''}`}>
-          <span className="nv-box" onClick={(e) => { e.stopPropagation(); onToggleCheck?.(i) }} style={{ cursor: onToggleCheck ? 'pointer' : undefined }}>
-            {done && <Icon name="check" size={10} color="#fff" />}
-          </span>
-          <span dangerouslySetInnerHTML={{ __html: inline(chk[2]) }} />
-        </li>,
-      )
-      return
-    }
-    const li = line.match(/^\s*[-*]\s+(.*)$/)
-    if (li) { list.push(<li key={i} dangerouslySetInnerHTML={{ __html: inline(li[1]) }} />); return }
-    const h = line.match(/^(#{1,3})\s+(.*)$/)
-    flush()
-    if (h) { out.push(<h3 key={i} className="nv-mdh" dangerouslySetInnerHTML={{ __html: inline(h[2]) }} />); return }
-    if (line.trim() === '') { out.push(<div key={i} style={{ height: 8 }} />); return }
-    out.push(<p key={i} dangerouslySetInnerHTML={{ __html: inline(line) }} />)
-  })
-  flush()
-  return out
-}
 
 function preview(body: string): string {
   return body.replace(/[#*`\-\[\]]/g, '').replace(/\s+/g, ' ').trim()
@@ -298,21 +261,41 @@ const FMT_ACTIONS: FmtAction[] = [
   },
 ]
 
-function applyFormat(ta: HTMLTextAreaElement, action: FmtAction, onChange: (body: string) => void) {
-  const start = ta.selectionStart
-  const end = ta.selectionEnd
-  const val = ta.value
-  const sel = val.slice(start, end)
-  const before = val.slice(0, start)
-  const { text, offset } = action.apply(sel, before)
-  const next = before + text + val.slice(end)
-  onChange(next)
-  requestAnimationFrame(() => {
-    ta.focus()
-    const cursor = start + offset
-    const selEnd = sel ? cursor + sel.length : cursor
-    ta.setSelectionRange(cursor, selEnd)
-  })
+
+// Convert markdown body to HTML for contenteditable
+function mdToHtml(src: string): string {
+  const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!))
+  const inline = (s: string) =>
+    esc(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+  return src.split('\n').map((raw) => {
+    const line = raw.replace(/\s+$/, '')
+    const h = line.match(/^(#{1,3})\s+(.*)$/)
+    if (h) return `<div><h3 class="nv-mdh">${inline(h[2])}</h3></div>`
+    const chk = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/)
+    if (chk) {
+      const done = chk[1].toLowerCase() === 'x'
+      return `<div class="nv-chk-line${done ? ' done' : ''}">☑ ${inline(chk[2])}</div>`
+    }
+    const li = line.match(/^\s*[-*]\s+(.*)$/)
+    if (li) return `<div>• ${inline(li[1])}</div>`
+    if (line.trim() === '') return `<div><br></div>`
+    return `<div>${inline(line)}</div>`
+  }).join('')
+}
+
+// Extract plain markdown back from contenteditable innerHTML
+function htmlToMd(html: string): string {
+  return html
+    .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '## $1')
+    .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
+    .replace(/<code>(.*?)<\/code>/gi, '`$1`')
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/<div[^>]*>/gi, '\n')
+    .replace(/<\/div>/gi, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/^[\n]/, '')
 }
 
 function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDelete }: {
@@ -320,62 +303,73 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
   onChange: (c: Partial<Note>) => void; onDelete: () => void; onEditStart?: () => void
 }) {
   const { date, time } = splitReminder(note.reminderAt)
-  const bodyRef = useRef<HTMLTextAreaElement>(null)
-  const [mode, setMode] = useState<'preview' | 'edit'>(initialEdit ? 'edit' : 'preview')
-  useEffect(() => { if (initialEdit) { setMode('edit'); onEditStart?.() } }, [initialEdit])
-  useEffect(() => { if (mode === 'edit') bodyRef.current?.focus() }, [mode])
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const [focused, setFocused] = useState(!!initialEdit)
+  const isComposing = useRef(false)
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const ta = e.currentTarget
+  useEffect(() => {
+    if (initialEdit) { setFocused(true); onEditStart?.() }
+  }, [initialEdit])
+
+  // Set initial HTML on mount and whenever note changes while not focused
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el || focused) return
+    el.innerHTML = mdToHtml(note.body)
+  }, [note.body, focused])
+
+  // Also set on mount
+  useEffect(() => {
+    const el = bodyRef.current
+    if (el) el.innerHTML = mdToHtml(note.body)
+  }, [])
+
+  const handleFocus = () => { setFocused(true) }
+
+  const handleInput = () => {
+    if (isComposing.current) return
+    const el = bodyRef.current
+    if (!el) return
+    onChange({ body: htmlToMd(el.innerHTML) })
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
       e.preventDefault()
-      applyFormat(ta, FMT_ACTIONS[0], (body) => onChange({ body }))
-      return
+      document.execCommand('bold')
     }
-    if (e.key === 'Enter') {
-      const start = ta.selectionStart
-      const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1
-      const line = ta.value.slice(lineStart, start)
-      const chk = line.match(/^(\s*)([-*]\s+\[[ xX]\]\s+)(.*)$/)
-      const li = !chk && line.match(/^(\s*)([-*]\s+)(.*)$/)
-      const match = chk ?? li
-      if (match && match[3].trim()) {
-        e.preventDefault()
-        const prefix = chk ? `${match[1]}- [ ] ` : `${match[1]}${match[2]}`
-        const next = ta.value.slice(0, start) + '\n' + prefix + ta.value.slice(start)
-        onChange({ body: next })
-        requestAnimationFrame(() => {
-          ta.focus()
-          const pos = start + 1 + prefix.length
-          ta.setSelectionRange(pos, pos)
-        })
-      }
+  }
+
+  const applyFmt = (action: FmtAction) => {
+    const el = bodyRef.current
+    if (!el) return
+    el.focus()
+    // For bold, use execCommand; for others insert markdown at cursor via selection
+    if (action.label === 'B') {
+      document.execCommand('bold')
+    } else {
+      const sel = window.getSelection()
+      if (!sel || !sel.rangeCount) return
+      const range = sel.getRangeAt(0)
+      const selText = range.toString()
+      const { text } = action.apply(selText, '')
+      range.deleteContents()
+      range.insertNode(document.createTextNode(text))
+      range.collapse(false)
+      sel.removeAllRanges()
+      sel.addRange(range)
     }
+    handleInput()
   }
 
   const fmtBtn = (action: FmtAction) => (
     <button
       key={action.label}
       title={action.title}
-      onMouseDown={(e) => {
-        e.preventDefault()
-        setMode('edit')
-        requestAnimationFrame(() => {
-          if (bodyRef.current) applyFormat(bodyRef.current, action, (body) => onChange({ body }))
-        })
-      }}
+      onMouseDown={(e) => { e.preventDefault(); applyFmt(action) }}
       style={{ fontFamily: action.label === 'B' ? 'var(--sans)' : 'var(--mono)', fontWeight: action.label === 'B' ? 700 : 400, fontSize: 12, minWidth: 28, height: 26, padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
     >
       {action.label}
-    </button>
-  )
-
-  const modeBtn = (m: 'edit' | 'preview', label: string) => (
-    <button
-      onClick={() => setMode(m)}
-      style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 10px', borderRadius: 6, border: `1px solid ${mode === m ? 'var(--accent-border)' : 'var(--border)'}`, background: mode === m ? 'var(--accent-dim)' : 'var(--surface2)', color: mode === m ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', fontWeight: mode === m ? 600 : 400 }}
-    >
-      {label}
     </button>
   )
 
@@ -429,38 +423,28 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
         </div>
       </div>
 
-      {/* toolbar */}
+      {/* formatting toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
         {FMT_ACTIONS.map(fmtBtn)}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          {modeBtn('edit', 'Edit')}
-          {modeBtn('preview', 'Preview')}
-        </div>
+        <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold</span>
       </div>
 
-      {/* body */}
+      {/* body — contenteditable, always shows rendered markdown */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
-        {mode === 'edit' ? (
-          <textarea
-            ref={bodyRef}
-            value={note.body}
-            onChange={(e) => onChange({ body: e.target.value })}
-            onKeyDown={handleKeyDown}
-            placeholder="Write your note…"
-            style={{ width: '100%', minHeight: 320, resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: 'var(--text2)', fontFamily: 'var(--sans)', fontSize: 14, lineHeight: 1.62 }}
-          />
-        ) : (
-          <div className="nv-md" style={{ minHeight: 320, fontSize: 14, lineHeight: 1.62, color: 'var(--text2)' }}>
-            {note.body.trim() ? renderMarkdown(note.body, (lineIdx) => {
-              const lines = note.body.split('\n')
-              const line = lines[lineIdx]
-              if (!line) return
-              const done = /^\s*[-*]\s+\[x\]/i.test(line)
-              lines[lineIdx] = line.replace(/^(\s*[-*]\s+)\[([ xX])\]/, (_, pre) => `${pre}[${done ? ' ' : 'x'}]`)
-              onChange({ body: lines.join('\n') })
-            }) : <span style={{ color: 'var(--text3)', fontStyle: 'italic', cursor: 'text' }} onClick={() => setMode('edit')}>Click Edit to write…</span>}
-          </div>
-        )}
+        <div
+          ref={bodyRef}
+          contentEditable
+          suppressContentEditableWarning
+          className="nv-md nv-editor"
+          onFocus={handleFocus}
+          onBlur={() => setFocused(false)}
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          onCompositionStart={() => { isComposing.current = true }}
+          onCompositionEnd={() => { isComposing.current = false; handleInput() }}
+          data-placeholder="Write your note…"
+          style={{ minHeight: 320, fontSize: 14, lineHeight: 1.62, color: 'var(--text2)', outline: 'none', cursor: 'text' }}
+        />
       </div>
 
       {/* footer */}
