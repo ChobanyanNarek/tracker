@@ -1,5 +1,23 @@
 import type { JiraIssue, Task } from '../types'
 
+// Extract Jira issue keys (e.g. MONE-123) from arbitrary PR/MR text (title, branch name).
+// Matching is anchored to the configured Jira project keys when available — this avoids
+// false positives like a branch "feature/add-login-2" being read as the key "LOGIN-2".
+// With no configured keys we fall back to a generic *uppercase* pattern (lowercase branch
+// words must not be mistaken for a key). Shared between gitlab-api.ts and github-api.ts,
+// which otherwise duplicated this exact regex logic.
+export function keysFromText(text: string, projectKeys: string[]): string[] {
+  const found = new Set<string>()
+  const configured = projectKeys.map((k) => k.trim()).filter(Boolean)
+  if (configured.length) {
+    const esc = configured.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    for (const m of text.matchAll(new RegExp(`(?:${esc.join('|')})-\\d+`, 'ig'))) found.add(m[0].toUpperCase())
+  }
+  // Generic uppercase-only pattern as fallback.
+  for (const m of text.matchAll(/[A-Z][A-Z0-9]+-\d+/g)) found.add(m[0])
+  return [...found]
+}
+
 export function hexRgb(hex: string): string {
   const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
   return r
@@ -93,10 +111,44 @@ export function hasPending(task: Task): boolean {
   return j.length ? j.some((x) => x.status !== 'done') : task.status !== 'done'
 }
 
-let _presets: string[] = ['Code Review', 'Fix Comments', 'Bug Fix', 'Code Refactor']
-let _jiraPresets: string[] = []
+const PRESETS_KEY = 'pm_tracker_task_presets'
+const JIRA_PRESETS_KEY = 'pm_tracker_jira_presets'
+const DEFAULT_PRESETS = ['Code Review', 'Fix Comments', 'Bug Fix', 'Code Refactor']
 
+function readLocalArray(key: string, fallback: string[]): string[] {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+function writeLocalArray(key: string, arr: string[]): void {
+  try { localStorage.setItem(key, JSON.stringify(arr)) } catch { /* storage unavailable — preset just won't persist */ }
+}
+
+let _presets: string[] = readLocalArray(PRESETS_KEY, DEFAULT_PRESETS)
+let _jiraPresets: string[] = readLocalArray(JIRA_PRESETS_KEY, [])
+const _presetListeners = new Set<() => void>()
+
+// Tiny external-store pub-sub so every JiraRow instance stays in sync when a
+// preset is added/removed from any one of them (previously each row held its
+// own local copy that only refreshed on remount).
 export function loadPresets(): string[] { return _presets }
-export function savePresets(arr: string[]): void { _presets = arr }
+export function savePresets(arr: string[]): void {
+  _presets = arr
+  writeLocalArray(PRESETS_KEY, arr)
+  _presetListeners.forEach((fn) => fn())
+}
 export function loadJiraPresets(): string[] { return _jiraPresets }
-export function saveJiraPresets(arr: string[]): void { _jiraPresets = arr }
+export function saveJiraPresets(arr: string[]): void {
+  _jiraPresets = arr
+  writeLocalArray(JIRA_PRESETS_KEY, arr)
+  _presetListeners.forEach((fn) => fn())
+}
+export function subscribePresets(fn: () => void): () => void {
+  _presetListeners.add(fn)
+  return () => _presetListeners.delete(fn)
+}

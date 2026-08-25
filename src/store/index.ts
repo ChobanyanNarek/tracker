@@ -89,13 +89,27 @@ function buildPersistPayload(state: AppState): Record<string, unknown> {
 let pendingPayload: Record<string, unknown> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 const SAVE_DEBOUNCE_MS = 800
+const SAVE_RETRY_MS = 5000
 
 function flushPersist(): void {
   if (!pendingPayload) return
   const payload = pendingPayload
   pendingPayload = null
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-  void saveCloudState(payload)
+  useStore.setState({ saveStatus: 'saving' })
+  void saveCloudState(payload).then((ok) => {
+    if (ok) {
+      useStore.setState({ saveStatus: 'saved' })
+    } else {
+      useStore.setState({ saveStatus: 'error' })
+      // retry with the same payload unless a newer save has since superseded it
+      if (!pendingPayload) {
+        pendingPayload = payload
+        if (saveTimer) clearTimeout(saveTimer)
+        saveTimer = setTimeout(flushPersist, SAVE_RETRY_MS)
+      }
+    }
+  })
 }
 
 function persistState(state: AppState): void {
@@ -109,6 +123,8 @@ if (typeof window !== 'undefined') {
   const flushIfHidden = () => { if (document.visibilityState === 'hidden') flushPersist() }
   window.addEventListener('visibilitychange', flushIfHidden)
   window.addEventListener('pagehide', flushPersist)
+  // Retry immediately once connectivity returns, instead of waiting out SAVE_RETRY_MS.
+  window.addEventListener('online', () => { if (pendingPayload) flushPersist() })
 }
 
 interface StoreActions {
@@ -176,6 +192,7 @@ interface StoreActions {
   searchQuery: string
   setSearchQuery: (q: string) => void
   cloudSyncing: boolean
+  saveStatus: 'saved' | 'saving' | 'error'
 
   setReleaseNoteColumns: (cols: ReleaseNoteColumn[]) => void
   setReleaseNoteData: (data: Record<string, ReleaseNoteIssueData>) => void
@@ -200,6 +217,7 @@ export const useStore = create<Store>((set, get) => {
   return {
     ...base,
     cloudSyncing: true,
+    saveStatus: 'saved',
     searchQuery: '',
 
     setView: (view) => set({ view }),

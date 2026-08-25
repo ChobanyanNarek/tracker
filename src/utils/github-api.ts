@@ -1,3 +1,5 @@
+import { keysFromText } from './format'
+
 export interface GitHubPR {
   id: number
   number: number
@@ -14,19 +16,6 @@ export interface GitHubPR {
   head?: { ref: string }
   merged_at?: string | null
   closed_at?: string | null
-}
-
-function keysFromText(text: string, projectKeys: string[]): string[] {
-  const found = new Set<string>()
-  const configured = projectKeys.map((k) => k.trim()).filter(Boolean)
-  if (configured.length) {
-    const esc = configured.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    // match both PROJ-123 style and proj-123 (branch-name) style
-    for (const m of text.matchAll(new RegExp(`(?:${esc.join('|')})-\\d+`, 'ig'))) found.add(m[0].toUpperCase())
-  }
-  // also match bare uppercase Jira keys in title/body
-  for (const m of text.matchAll(/[A-Z][A-Z0-9]+-\d+/g)) found.add(m[0])
-  return [...found]
 }
 
 export function extractJiraKeys(pr: GitHubPR, projectKeys: string[] = []): string[] {
@@ -49,7 +38,7 @@ async function enrichPRs(prs: GitHubPR[], headers: HeadersInit): Promise<GitHubP
       return { ...pr, body: detail.body ?? pr.body, head: detail.head, merged_at: detail.merged_at }
     })
   )
-  return [...enriched.map((r, i) => r.status === 'fulfilled' ? r.value : toEnrich[i]), ...prs.slice(20)]
+  return [...enriched.map((r, i) => r.status === 'fulfilled' ? r.value : toEnrich[i]), ...prs.slice(100)]
 }
 
 // Normalize a GitHub URL or path into { owner, repo? }

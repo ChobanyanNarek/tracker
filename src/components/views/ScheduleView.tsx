@@ -242,11 +242,11 @@ export default function ScheduleView() {
                   <th key={ds} title={isAmHoliday(ds) || ''} style={{
                     padding: '3px 2px', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 9,
                     fontWeight: isToday ? 800 : 600,
-                    color: isToday ? 'var(--accent)' : isHol ? '#0891b2' : isWe ? 'var(--text3)' : 'var(--text2)',
+                    color: isToday ? 'var(--accent)' : isHol ? 'var(--teal)' : isWe ? 'var(--text3)' : 'var(--text2)',
                     borderBottom: isToday ? '2px solid var(--accent)' : '1px solid var(--border)',
                     borderRight: '1px solid var(--border)',
                     borderLeft: isToday ? '2px solid var(--accent)' : undefined,
-                    background: isRS ? 'var(--accent-dim)' : isToday ? '#dbeafe' : isHol ? '#cffafe' : isWe ? 'var(--surface3)' : undefined,
+                    background: isRS ? 'var(--accent-dim)' : isToday ? '#dbeafe' : isHol ? 'var(--teal-dim)' : isWe ? 'var(--surface3)' : undefined,
                     minWidth: 28,
                   }}>
                     <div>{d.getDate()}</div>
@@ -265,7 +265,10 @@ export default function ScheduleView() {
                 if (isWeekend(ds)) return
                 const amHol = isAmHoliday(ds)
                 const entry = getEntry(dev.id, ds)
-                if (entry) counts[entry] = (counts[entry] ?? 0) + 1
+                if (entry) {
+                  counts[entry] = (counts[entry] ?? 0) + 1
+                  if (entry === 'work') worked++
+                }
                 else if (amHol) counts['holiday'] = (counts['holiday'] ?? 0) + 1
                 else worked++
               })

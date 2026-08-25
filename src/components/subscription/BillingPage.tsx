@@ -20,10 +20,10 @@ function fmt(date: string | null | undefined) {
 
 function statusChip(status: string) {
   const map: Record<string, { label: string; color: string; bg: string }> = {
-    completed: { label: 'Paid', color: '#22c55e', bg: 'rgba(34,197,94,.12)' },
-    pending:   { label: 'Pending', color: '#f59e0b', bg: 'rgba(245,158,11,.12)' },
+    completed: { label: 'Paid', color: 'var(--green)', bg: 'var(--green-dim)' },
+    pending:   { label: 'Pending', color: 'var(--amber)', bg: 'var(--amber-dim)' },
     failed:    { label: 'Failed', color: 'var(--red)', bg: 'var(--red-dim)' },
-    refunded:  { label: 'Refunded', color: '#8b5cf6', bg: 'rgba(139,92,246,.12)' },
+    refunded:  { label: 'Refunded', color: 'var(--purple)', bg: 'var(--purple-dim)' },
   }
   const s = map[status.toLowerCase()] ?? { label: status, color: 'var(--text3)', bg: 'var(--surface3)' }
   return (
@@ -87,9 +87,16 @@ async function downloadReceipt(p: PaymentRecord, userEmail: string | null | unde
   doc.text(`Receipt #${String(p.orderId).slice(-6).toUpperCase()}`, W - 14, 15, { align: 'right' })
   doc.text(fmt(p.completedAt ?? p.createdAt), W - 14, 21, { align: 'right' })
 
-  // Status badge
+  // Status badge — color reflects actual payment status, not always "success"
   const statusLabel = p.status.charAt(0).toUpperCase() + p.status.slice(1).toLowerCase()
-  doc.setFillColor(34, 197, 94)
+  const statusRgb: Record<string, [number, number, number]> = {
+    completed: [34, 197, 94],
+    pending: [245, 158, 11],
+    failed: [220, 38, 38],
+    refunded: [139, 92, 246],
+  }
+  const [r, g, b] = statusRgb[p.status.toLowerCase()] ?? [107, 114, 128]
+  doc.setFillColor(r, g, b)
   doc.roundedRect(W - 38, 26, 24, 6, 2, 2, 'F')
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(7)

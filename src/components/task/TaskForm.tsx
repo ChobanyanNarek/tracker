@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { JiraIssue, PrEntry, Status, Priority, StatusHistoryEntry } from '../../types'
 import { useStore } from '../../store'
 import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
 import { todayStr } from '../../utils/dates'
-import { loadPresets, savePresets, loadJiraPresets, saveJiraPresets } from '../../utils/format'
+import { loadPresets, savePresets, loadJiraPresets, saveJiraPresets, subscribePresets } from '../../utils/format'
 import DatePicker from '../ui/DatePicker'
 import TimePicker from '../ui/TimePicker'
 
@@ -55,6 +55,12 @@ function JiraRow({ value, onChange, onRemove }: { value: JiraFormRow; onChange: 
   const [jiraPresets, setJiraPresets] = useState(loadJiraPresets)
   const [newPreset, setNewPreset] = useState('')
   const [newJiraPreset, setNewJiraPreset] = useState('')
+
+  // Stay in sync when a preset is added/removed from another JiraRow instance.
+  useEffect(() => subscribePresets(() => {
+    setPresets(loadPresets())
+    setJiraPresets(loadJiraPresets())
+  }), [])
 
   const addPreset = () => {
     const t = newPreset.trim()

@@ -16,6 +16,7 @@ const IcoTrash   = () => <Icon name="trash" size={12} />
 const IcoPhone   = () => <Icon name="phone" size={12} />
 const IcoStar    = () => <Icon name="star" size={12} />
 const IcoBan     = () => <Icon name="ban" size={12} />
+const IcoBilling = () => <Icon name="billing" size={12} />
 const IcoGear    = () => <Icon name="gear" size={12} />
 const IcoLogout  = () => <Icon name="logout" size={12} />
 
@@ -158,9 +159,9 @@ function SubBadge({ u }: { u: AdminUser }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6,
       fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap',
-      background: active ? '#dcfce7' : 'var(--red-dim, #fee2e2)',
-      color: active ? '#16a34a' : 'var(--red, #dc2626)',
-      border: active ? '1px solid #bbf7d0' : '1px solid var(--red-border, #fca5a5)',
+      background: active ? 'var(--green-dim, #dcfce7)' : 'var(--red-dim, #fee2e2)',
+      color: active ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)',
+      border: active ? '1px solid var(--green-border, #bbf7d0)' : '1px solid var(--red-border, #fca5a5)',
     }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />
       {active ? (until ? `Until ${until.slice(0, 10)}` : 'Active') : 'No sub'}
@@ -171,7 +172,7 @@ function SubBadge({ u }: { u: AdminUser }) {
 // ── Payment status pill ────────────────────────────────────────────
 function PayStatusPill({ status }: { status: AdminPayment['status'] }) {
   const map = {
-    completed: { bg: '#dcfce7', color: '#16a34a', border: '#bbf7d0', label: 'Paid' },
+    completed: { bg: 'var(--green-dim, #dcfce7)', color: 'var(--green, #16a34a)', border: 'var(--green-border, #bbf7d0)', label: 'Paid' },
     pending:   { bg: 'var(--amber-dim, #fef3c7)', color: 'var(--amber, #d97706)', border: 'var(--amber-border, #fcd34d)', label: 'Pending' },
     failed:    { bg: 'var(--red-dim, #fee2e2)', color: 'var(--red, #dc2626)', border: 'var(--red-border, #fca5a5)', label: 'Failed' },
     refunded:  { bg: 'var(--surface3)', color: 'var(--text3)', border: 'var(--border)', label: 'Refunded' },
@@ -198,7 +199,8 @@ export default function AdminPage({ onBack: _onBack }: Props) {
   const [phoneTarget, setPhoneTarget] = useState<AdminUser | null>(null)
   const [newPhone, setNewPhone]       = useState('')
   const [grantTarget, setGrantTarget] = useState<AdminUser | null>(null)
-  const [grantMonths, setGrantMonths] = useState('1')
+  const [grantMonths, setGrantMonths] = useState('0')
+  const [grantDays, setGrantDays] = useState('0')
   const [revokeTarget, setRevokeTarget] = useState<AdminUser | null>(null)
   const [busy, setBusy]              = useState(false)
   const [refundConfirm, setRefundConfirm] = useState<string | null>(null)
@@ -273,8 +275,9 @@ export default function AdminPage({ onBack: _onBack }: Props) {
   const handleGrantSubscription = async () => {
     if (!grantTarget) return
     setBusy(true)
-    const months = parseInt(grantMonths, 10) || 1
-    const ok = await adminGrantSubscription(grantTarget.id, months)
+    const months = parseInt(grantMonths, 10) || 0
+    const days = parseInt(grantDays, 10) || 0
+    const ok = await adminGrantSubscription(grantTarget.id, months, days)
     setBusy(false)
     if (ok) {
       showToast(`Subscription granted to ${displayName(grantTarget)}`)
@@ -382,7 +385,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                     { v: 'pw',   icon: <IcoPhone />, label: 'Phone',    action: () => { setPhoneTarget(u); setNewPhone(u.phone ?? '') } },
                     { v: 'pw',   icon: <IcoKey />,   label: 'Password', action: () => { setPwTarget(u); setNewPw('') } },
                     { v: 'pw',   icon: <IcoStar />, label: 'Sub',   action: () => { setGrantTarget(u); setGrantMonths('1') } },
-                    ...(u.subscriptionActive && !(userPayments[u.id] ?? []).some(p => p.status === 'refunded') ? [{ v: 'wipe' as const, icon: <IcoBan />, label: 'Revoke Sub', action: () => setRevokeTarget(u) }] : []),
+                    ...(u.subscriptionActive ? [{ v: 'wipe' as const, icon: <IcoBan />, label: 'Revoke Sub', action: () => setRevokeTarget(u) }] : []),
                     { v: 'wipe', icon: <IcoWipe />,  label: 'Data',     action: () => setDataTarget(u) },
                     { v: 'del',  icon: <IcoTrash />, label: 'Delete',   action: () => setDelTarget(u) },
                   ] as const).map(({ v, icon, label, action }) => (
@@ -425,7 +428,6 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                             setExpandedUser(u.id)
                           }}
                           paymentsExpanded={isExpanded}
-                          hasCompletedPayment={(userPayments[u.id] ?? []).some(p => p.status === 'refunded')}
                         />
                         {isExpanded && (
                           <tr key={`${u.id}-pay`} style={{ borderBottom: i === users.length - 1 ? 'none' : '1px solid var(--border)', background: 'var(--surface2)' }}>
@@ -571,19 +573,34 @@ export default function AdminPage({ onBack: _onBack }: Props) {
           icon={<IcoStar />}
           confirmLabel="Grant" confirmVariant="accent"
           onConfirm={() => { void handleGrantSubscription() }}
-          onCancel={() => { if (!busy) { setGrantTarget(null); setGrantMonths('1') } }}
+          onCancel={() => { if (!busy) { setGrantTarget(null); setGrantMonths('0'); setGrantDays('0') } }}
           busy={busy}
         >
           <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>{grantTarget.email}</div>
-          <label style={{ display: 'block', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 6 }}>
-            Months to grant
-          </label>
-          <input
-            type="number" value={grantMonths} min={1} max={24} autoFocus
-            onChange={(e) => setGrantMonths(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleGrantSubscription() }}
-            style={{ width: '100%', padding: '9px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }}
-          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+            <div>
+              <label style={{ display: 'block', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 6 }}>
+                Months
+              </label>
+              <input
+                type="number" value={grantMonths} min={0} max={24} autoFocus
+                onChange={(e) => setGrantMonths(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleGrantSubscription() }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 6 }}>
+                Days
+              </label>
+              <input
+                type="number" value={grantDays} min={0} max={365}
+                onChange={(e) => setGrantDays(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleGrantSubscription() }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+          </div>
         </Modal>
       )}
 
@@ -653,7 +670,7 @@ function MobileActionBtn({ variant, onClick, children }: { variant: 'pw' | 'wipe
   )
 }
 
-function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, onPayments, paymentsExpanded, hasCompletedPayment }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void; onPayments: () => void; paymentsExpanded: boolean; hasCompletedPayment: boolean }) {
+function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, onPayments, paymentsExpanded }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void; onPayments: () => void; paymentsExpanded: boolean }) {
   const [hov, setHov] = useState(false)
   return (
     <tr
@@ -695,8 +712,8 @@ function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, 
           <ActionBtn variant="pw"   onClick={onPhone}><IcoPhone /> Phone   </ActionBtn>
           <ActionBtn variant="pw"   onClick={onPw}>  <IcoKey />   Password</ActionBtn>
           <ActionBtn variant="pw"   onClick={onGrant}><IcoStar /> Sub</ActionBtn>
-          {u.subscriptionActive && !hasCompletedPayment && <ActionBtn variant="wipe" onClick={onRevoke}><IcoBan /> Revoke</ActionBtn>}
-          <ActionBtn variant="pw"   onClick={onPayments}>💳 {paymentsExpanded ? 'Hide' : 'Payments'}</ActionBtn>
+          {u.subscriptionActive && <ActionBtn variant="wipe" onClick={onRevoke}><IcoBan /> Revoke</ActionBtn>}
+          <ActionBtn variant="pw"   onClick={onPayments}><IcoBilling /> {paymentsExpanded ? 'Hide' : 'Payments'}</ActionBtn>
           <ActionBtn variant="wipe" onClick={onData}><IcoWipe />  Data    </ActionBtn>
           <ActionBtn variant="del"  onClick={onDel}> <IcoTrash /> Delete  </ActionBtn>
         </div>

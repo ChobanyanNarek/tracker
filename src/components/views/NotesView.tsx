@@ -5,6 +5,8 @@ import Icon from '../ui/Icon'
 import DatePicker from '../ui/DatePicker'
 import TimePicker from '../ui/TimePicker'
 import EmptyState from '../ui/EmptyState'
+import SaveIndicator from '../ui/SaveIndicator'
+import ConfirmDialog from '../ui/ConfirmDialog'
 
 const COLORS = ['var(--accent)', 'var(--amber)', 'var(--green)', 'var(--teal)', 'var(--pink)', 'var(--purple)', 'var(--red)']
 
@@ -62,13 +64,7 @@ function preview(body: string): string {
 }
 
 export default function NotesView() {
-  // @ts-ignore
-  const state = useStore() as any
-  const { notes, projects, selectedProject, addNote, updateNote, deleteNote, highlightedNoteId, setHighlightedNoteId } = state as {
-    notes: Note[]; projects: Project[]; selectedProject: string
-    addNote: () => string; updateNote: (id: string, c: Partial<Note>) => void; deleteNote: (id: string) => void
-    highlightedNoteId?: string | null; setHighlightedNoteId?: (id: string | null) => void
-  }
+  const { notes, projects, selectedProject, addNote, updateNote, deleteNote, highlightedNoteId, setHighlightedNoteId } = useStore()
 
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'reminders' | 'project'>('all')
@@ -226,47 +222,18 @@ function NoteItem({ note, selected, onClick, projName, projColor }: {
 }
 
 // ── formatting toolbar ────────────────────────────────────────────────────────
-type FmtAction = { label: string; title: string; apply: (sel: string, before: string) => { text: string; offset: number } }
+// Each action's actual behavior lives in applyFmtByLabel (below), keyed by label —
+// this array only drives the toolbar buttons and their titles/shortcuts.
+type FmtAction = { label: string; title: string }
 
 const FMT_ACTIONS: FmtAction[] = [
-  {
-    label: 'B', title: 'Bold (Ctrl+B)',
-    apply: (sel) => sel ? { text: `**${sel}**`, offset: 2 } : { text: '****', offset: 2 },
-  },
-  {
-    label: 'I', title: 'Italic (Ctrl+I)',
-    apply: (sel) => sel ? { text: `_${sel}_`, offset: 1 } : { text: '__', offset: 1 },
-  },
-  {
-    label: 'U', title: 'Underline (Ctrl+U)',
-    apply: (sel) => sel ? { text: sel, offset: 0 } : { text: '', offset: 0 },
-  },
-  {
-    label: 'H', title: 'Heading (Ctrl+H)',
-    apply: (sel, before) => {
-      const atLineStart = !before || before.endsWith('\n')
-      const prefix = atLineStart ? '## ' : '\n## '
-      return { text: prefix + (sel || 'Heading'), offset: prefix.length }
-    },
-  },
-  {
-    label: '•', title: 'Bullet list',
-    apply: (sel, before) => {
-      const prefix = (!before || before.endsWith('\n')) ? '- ' : '\n- '
-      return { text: prefix + (sel || 'Item'), offset: prefix.length }
-    },
-  },
-  {
-    label: '☐', title: 'Checklist item',
-    apply: (sel, before) => {
-      const prefix = (!before || before.endsWith('\n')) ? '- [ ] ' : '\n- [ ] '
-      return { text: prefix + (sel || 'Task'), offset: prefix.length }
-    },
-  },
-  {
-    label: '`', title: 'Inline code',
-    apply: (sel) => sel ? { text: '`' + sel + '`', offset: 1 } : { text: '``', offset: 1 },
-  },
+  { label: 'B', title: 'Bold (Ctrl+B)' },
+  { label: 'I', title: 'Italic (Ctrl+I)' },
+  { label: 'U', title: 'Underline (Ctrl+U)' },
+  { label: 'H', title: 'Heading (Ctrl+H)' },
+  { label: '•', title: 'Bullet list' },
+  { label: '☐', title: 'Checklist item' },
+  { label: '`', title: 'Inline code' },
 ]
 
 
@@ -325,6 +292,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
   const { date, time } = splitReminder(note.reminderAt)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [focused, setFocused] = useState(!!initialEdit)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const isComposing = useRef(false)
 
   useEffect(() => {
@@ -435,11 +403,20 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
               border: `1px solid ${note.pinned ? 'var(--amber-border)' : 'var(--border)'}`, background: note.pinned ? 'var(--amber-dim)' : 'var(--surface2)', color: note.pinned ? 'var(--amber)' : 'var(--text3)' }}>
             <Icon name="pin" size={15} />
           </button>
-          <button onClick={onDelete} title="Delete note"
+          <button onClick={() => setConfirmDelete(true)} title="Delete note"
             style={{ width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)' }}>
             <Icon name="trash" size={15} />
           </button>
         </div>
+
+        {confirmDelete && (
+          <ConfirmDialog
+            title="Delete note?"
+            message={`"${note.title || 'Untitled note'}" will be permanently deleted.`}
+            onConfirm={() => { setConfirmDelete(false); onDelete() }}
+            onCancel={() => setConfirmDelete(false)}
+          />
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -498,9 +475,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
         <span>Created {new Date(note.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <span>Edited {relTime(note.updatedAt)} ago</span>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--green)', fontWeight: 600 }}>
-          <Icon name="check" size={12} color="var(--green)" /> Saved
-        </span>
+        <span style={{ marginLeft: 'auto' }}><SaveIndicator /></span>
       </div>
     </section>
   )

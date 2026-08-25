@@ -9,6 +9,7 @@ import DataDropdown from './DataDropdown'
 import ProfileModal from '../modals/ProfileModal'
 import BillingPage from '../subscription/BillingPage'
 import Icon from '../ui/Icon'
+import SaveIndicator from '../ui/SaveIndicator'
 
 interface TopBarProps {
   urgentCount: number
@@ -98,10 +99,10 @@ function DevSelector() {
 }
 
 export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
-  const { setNotifsEnabled, notifsEnabled, setView, setSelectedDate, searchQuery, setSearchQuery } = useStore()
+  const { setNotifsEnabled, notifsEnabled, setView, setSelectedDate, searchQuery, setSearchQuery, saveStatus } = useStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
-  const [billingOpen, setBillingOpen] = useState(false)
+  const [billingOpen, setBillingOpen] = useState(() => new URLSearchParams(window.location.search).get('billing') === '1')
   const profileRef = useRef<HTMLDivElement>(null)
   const user = getUserInfo()
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
@@ -280,6 +281,9 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
               {urgentCount}!
             </span>
           )}
+          {saveStatus !== 'saved' && (
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }}><SaveIndicator /></span>
+          )}
           <button
             onClick={toggleNotifs}
             title={notifOn ? 'Notifications ON' : 'Enable notifications'}
@@ -354,6 +358,10 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
             <Icon name="info" size={10} />
             {urgentCount} urgent
           </span>
+        )}
+
+        {saveStatus !== 'saved' && (
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 11 }}><SaveIndicator /></span>
         )}
 
         <button
