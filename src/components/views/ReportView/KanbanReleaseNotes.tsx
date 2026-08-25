@@ -8,6 +8,10 @@ import Icon from '../../ui/Icon'
 import DatePicker from '../../ui/DatePicker'
 import type { Developer, JiraConfig, Task } from '../../../types'
 import { btnBase, inputStyle, fmtSeconds, genColId, IssueRow } from './shared'
+import Pagination from '../../ui/Pagination'
+import { usePagination } from '../../../hooks/usePagination'
+
+const PAGE_SIZE = 25
 
 export default function KanbanReleaseNotes() {
   const state = useStore()
@@ -279,88 +283,17 @@ export default function KanbanReleaseNotes() {
                 ...(groupedRows.ungrouped.length ? [{ id: '__other', label: 'Other', color: 'gray', rows: groupedRows.ungrouped }] : []),
               ]
             : [{ id: '__all', label: 'All Issues', color: 'gray', rows: [...groupedRows.ungrouped, ...Array.from(groupedRows.byGroup.values()).flat()] }]
-          ).map(({ id, label, color, rows }) => {
-            if (!rows.length) return null
-            const groupAllChecked = rows.every((r) => isSelected(jiraDedupeKey(r.j.url, r.j.name)))
-            const toggleGroupAll = () => {
-              const val = !groupAllChecked
-              rows.forEach((r) => updateReleaseNoteIssue(jiraDedupeKey(r.j.url, r.j.name), { selected: val }))
-            }
-            const accentVar = `var(--${color === 'gray' ? 'text3' : color})`
-            const bgVar = `var(--${color === 'gray' ? 'surface2' : color + '-dim'})`
-            const borderVar = `var(--${color === 'gray' ? 'border' : color + '-border'})`
-            return (
-              <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '3px 10px 3px 8px', borderRadius: 8, background: bgVar, border: `1px solid ${borderVar}`, alignSelf: 'flex-start' }}>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700, color: accentVar }}>{label}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: accentVar, opacity: 0.7 }}>{rows.length}</span>
-                </div>
-                <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border)' }}>
-                  <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, fontFamily: 'var(--mono)' }}>
-                    <thead>
-                      <tr style={{ background: 'var(--surface2)' }}>
-                        <th style={{ ...thStyle, width: 32 }}>
-                          <input type="checkbox" checked={groupAllChecked} onChange={toggleGroupAll} style={{ cursor: 'pointer' }} />
-                        </th>
-                        <th style={thStyle}>Key</th>
-                        <th style={thStyle}>Title</th>
-                        <th style={thStyle}>Assignee</th>
-                        <th style={thStyle}>Due Date</th>
-                        <th style={thStyle}>Orig Est</th>
-                        <th style={thStyle}>Time Spent</th>
-                        <th style={thStyle}>SP</th>
-                        {cols.map((col) => (
-                          <th key={col.id} style={{ ...thStyle, minWidth: 110 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              {editingColId === col.id ? (
-                                <input autoFocus value={editingColLabel} onChange={(e) => setEditingColLabel(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') commitEditCol() }} onBlur={commitEditCol} style={{ ...inputStyle, width: 90, fontSize: 10 }} />
-                              ) : <span style={{ flex: 1 }}>{col.label}</span>}
-                              <button onClick={() => startEditCol(col)} title="Edit" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center' }}><Icon name="edit" size={11} /></button>
-                              <button onClick={() => deleteColumn(col.id)} title="Delete" style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
-                            </div>
-                          </th>
-                        ))}
-                        <th style={{ ...thStyle, width: 36 }} />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map(({ j, devId }, i) => {
-                        const issueKey = jiraDedupeKey(j.url, j.name)
-                        const keyLabel = jiraLabel(j.url) || issueKey
-                        const assignee = developers.find((d: Developer) => d.id === devId)?.name ?? '—'
-                        const selected = isSelected(issueKey)
-                        const rowBg = i % 2 === 0 ? 'var(--surface)' : 'var(--surface2)'
-                        return (
-                          <tr key={issueKey} style={{ background: rowBg }}>
-                            <td style={{ ...tdStyle, width: 32 }}>
-                              <input type="checkbox" checked={selected} onChange={() => updateReleaseNoteIssue(issueKey, { selected: !selected })} style={{ cursor: 'pointer' }} />
-                            </td>
-                            <td style={tdStyle}>
-                              {j.url ? <a href={j.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{keyLabel}</a> : <span>{keyLabel}</span>}
-                            </td>
-                            <td style={{ ...tdStyle, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name || '—'}</td>
-                            <td style={{ ...tdStyle, color: 'var(--text2)' }}>{assignee}</td>
-                            <td style={{ ...tdStyle, color: 'var(--text3)' }}>{j.deadline ? formatDate(j.deadline) : '—'}</td>
-                            <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate, hpd)}</td>
-                            <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent, hpd)}</td>
-                            <td style={{ ...tdStyle, color: 'var(--text2)' }}>{(j as any).storyPoints ?? '—'}</td>
-                            {cols.map((col) => (
-                              <td key={col.id} style={{ ...tdStyle, minWidth: 110 }}>
-                                <input value={rnData[issueKey]?.customFields?.[col.id] ?? ''} onChange={(e) => { const ex = rnData[issueKey]?.customFields ?? {}; updateReleaseNoteIssue(issueKey, { customFields: { ...ex, [col.id]: e.target.value } }) }} style={{ ...inputStyle }} />
-                              </td>
-                            ))}
-                            <td style={{ ...tdStyle, width: 36 }}>
-                              <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: true })} title="Hide" style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name="eye" size={12} /></button>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )
-          })}
+          ).filter((g) => g.rows.length > 0).map(({ id, label, color, rows }) => (
+            <GroupTable
+              key={id} id={id} label={label} color={color} rows={rows}
+              cols={cols} rnData={rnData} developers={developers} hpd={hpd}
+              isSelected={isSelected} updateReleaseNoteIssue={updateReleaseNoteIssue}
+              editingColId={editingColId} editingColLabel={editingColLabel}
+              setEditingColLabel={setEditingColLabel} commitEditCol={commitEditCol}
+              startEditCol={startEditCol} deleteColumn={deleteColumn}
+              thStyle={thStyle} tdStyle={tdStyle}
+            />
+          ))}
 
           {/* hidden issues */}
           {showHidden && groupedRows.hidden.map(({ j }) => {
@@ -375,6 +308,117 @@ export default function KanbanReleaseNotes() {
           })}
         </>
       )}
+    </div>
+  )
+}
+
+interface GroupTableProps {
+  id: string; label: string; color: string; rows: IssueRow[]
+  cols: { id: string; label: string }[]
+  rnData: Record<string, { hidden?: boolean; selected?: boolean; customFields?: Record<string, string> }>
+  developers: Developer[]
+  hpd: number
+  isSelected: (key: string) => boolean
+  updateReleaseNoteIssue: (key: string, patch: Record<string, unknown>) => void
+  editingColId: string | null
+  editingColLabel: string
+  setEditingColLabel: (v: string) => void
+  commitEditCol: () => void
+  startEditCol: (col: { id: string; label: string }) => void
+  deleteColumn: (colId: string) => void
+  thStyle: React.CSSProperties
+  tdStyle: React.CSSProperties
+}
+
+// One status group's table, with its own pagination — extracted so each
+// group can call usePagination independently (hooks can't be called inside
+// the parent's .map() loop).
+function GroupTable({
+  label, color, rows, cols, rnData, developers, hpd, isSelected, updateReleaseNoteIssue,
+  editingColId, editingColLabel, setEditingColLabel, commitEditCol, startEditCol, deleteColumn,
+  thStyle, tdStyle,
+}: GroupTableProps) {
+  const { pageItems, page, setPage, totalPages } = usePagination(rows, PAGE_SIZE)
+
+  const groupAllChecked = rows.every((r) => isSelected(jiraDedupeKey(r.j.url, r.j.name)))
+  const toggleGroupAll = () => {
+    const val = !groupAllChecked
+    rows.forEach((r) => updateReleaseNoteIssue(jiraDedupeKey(r.j.url, r.j.name), { selected: val }))
+  }
+  const accentVar = `var(--${color === 'gray' ? 'text3' : color})`
+  const bgVar = `var(--${color === 'gray' ? 'surface2' : color + '-dim'})`
+  const borderVar = `var(--${color === 'gray' ? 'border' : color + '-border'})`
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '3px 10px 3px 8px', borderRadius: 8, background: bgVar, border: `1px solid ${borderVar}`, alignSelf: 'flex-start' }}>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700, color: accentVar }}>{label}</span>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: accentVar, opacity: 0.7 }}>{rows.length}</span>
+      </div>
+      <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border)' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, fontFamily: 'var(--mono)' }}>
+          <thead>
+            <tr style={{ background: 'var(--surface2)' }}>
+              <th style={{ ...thStyle, width: 32 }}>
+                <input type="checkbox" checked={groupAllChecked} onChange={toggleGroupAll} style={{ cursor: 'pointer' }} />
+              </th>
+              <th style={thStyle}>Key</th>
+              <th style={thStyle}>Title</th>
+              <th style={thStyle}>Assignee</th>
+              <th style={thStyle}>Due Date</th>
+              <th style={thStyle}>Orig Est</th>
+              <th style={thStyle}>Time Spent</th>
+              <th style={thStyle}>SP</th>
+              {cols.map((col) => (
+                <th key={col.id} style={{ ...thStyle, minWidth: 110 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {editingColId === col.id ? (
+                      <input autoFocus value={editingColLabel} onChange={(e) => setEditingColLabel(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') commitEditCol() }} onBlur={commitEditCol} style={{ ...inputStyle, width: 90, fontSize: 10 }} />
+                    ) : <span style={{ flex: 1 }}>{col.label}</span>}
+                    <button onClick={() => startEditCol(col)} title="Edit" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center' }}><Icon name="edit" size={11} /></button>
+                    <button onClick={() => deleteColumn(col.id)} title="Delete" style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
+                  </div>
+                </th>
+              ))}
+              <th style={{ ...thStyle, width: 36 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {pageItems.map(({ j, devId }, i) => {
+              const issueKey = jiraDedupeKey(j.url, j.name)
+              const keyLabel = jiraLabel(j.url) || issueKey
+              const assignee = developers.find((d: Developer) => d.id === devId)?.name ?? '—'
+              const selected = isSelected(issueKey)
+              const rowBg = i % 2 === 0 ? 'var(--surface)' : 'var(--surface2)'
+              return (
+                <tr key={issueKey} style={{ background: rowBg }}>
+                  <td style={{ ...tdStyle, width: 32 }}>
+                    <input type="checkbox" checked={selected} onChange={() => updateReleaseNoteIssue(issueKey, { selected: !selected })} style={{ cursor: 'pointer' }} />
+                  </td>
+                  <td style={tdStyle}>
+                    {j.url ? <a href={j.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{keyLabel}</a> : <span>{keyLabel}</span>}
+                  </td>
+                  <td style={{ ...tdStyle, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }} title={j.name}>{j.name || '—'}</td>
+                  <td style={{ ...tdStyle, color: 'var(--text2)' }}>{assignee}</td>
+                  <td style={{ ...tdStyle, color: 'var(--text3)' }}>{j.deadline ? formatDate(j.deadline) : '—'}</td>
+                  <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeOriginalEstimate, hpd)}</td>
+                  <td style={{ ...tdStyle, color: 'var(--text3)' }}>{fmtSeconds((j as any).timeSpent, hpd)}</td>
+                  <td style={{ ...tdStyle, color: 'var(--text2)' }}>{(j as any).storyPoints ?? '—'}</td>
+                  {cols.map((col) => (
+                    <td key={col.id} style={{ ...tdStyle, minWidth: 110 }}>
+                      <input value={rnData[issueKey]?.customFields?.[col.id] ?? ''} onChange={(e) => { const ex = rnData[issueKey]?.customFields ?? {}; updateReleaseNoteIssue(issueKey, { customFields: { ...ex, [col.id]: e.target.value } }) }} style={{ ...inputStyle }} />
+                    </td>
+                  ))}
+                  <td style={{ ...tdStyle, width: 36 }}>
+                    <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: true })} title="Hide" style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name="eye" size={12} /></button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
     </div>
   )
 }

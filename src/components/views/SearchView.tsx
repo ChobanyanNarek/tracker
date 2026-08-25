@@ -7,6 +7,10 @@ import { dlInfo } from '../../utils/dates'
 import type { Status, Task, JiraIssue, Developer, Project } from '../../types'
 import EmptyState from '../ui/EmptyState'
 import Icon from '../ui/Icon'
+import Pagination from '../ui/Pagination'
+import { usePagination } from '../../hooks/usePagination'
+
+const PAGE_SIZE = 25
 
 type StatusFilter = 'ALL' | Status
 
@@ -120,11 +124,20 @@ export default function SearchView() {
   }
 
   const issueResults = [...issueMap.values()].filter(matchIssue)
-    .sort((a, b) => b.task.date.localeCompare(a.task.date))
   const plainResults = [...plainMap.values()].filter(matchPlain)
-    .sort((a, b) => b.task.date.localeCompare(a.task.date))
 
   const totalCount = issueResults.length + plainResults.length
+
+  // Merge into one date-sorted list so pagination reflects a single
+  // continuous result set instead of paginating issues and plain tasks
+  // independently (which would desync page numbers from what's on screen).
+  type MergedResult = { kind: 'issue'; r: IssueResult } | { kind: 'plain'; r: PlainResult }
+  const merged: MergedResult[] = [
+    ...issueResults.map((r): MergedResult => ({ kind: 'issue', r })),
+    ...plainResults.map((r): MergedResult => ({ kind: 'plain', r })),
+  ].sort((a, b) => b.r.task.date.localeCompare(a.r.task.date))
+
+  const { pageItems, page, setPage, totalPages } = usePagination(merged, PAGE_SIZE)
 
   // ── Highlight helper ──────────────────────────────────────────────────────────
   const escHtml = (s: string) =>
@@ -191,9 +204,8 @@ export default function SearchView() {
         <EmptyState icon="search" title="No results" hint="Try different keywords or filters" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {/* Jira issue cards */}
-          {issueResults.map((r) => {
-            const { issue, task, dev, proj, issueKey } = r
+          {pageItems.map((item) => item.kind === 'issue' ? (() => {
+            const { issue, task, dev, proj, issueKey } = item.r
             const rgb = dev ? hexRgb(dev.color) : '37,99,235'
             const devColor = dev?.color ?? 'var(--accent)'
             const dl = issue.deadline ? dlInfo(issue.deadline) : null
@@ -201,7 +213,7 @@ export default function SearchView() {
 
             return (
               <div
-                key={r.key}
+                key={item.r.key}
                 onClick={() => jumpTo(task)}
                 style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', padding: '11px 13px', cursor: 'pointer', transition: 'all .15s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = 'var(--shadow)' }}
@@ -255,10 +267,8 @@ export default function SearchView() {
                 </div>
               </div>
             )
-          })}
-
-          {/* Plain task cards (no jiras) */}
-          {plainResults.map(({ task, dev, proj }) => {
+          })() : (() => {
+            const { task, dev, proj } = item.r
             const rgb = dev ? hexRgb(dev.color) : '37,99,235'
             const devColor = dev?.color ?? 'var(--accent)'
             return (
@@ -290,9 +300,10 @@ export default function SearchView() {
                 </div>
               </div>
             )
-          })}
+          })())}
         </div>
       )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
     </div>
   )
 }

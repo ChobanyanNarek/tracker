@@ -7,6 +7,10 @@ import { formatDate, formatDateTime } from '../../../utils/dates'
 import Icon from '../../ui/Icon'
 import type { Developer, JiraConfig, JiraIssue, Sprint, Task } from '../../../types'
 import { btnBase, inputStyle, fmtSeconds, genColId } from './shared'
+import Pagination from '../../ui/Pagination'
+import { usePagination } from '../../../hooks/usePagination'
+
+const PAGE_SIZE = 25
 
 type SprintIssueRow = { j: JiraIssue; devId: string }
 
@@ -193,6 +197,7 @@ export default function ScrumReleaseNotes() {
   const IssueTable = ({ rows, label }: { rows: SprintIssueRow[]; label: string }) => {
     const baseRows = showHidden ? rows : rows.filter((r) => !rnData[jiraDedupeKey(r.j.url, r.j.name)]?.hidden)
     const allRows = baseRows.filter((r) => !hiddenStatuses.has(resolveIssueDisplay(r.j, conn).label))
+    const { pageItems, page, setPage, totalPages } = usePagination(allRows, PAGE_SIZE)
     if (!allRows.length) return null
     const hiddenInGroup = rows.filter((r) => rnData[jiraDedupeKey(r.j.url, r.j.name)]?.hidden === true).length
     const allChecked = allRows.filter((r) => !rnData[jiraDedupeKey(r.j.url, r.j.name)]?.hidden).every((r) => isSelected(jiraDedupeKey(r.j.url, r.j.name)))
@@ -251,7 +256,7 @@ export default function ScrumReleaseNotes() {
               </tr>
             </thead>
             <tbody>
-              {allRows.map(({ j, devId }, i) => {
+              {pageItems.map(({ j, devId }, i) => {
                 const issueKey = jiraDedupeKey(j.url, j.name)
                 const keyLabel = jiraLabel(j.url) || issueKey
                 const assignee = developers.find((d: Developer) => d.id === devId)?.name ?? '—'
@@ -299,6 +304,7 @@ export default function ScrumReleaseNotes() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} onChange={setPage} />
       </div>
     )
   }
