@@ -141,9 +141,11 @@ export default function NotesView() {
 
   const selected = (notes ?? []).find((n) => n.id === selectedId) ?? null
 
+  const [autoEdit, setAutoEdit] = useState(false)
   const createNote = () => {
     const id = addNote()
     setSelectedId(id)
+    setAutoEdit(true)
   }
 
   // ── styles ────────────────────────────────────────────────────────────────
@@ -197,7 +199,7 @@ export default function NotesView() {
 
         {/* ── RIGHT DETAIL ── */}
         {selected
-          ? <NoteEditor key={selected.id} note={selected} projects={projects} onChange={(c) => updateNote(selected.id, c)} onDelete={() => { deleteNote(selected.id); setSelectedId(null) }} />
+          ? <NoteEditor key={selected.id} note={selected} projects={projects} initialEdit={autoEdit} onEditStart={() => setAutoEdit(false)} onChange={(c) => updateNote(selected.id, c)} onDelete={() => { deleteNote(selected.id); setSelectedId(null) }} />
           : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <EmptyState icon="notes" title="Select a note" hint="Or create a new one with the + button" />
@@ -313,13 +315,14 @@ function applyFormat(ta: HTMLTextAreaElement, action: FmtAction, onChange: (body
   })
 }
 
-function NoteEditor({ note, projects, onChange, onDelete }: {
-  note: Note; projects: Project[]
-  onChange: (c: Partial<Note>) => void; onDelete: () => void
+function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDelete }: {
+  note: Note; projects: Project[]; initialEdit?: boolean
+  onChange: (c: Partial<Note>) => void; onDelete: () => void; onEditStart?: () => void
 }) {
   const { date, time } = splitReminder(note.reminderAt)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
-  const [editingBody, setEditingBody] = useState(!note.body)
+  const [editingBody, setEditingBody] = useState(!!initialEdit)
+  useEffect(() => { if (initialEdit) { setEditingBody(true); onEditStart?.() } }, [initialEdit])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const ta = e.currentTarget
