@@ -128,12 +128,23 @@ export default function SearchView() {
   const seenIssueKeys = new Set<string>()
   const seenPlainKeys = new Set<string>()
 
+  const qLower = q.toLowerCase()
+
   for (const remote of remoteTasks) {
     const task = toLocalTask(remote)
     const jiras = getJiras(task)
 
-    if (jiras.length) {
-      for (const issue of jiras) {
+    // The backend matches a task if q appears ANYWHERE on it (title, comment,
+    // or any embedded jira's name/url) — a single task can carry dozens of
+    // jiras (e.g. recurring "Daily update" tasks), so without this filter
+    // every unrelated jira on a matched task gets expanded into its own
+    // card, burying the one that actually matched.
+    const jirasToShow = qLower
+      ? jiras.filter((issue) => issue.name?.toLowerCase().includes(qLower) || issue.url?.toLowerCase().includes(qLower))
+      : jiras
+
+    if (jirasToShow.length) {
+      for (const issue of jirasToShow) {
         if (issue.hidden) continue
         if (!jiraOnBoard(issue, boardScope)) continue
         if (statusFilter !== 'ALL' && issue.status !== statusFilter) continue
