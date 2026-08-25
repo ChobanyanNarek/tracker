@@ -341,10 +341,10 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
-      e.preventDefault()
-      document.execCommand('bold')
-    }
+    if (!(e.ctrlKey || e.metaKey)) return
+    const key = e.key.toLowerCase()
+    if (key === 'b') { e.preventDefault(); applyFmtByLabel('B') }
+    else if (key === 'h') { e.preventDefault(); applyFmtByLabel('H') }
   }
 
   const insertHtmlAtCursor = (html: string) => {
@@ -367,25 +367,27 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
     }
   }
 
-  const applyFmt = (action: FmtAction) => {
+  const applyFmtByLabel = (label: string) => {
     const el = bodyRef.current
     if (!el) return
     el.focus()
     const sel = window.getSelection()
     const selText = sel && sel.rangeCount ? sel.getRangeAt(0).toString() : ''
-    if (action.label === 'B') {
-      document.execCommand('bold')
-    } else if (action.label === 'H') {
+    if (label === 'B') {
+      insertHtmlAtCursor(`<strong>${selText || 'bold'}</strong>`)
+    } else if (label === 'H') {
       insertHtmlAtCursor(`<div><h3 class="nv-mdh">${selText || 'Heading'}</h3></div><div><br></div>`)
-    } else if (action.label === '•') {
+    } else if (label === '•') {
       insertHtmlAtCursor(`<div>• ${selText || 'Item'}</div>`)
-    } else if (action.label === '☐') {
+    } else if (label === '☐') {
       insertHtmlAtCursor(`<div>☐ ${selText || 'Task'}</div>`)
-    } else if (action.label === '`') {
+    } else if (label === '`') {
       insertHtmlAtCursor(`<code>${selText || 'code'}</code>`)
     }
     handleInput()
   }
+
+  const applyFmt = (action: FmtAction) => applyFmtByLabel(action.label)
 
   const fmtBtn = (action: FmtAction) => (
     <button
@@ -451,7 +453,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
       {/* formatting toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
         {FMT_ACTIONS.map(fmtBtn)}
-        <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold</span>
+        <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold · Ctrl+H heading</span>
       </div>
 
       {/* body — contenteditable, always shows rendered markdown */}
