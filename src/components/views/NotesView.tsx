@@ -5,7 +5,6 @@ import Icon from '../ui/Icon'
 import DatePicker from '../ui/DatePicker'
 import TimePicker from '../ui/TimePicker'
 import EmptyState from '../ui/EmptyState'
-import SaveIndicator from '../ui/SaveIndicator'
 import ConfirmDialog from '../ui/ConfirmDialog'
 
 const COLORS = ['var(--accent)', 'var(--amber)', 'var(--green)', 'var(--teal)', 'var(--pink)', 'var(--purple)', 'var(--red)']
@@ -502,7 +501,6 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
         <span>Created {new Date(note.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <span>Edited {relTime(note.updatedAt)} ago</span>
-        <span style={{ marginLeft: 'auto' }}><SaveIndicator /></span>
       </div>
     </section>
   )
