@@ -2,12 +2,6 @@ import type { JiraIssue, JiraConfig, Status } from '../../types'
 import { resolveGroupForIssue, GROUP_COLOR_TOKENS, DEFAULT_STATUS_GROUPS, legacyStatusToGroupId } from '../../utils/status-groups'
 import { STATUS_LABEL } from '../../constants'
 
-interface Props {
-  issue: JiraIssue
-  conn?: JiraConfig
-  style?: React.CSSProperties
-}
-
 // Resolve display info for an issue: label + color tokens
 export function resolveIssueDisplay(issue: JiraIssue, conn?: JiraConfig): { label: string; bg: string; text: string; border: string } {
   const groupId = issue.groupId ?? legacyStatusToGroupId(issue.status)
@@ -28,22 +22,6 @@ export function resolveIssueColor(issue: JiraIssue, conn?: JiraConfig): string {
 export function resolveStatusDisplay(status: Status): { label: string; bg: string; text: string; border: string } {
   const group = DEFAULT_STATUS_GROUPS.find((g) => g.id === status) ?? DEFAULT_STATUS_GROUPS[0]!
   return { label: group.label, ...GROUP_COLOR_TOKENS[group.color] }
-}
-
-export default function StatusBadge({ issue, conn, style }: Props) {
-  const { label, bg, text, border } = resolveIssueDisplay(issue, conn)
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600,
-      padding: '2px 8px', borderRadius: 20,
-      background: bg, color: text, border: `1px solid ${border}`,
-      ...style,
-    }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: text, flexShrink: 0 }} />
-      {label}
-    </span>
-  )
 }
 
 // For the StatusSelect dropdown — shows all groups from a connection

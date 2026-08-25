@@ -1,4 +1,5 @@
 import type { GitLabConfig } from '../types'
+import { keysFromText } from './format'
 
 export interface GitLabMR {
   id: number
@@ -14,29 +15,6 @@ export interface GitLabMR {
   work_in_progress?: boolean
   author: { id: number; username: string; name: string }
   assignees: { id: number; username: string }[]
-}
-
-// Extract a Jira issue key (e.g. MONE-123) from the MR title or branch.
-//
-// The title is checked first because it usually carries the canonical key, and
-// matching is anchored to the configured Jira project keys when available — this
-// avoids false positives like a branch "feature/add-login-2" being read as the
-// key "LOGIN-2". With no configured keys we fall back to a generic *uppercase*
-// pattern (lowercase branch words must not be mistaken for a key).
-// All Jira keys referenced anywhere in the MR title or branch, title first.
-// Branches are often named after a *different* issue than the title (stacked
-// branches), so we return every candidate and let the caller link to whichever
-// issues are actually tracked — a superset that can't miss a real reference.
-function keysFromText(text: string, projectKeys: string[]): string[] {
-  const found = new Set<string>()
-  const configured = projectKeys.map((k) => k.trim()).filter(Boolean)
-  if (configured.length) {
-    const esc = configured.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    for (const m of text.matchAll(new RegExp(`(?:${esc.join('|')})-\\d+`, 'ig'))) found.add(m[0].toUpperCase())
-  }
-  // Generic uppercase-only pattern as fallback.
-  for (const m of text.matchAll(/[A-Z][A-Z0-9]+-\d+/g)) found.add(m[0])
-  return [...found]
 }
 
 // Keys from the MR title only.
