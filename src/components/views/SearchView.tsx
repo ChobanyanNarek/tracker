@@ -114,20 +114,21 @@ export default function SearchView() {
     return () => { cancelled = true; clearTimeout(handle) }
   }, [q, statusFilter, searchProjectId, page])
 
-  const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
   const devById = new Map(developers.map((d) => [d.id, d]))
   const projById = new Map(projects.map((p) => [p.id, p]))
 
   // Expand this page's tasks into per-issue cards, applying the board-scope
   // filtering the backend doesn't know about — same behavior as before,
   // just applied to a server-fetched page instead of the full local list.
+  // Unlike Daily/Reports, Search intentionally does NOT exclude archived
+  // developers' tasks — searching by issue key should find historical work
+  // regardless of whether the assignee is still active.
   const issueResults: IssueResult[] = []
   const plainResults: PlainResult[] = []
   const seenIssueKeys = new Set<string>()
   const seenPlainKeys = new Set<string>()
 
   for (const remote of remoteTasks) {
-    if (archivedIds.has(remote.devId)) continue
     const task = toLocalTask(remote)
     const jiras = getJiras(task)
 
