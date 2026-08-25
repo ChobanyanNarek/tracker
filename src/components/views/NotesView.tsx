@@ -321,8 +321,9 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
 }) {
   const { date, time } = splitReminder(note.reminderAt)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
-  const [editingBody, setEditingBody] = useState(!!initialEdit)
-  useEffect(() => { if (initialEdit) { setEditingBody(true); onEditStart?.() } }, [initialEdit])
+  const [mode, setMode] = useState<'preview' | 'edit'>(initialEdit ? 'edit' : 'preview')
+  useEffect(() => { if (initialEdit) { setMode('edit'); onEditStart?.() } }, [initialEdit])
+  useEffect(() => { if (mode === 'edit') bodyRef.current?.focus() }, [mode])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const ta = e.currentTarget
@@ -331,7 +332,6 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
       applyFormat(ta, FMT_ACTIONS[0], (body) => onChange({ body }))
       return
     }
-    // auto-continue lists on Enter
     if (e.key === 'Enter') {
       const start = ta.selectionStart
       const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1
@@ -359,12 +359,23 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
       title={action.title}
       onMouseDown={(e) => {
         e.preventDefault()
-        if (bodyRef.current) applyFormat(bodyRef.current, action, (body) => onChange({ body }))
-        if (!editingBody) setEditingBody(true)
+        setMode('edit')
+        requestAnimationFrame(() => {
+          if (bodyRef.current) applyFormat(bodyRef.current, action, (body) => onChange({ body }))
+        })
       }}
       style={{ fontFamily: action.label === 'B' ? 'var(--sans)' : 'var(--mono)', fontWeight: action.label === 'B' ? 700 : 400, fontSize: 12, minWidth: 28, height: 26, padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
     >
       {action.label}
+    </button>
+  )
+
+  const modeBtn = (m: 'edit' | 'preview', label: string) => (
+    <button
+      onClick={() => setMode(m)}
+      style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 10px', borderRadius: 6, border: `1px solid ${mode === m ? 'var(--accent-border)' : 'var(--border)'}`, background: mode === m ? 'var(--accent-dim)' : 'var(--surface2)', color: mode === m ? 'var(--accent)' : 'var(--text3)', cursor: 'pointer', fontWeight: mode === m ? 600 : 400 }}
+    >
+      {label}
     </button>
   )
 
@@ -418,27 +429,28 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
         </div>
       </div>
 
-      {/* formatting toolbar */}
+      {/* toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
         {FMT_ACTIONS.map(fmtBtn)}
-        <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold · Enter continues lists</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+          {modeBtn('edit', 'Edit')}
+          {modeBtn('preview', 'Preview')}
+        </div>
       </div>
 
-      {/* body — click to edit, blur to render markdown */}
+      {/* body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
-        {editingBody ? (
+        {mode === 'edit' ? (
           <textarea
             ref={bodyRef}
-            autoFocus
             value={note.body}
             onChange={(e) => onChange({ body: e.target.value })}
-            onBlur={() => { if (note.body.trim()) setEditingBody(false) }}
             onKeyDown={handleKeyDown}
             placeholder="Write your note…"
             style={{ width: '100%', minHeight: 320, resize: 'none', border: 'none', outline: 'none', background: 'transparent', color: 'var(--text2)', fontFamily: 'var(--sans)', fontSize: 14, lineHeight: 1.62 }}
           />
         ) : (
-          <div className="nv-md" onClick={() => setEditingBody(true)} style={{ cursor: 'text', minHeight: 320, fontSize: 14, lineHeight: 1.62, color: 'var(--text2)' }}>
+          <div className="nv-md" style={{ minHeight: 320, fontSize: 14, lineHeight: 1.62, color: 'var(--text2)' }}>
             {note.body.trim() ? renderMarkdown(note.body, (lineIdx) => {
               const lines = note.body.split('\n')
               const line = lines[lineIdx]
@@ -446,7 +458,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
               const done = /^\s*[-*]\s+\[x\]/i.test(line)
               lines[lineIdx] = line.replace(/^(\s*[-*]\s+)\[([ xX])\]/, (_, pre) => `${pre}[${done ? ' ' : 'x'}]`)
               onChange({ body: lines.join('\n') })
-            }) : <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Click to write…</span>}
+            }) : <span style={{ color: 'var(--text3)', fontStyle: 'italic', cursor: 'text' }} onClick={() => setMode('edit')}>Click Edit to write…</span>}
           </div>
         )}
       </div>
