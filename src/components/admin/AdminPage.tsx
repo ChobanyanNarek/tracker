@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, adminGetPayments, adminGrantSubscription, adminRevokeSubscription, adminRefundPayment, type AdminUser, type AdminPayment } from '../../utils/cloud-api'
-import { clearToken } from '../../utils/auth'
+import { clearToken, getUserInfo } from '../../utils/auth'
 import ProfileModal from '../modals/ProfileModal'
 import Icon, { BRAND } from '../ui/Icon'
+import LoadingSpinner from '../ui/LoadingSpinner'
 
 interface Props {
   onBack: () => void
@@ -151,6 +152,15 @@ function Modal({ title, desc, icon, confirmLabel, confirmVariant, onConfirm, onC
   )
 }
 
+function SelfActionWarning({ text }: { text: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', borderRadius: 9, background: 'var(--amber-dim, #fef3c7)', border: '1px solid var(--amber-border, #fcd34d)', color: 'var(--amber, #d97706)', fontSize: 12, lineHeight: 1.5, marginBottom: 20 }}>
+      <Icon name="info" size={13} color="var(--amber, #d97706)" style={{ flexShrink: 0, marginTop: 1 }} />
+      {text}
+    </div>
+  )
+}
+
 // ── Subscription badge ─────────────────────────────────────────────
 function SubBadge({ u }: { u: AdminUser }) {
   const active = u.subscriptionActive
@@ -187,6 +197,7 @@ function PayStatusPill({ status }: { status: AdminPayment['status'] }) {
 
 // ── Main component ─────────────────────────────────────────────────
 export default function AdminPage({ onBack: _onBack }: Props) {
+  const currentUserId = getUserInfo()?.id
   const [users, setUsers]           = useState<AdminUser[]>([])
   const [loading, setLoading]       = useState(true)
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
@@ -344,7 +355,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
         {/* ── Users ── */}
         {loading ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, height: 240, color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
-            <Spinner /><span>Loading users…</span>
+            <LoadingSpinner size={22} /><span>Loading users…</span>
           </div>
         ) : users.length === 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 240, color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
@@ -508,7 +519,9 @@ export default function AdminPage({ onBack: _onBack }: Props) {
           onConfirm={() => { void handleDeleteData() }}
           onCancel={() => !busy && setDataTarget(null)}
           busy={busy}
-        />
+        >
+          {dataTarget.id === currentUserId && <SelfActionWarning text="This is your own account — you'll lose all your own data." />}
+        </Modal>
       )}
       {deleteTarget && (
         <Modal
@@ -519,7 +532,9 @@ export default function AdminPage({ onBack: _onBack }: Props) {
           onConfirm={() => { void handleDelete() }}
           onCancel={() => !busy && setDelTarget(null)}
           busy={busy}
-        />
+        >
+          {deleteTarget.id === currentUserId && <SelfActionWarning text="This is your own account — deleting it will log you out and cannot be undone." />}
+        </Modal>
       )}
       {pwTarget && (
         <Modal
@@ -613,7 +628,9 @@ export default function AdminPage({ onBack: _onBack }: Props) {
           onConfirm={() => { void handleRevokeSubscription() }}
           onCancel={() => !busy && setRevokeTarget(null)}
           busy={busy}
-        />
+        >
+          {revokeTarget.id === currentUserId && <SelfActionWarning text="This is your own account — you'll immediately lose your own access." />}
+        </Modal>
       )}
 
       {settingsOpen && <ProfileModal onClose={() => setSettingsOpen(false)} />}
@@ -628,14 +645,6 @@ export default function AdminPage({ onBack: _onBack }: Props) {
   )
 }
 
-// ── Small helpers ──────────────────────────────────────────────────
-function Spinner() {
-  return (
-    <div style={{ width: 16, height: 16, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin .65s linear infinite' }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
-  )
-}
 
 function HeaderBtn({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   const [hov, setHov] = useState(false)

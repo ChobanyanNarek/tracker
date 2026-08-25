@@ -70,6 +70,12 @@ export default function NotesView() {
   const [filter, setFilter] = useState<'all' | 'reminders' | 'project'>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
+  const hasActiveReminders = (notes ?? []).some((n) => n.reminderAt && !n.archivedAt)
+  const notifsBlocked = typeof Notification !== 'undefined' && Notification.permission === 'denied' && hasActiveReminders
+  const overdueNotes = (notes ?? []).filter((n) => !n.archivedAt && n.reminderAt && new Date(n.reminderAt).getTime() <= Date.now())
+  const clearAllOverdue = () => overdueNotes.forEach((n) => updateNote(n.id, { reminderAt: undefined }))
+  const snoozeOneHour = (id: string) => updateNote(id, { reminderAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() })
+
   // React to a reminder-notification click routing here
   useEffect(() => {
     if (highlightedNoteId) {
@@ -141,7 +147,19 @@ export default function NotesView() {
               <button style={railBtn(filter === 'reminders')} onClick={() => setFilter('reminders')}>Reminders</button>
               {selectedProject !== 'ALL' && <button style={railBtn(filter === 'project')} onClick={() => setFilter('project')}>{projName(selectedProject) ?? 'Project'}</button>}
             </div>
+            {overdueNotes.length > 0 && (
+              <button onClick={clearAllOverdue} style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', border: '1px solid var(--red-border)', background: 'var(--red-dim)', color: 'var(--red)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                <Icon name="close" size={10} /> Clear {overdueNotes.length} overdue reminder{overdueNotes.length !== 1 ? 's' : ''}
+              </button>
+            )}
           </div>
+
+          {notifsBlocked && (
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'var(--amber-dim)', color: 'var(--amber)', fontSize: 11, lineHeight: 1.5, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+              <Icon name="bell-off" size={13} color="var(--amber)" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>Notifications are blocked in your browser, so reminders won't fire. Enable them in your browser's site settings to get notified.</span>
+            </div>
+          )}
 
           <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: 6 }}>
             {filtered.length === 0 && (
@@ -150,9 +168,9 @@ export default function NotesView() {
               </div>
             )}
             {groups.withRem.length > 0 && <GroupLabel text="Has reminder" />}
-            {groups.withRem.map((n) => <NoteItem key={n.id} note={n} selected={n.id === selectedId} onClick={() => setSelectedId(n.id)} projName={projName} projColor={projColor} />)}
+            {groups.withRem.map((n) => <NoteItem key={n.id} note={n} selected={n.id === selectedId} onClick={() => setSelectedId(n.id)} onSnooze={snoozeOneHour} projName={projName} projColor={projColor} />)}
             {groups.noRem.length > 0 && <GroupLabel text="Notes" />}
-            {groups.noRem.map((n) => <NoteItem key={n.id} note={n} selected={n.id === selectedId} onClick={() => setSelectedId(n.id)} projName={projName} projColor={projColor} />)}
+            {groups.noRem.map((n) => <NoteItem key={n.id} note={n} selected={n.id === selectedId} onClick={() => setSelectedId(n.id)} onSnooze={snoozeOneHour} projName={projName} projColor={projColor} />)}
           </div>
         </aside>
 
@@ -173,8 +191,8 @@ function GroupLabel({ text }: { text: string }) {
   return <div style={{ fontFamily: 'var(--mono)', fontSize: 9, textTransform: 'uppercase', letterSpacing: '.7px', color: 'var(--text3)', padding: '8px 8px 5px' }}>{text}</div>
 }
 
-function NoteItem({ note, selected, onClick, projName, projColor }: {
-  note: Note; selected: boolean; onClick: () => void
+function NoteItem({ note, selected, onClick, onSnooze, projName, projColor }: {
+  note: Note; selected: boolean; onClick: () => void; onSnooze: (id: string) => void
   projName: (id?: string) => string | undefined; projColor: (id?: string) => string
 }) {
   const rs = reminderState(note.reminderAt)
@@ -209,6 +227,15 @@ function NoteItem({ note, selected, onClick, projName, projColor }: {
           <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 20, ...remClass[rs] }}>
             <Icon name="clock" size={9} /> {reminderLabel(note.reminderAt)}
           </span>
+        )}
+        {rs === 'over' && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSnooze(note.id) }}
+            title="Snooze 1 hour"
+            style={{ fontFamily: 'var(--mono)', fontSize: 9.5, padding: '1px 6px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text3)', cursor: 'pointer' }}
+          >
+            Snooze 1h
+          </button>
         )}
         {note.projectId && (
           <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, display: 'inline-flex', alignItems: 'center', gap: 4, color: projColor(note.projectId) }}>

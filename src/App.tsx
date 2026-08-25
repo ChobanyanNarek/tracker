@@ -9,7 +9,9 @@ import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useNoteReminders } from './hooks/useNoteReminders'
 import { useAutoSync } from './hooks/useAutoSync'
 import TopBar from './components/layout/TopBar'
+import ConnectivityBanner from './components/layout/ConnectivityBanner'
 import Icon from './components/ui/Icon'
+import LoadingSpinner from './components/ui/LoadingSpinner'
 
 import ProjectPanel from './components/layout/ProjectPanel'
 import Calendar from './components/calendar/Calendar'
@@ -67,7 +69,6 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
       }
       setMsg(codeMessages[responseCode] ?? (desc.replace(/\+/g, ' ') || `Payment failed (code ${responseCode})`))
       setStatus('failed')
-      setTimeout(() => { window.location.replace('/') }, 10000)
       return
     }
 
@@ -78,21 +79,30 @@ function PaymentCallback({ onDone }: { onDone: () => void }) {
       } else {
         setMsg(res.error ?? 'Could not confirm payment')
         setStatus('failed')
-        setTimeout(() => { window.location.replace('/') }, 10000)
       }
     })
   }, [onDone])
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', fontFamily: 'var(--sans)' }}>
-      <div style={{ textAlign: 'center', color: 'var(--text)', maxWidth: 500, padding: 20 }}>
-        {status === 'loading' && <p style={{ color: 'var(--text3)', fontSize: 14 }}>Confirming payment…</p>}
+      <div style={{ textAlign: 'center', color: 'var(--text)', maxWidth: 400, padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        {status === 'loading' && (
+          <>
+            <LoadingSpinner size={28} color="var(--text3)" ringColor="var(--bg)" />
+            <p style={{ color: 'var(--text3)', fontSize: 14, marginTop: 8 }}>Confirming payment…</p>
+          </>
+        )}
         {status === 'success' && <p style={{ color: 'var(--accent)', fontSize: 16, fontWeight: 700 }}>Payment successful! Redirecting…</p>}
         {status === 'failed' && (
           <>
-            <p style={{ color: 'var(--red)', fontSize: 15, fontWeight: 600 }}>Payment failed</p>
-            <p style={{ color: 'var(--text3)', fontSize: 13 }}>{msg}</p>
-            <p style={{ color: 'var(--text4)', fontSize: 12 }}>Redirecting back…</p>
+            <p style={{ color: 'var(--red)', fontSize: 15, fontWeight: 600, marginBottom: 2 }}>Payment failed</p>
+            <p style={{ color: 'var(--text3)', fontSize: 13, marginBottom: 20 }}>{msg}</p>
+            <button
+              onClick={() => window.location.replace('/')}
+              style={{ padding: '10px 24px', borderRadius: 9, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+            >
+              Back to subscribe
+            </button>
           </>
         )}
       </div>
@@ -186,11 +196,8 @@ function AuthApp() {
   if (subscribed === null) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13, flexDirection: 'column', gap: 12 }}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
+        <LoadingSpinner size={28} color="var(--text3)" ringColor="var(--bg)" />
         <span>Checking subscription…</span>
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
     )
   }
@@ -311,17 +318,15 @@ function AuthedApp() {
   if (cloudSyncing) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 12, background: 'var(--bg)', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
+        <LoadingSpinner size={28} color="var(--text3)" ringColor="var(--bg)" />
         <span>Loading your data…</span>
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
     )
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
+      <ConnectivityBanner />
       <TopBar
         urgentCount={urgentCount}
         onFeedback={showToast}

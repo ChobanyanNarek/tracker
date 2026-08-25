@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { clearToken, getUserInfo } from '../../utils/auth'
-import { initiatePayment, getSubscriptionStatus } from '../../utils/payment-api'
+import { initiatePayment, getSubscriptionStatus, type PaymentStatus } from '../../utils/payment-api'
 import Icon from '../ui/Icon'
 
 interface Props {
@@ -11,7 +11,13 @@ export default function PaywallScreen({ onSubscribed }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
+  const [lastPayment, setLastPayment] = useState<PaymentStatus['lastPayment']>(null)
   const user = getUserInfo()
+
+  // Surface a just-initiated payment that hasn't been confirmed yet, so closing
+  // the tab mid-payment doesn't leave the user staring at a blank "Subscribe"
+  // button with no memory of having started.
+  useEffect(() => { void getSubscriptionStatus().then((s) => setLastPayment(s?.lastPayment ?? null)) }, [])
 
   // Poll for subscription activation when user returns from payment page
   useEffect(() => {
@@ -36,6 +42,7 @@ export default function PaywallScreen({ onSubscribed }: Props) {
     setChecking(true)
     const status = await getSubscriptionStatus()
     setChecking(false)
+    setLastPayment(status?.lastPayment ?? null)
     if (status?.subscriptionActive) {
       onSubscribed()
     }
@@ -109,6 +116,11 @@ export default function PaywallScreen({ onSubscribed }: Props) {
           </div>
         </div>
 
+        <div style={{ width: '100%', display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11, color: 'var(--text3)', lineHeight: 1.5, marginBottom: 20, marginTop: -12 }}>
+          <Icon name="info" size={12} color="var(--text3)" style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>No auto-renewal — you'll only be charged when you subscribe or manually renew. We'll email you 1 day before your subscription expires.</span>
+        </div>
+
         {/* Features */}
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
           {[
@@ -130,6 +142,17 @@ export default function PaywallScreen({ onSubscribed }: Props) {
             background: 'var(--red-dim)', color: 'var(--red)', border: '1px solid var(--red-border)', fontWeight: 500,
           }}>
             {error}
+          </div>
+        )}
+
+        {!error && lastPayment?.status === 'pending' && (
+          <div style={{
+            width: '100%', padding: '10px 13px', borderRadius: 9, fontSize: 12, marginBottom: 14,
+            background: 'var(--amber-dim)', color: 'var(--amber)', border: '1px solid var(--amber-border)', fontWeight: 500,
+            display: 'flex', alignItems: 'center', gap: 7,
+          }}>
+            <Icon name="clock" size={13} color="var(--amber)" />
+            You have a payment in progress. If you completed it, click "I already paid" below — otherwise it will time out and you can try again.
           </div>
         )}
 

@@ -8,6 +8,8 @@ import {
   type PaymentStatus,
   type PaymentRecord,
 } from '../../utils/payment-api'
+import Icon from '../ui/Icon'
+import LoadingSpinner from '../ui/LoadingSpinner'
 
 interface Props {
   onClose: () => void
@@ -235,17 +237,17 @@ export default function BillingPage({ onClose }: Props) {
           <section>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10 }}>Subscription</div>
             {loading ? (
-              <div style={{ color: 'var(--text3)', fontSize: 13 }}>Loading…</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}><LoadingSpinner size={16} /> Loading…</div>
             ) : (
-              <div style={{ background: active ? 'rgba(34,197,94,.07)' : 'var(--surface2)', border: `1px solid ${active ? 'rgba(34,197,94,.25)' : 'var(--border)'}`, borderRadius: 12, padding: '16px 18px' }}>
+              <div style={{ background: active ? 'var(--green-dim)' : 'var(--surface2)', border: `1px solid ${active ? 'var(--green-border)' : 'var(--border)'}`, borderRadius: 12, padding: '16px 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: active ? '#22c55e' : 'var(--text3)' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: active ? 'var(--green)' : 'var(--text3)' }}>
                       {active ? 'Active' : 'No active subscription'}
                     </div>
                     {active && status?.subscriptionUntil && (
                       <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
-                        Renews / expires: <strong>{fmt(status.subscriptionUntil)}</strong>
+                        Expires: <strong>{fmt(status.subscriptionUntil)}</strong>
                       </div>
                     )}
                   </div>
@@ -257,6 +259,12 @@ export default function BillingPage({ onClose }: Props) {
                     {subscribing ? 'Redirecting…' : active ? 'Renew — 10 AMD/mo' : 'Subscribe — 10 AMD/mo'}
                   </button>
                 </div>
+                {active && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--green-border)', fontSize: 11, color: 'var(--text3)', lineHeight: 1.5 }}>
+                    <Icon name="info" size={11} color="var(--text3)" style={{ flexShrink: 0, marginTop: 1 }} />
+                    <span>No auto-renewal — access simply ends on the date above unless you renew. We'll email you 1 day before it expires.</span>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -271,7 +279,7 @@ export default function BillingPage({ onClose }: Props) {
           <section>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10 }}>Payment History</div>
             {loading ? (
-              <div style={{ color: 'var(--text3)', fontSize: 13 }}>Loading…</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}><LoadingSpinner size={16} /> Loading…</div>
             ) : history.length === 0 ? (
               <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 18px', color: 'var(--text3)', fontSize: 13, textAlign: 'center' }}>
                 No payment records
