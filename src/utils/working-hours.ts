@@ -55,7 +55,7 @@ export function effectiveDailyHours(
  * Uses an iterative approach starting from UTC noon, which converges in ≤3 steps
  * and handles DST transitions correctly (unlike the naive noon-offset approximation).
  */
-function tzMidnightUtcMs(dateStr: string, tz: string): number {
+export function tzMidnightUtcMs(dateStr: string, tz: string): number {
   const [Y, M, D] = dateStr.split('-').map(Number)
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
@@ -96,7 +96,7 @@ export function tzWallClockToUtcMs(dateStr: string, timeStr: string, tz: string)
 }
 
 /** Returns YYYY-MM-DD for a UTC timestamp in the given IANA timezone. */
-function tzDateStr(utcMs: number, tz: string): string {
+export function tzDateStr(utcMs: number, tz: string): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(utcMs)
@@ -113,7 +113,7 @@ export function tzDateTimeLabel(utcMs: number, tz: string): string {
 }
 
 /** Returns day-of-week (0=Sun…6=Sat) for a UTC timestamp in the given IANA timezone. */
-function tzDow(utcMs: number, tz: string): number {
+export function tzDow(utcMs: number, tz: string): number {
   const s = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(utcMs)
   return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(s)
 }

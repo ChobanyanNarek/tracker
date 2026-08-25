@@ -1,13 +1,19 @@
 import type { Developer, JiraIssue, Status, StatusHistoryEntry, Task } from '../types'
 import { jiraDedupeKey } from './format'
-import { getSchedule, effectiveDailyHours } from './working-hours'
+import { getSchedule, effectiveDailyHours, resolveTrackerTz, tzDateStr, tzDow, tzMidnightUtcMs, tzWallClockToUtcMs } from './working-hours'
 
 /**
  * Performance engine.
  *
- * Everything is computed in the USER'S LOCAL TIMEZONE — external timestamps
- * (Jira status history ISO instants, PR push date/time) are converted to local
- * wall-clock before any comparison.
+ * Everything is computed in each DEVELOPER'S OWN TIMEZONE (their work-schedule
+ * override, falling back to the browser's zone) — external timestamps (Jira
+ * status history ISO instants, PR push date/time) are converted to that
+ * developer's wall-clock before any comparison. This matches working-hours.ts,
+ * which already resolves per-developer timezone the same way — previously this
+ * file always used the viewer's browser zone regardless of the developer's own
+ * configured timezone, so a remote developer's working-hours math and their
+ * Performance-tab verdicts could silently disagree about which calendar day
+ * a status change or deadline fell on.
  *
  * Effort model (per the agreed spec):
  * - Actual work = time in "In Progress" status, clipped to the developer's
@@ -121,19 +127,14 @@ const BLOCKY_THRESHOLD_PCT = 70
 const atMs = (e: StatusHistoryEntry) => new Date(e.at).getTime()
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
 
-const pad2 = (n: number) => String(n).padStart(2, '0')
-const localDateStr = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-
-function timeToParts(t: string): [number, number] {
+function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number)
-  return [h ?? 0, m ?? 0]
+  return (h ?? 0) * 60 + (m ?? 0)
 }
 
-/** Local-timezone instant for a wall-clock date + time ("YYYY-MM-DD", "HH:MM"). */
-function localWallClockMs(dateStr: string, timeStr: string): number {
-  const [y, mo, d] = dateStr.split('-').map(Number)
-  const [hh, mm] = timeToParts(timeStr || '00:00')
-  return new Date(y ?? 1970, (mo ?? 1) - 1, d ?? 1, hh, mm, 0, 0).getTime()
+/** Instant for a wall-clock date + time ("YYYY-MM-DD", "HH:MM"), in the given IANA timezone. */
+function tzWallClockMs(dateStr: string, timeStr: string, tz: string): number {
+  return tzWallClockToUtcMs(dateStr, timeStr || '00:00', tz)
 }
 
 function inRange(dateStr: string, range: PerfRange): boolean {
@@ -143,7 +144,8 @@ function inRange(dateStr: string, range: PerfRange): boolean {
 }
 
 /**
- * Working hours contained in a set of absolute-time segments, in local time.
+ * Working hours contained in a set of absolute-time segments, in the
+ * developer's own timezone (schedule override, else the browser's zone).
  *
  * Per calendar day: raw overlap of the segments with the developer's work
  * window (startTime–endTime), then capped at the developer's productive hours
@@ -161,26 +163,32 @@ function cappedWorkHours(
   if (!valid.length) return 0
 
   const sched = getSchedule(dev)
-  const [wsH, wsM] = timeToParts(sched.startTime)
-  const [weH, weM] = timeToParts(sched.endTime)
+  const tz = resolveTrackerTz(sched.timezone)
+  const winStartMin = timeToMinutes(sched.startTime)
+  const winEndMin = timeToMinutes(sched.endTime)
 
   const minMs = Math.min(...valid.map(([s]) => s))
   const maxMs = Math.max(...valid.map(([, e]) => e))
 
   let total = 0
-  const cursor = new Date(minMs)
-  cursor.setHours(0, 0, 0, 0)
+  const startDateStr = tzDateStr(minMs, tz)
+  const endDateStr = tzDateStr(maxMs, tz)
+  const [sy, sm, sd] = startDateStr.split('-').map(Number)
+  const [ey, em, ed] = endDateStr.split('-').map(Number)
+  const cursorUtc = new Date(Date.UTC(sy!, (sm ?? 1) - 1, sd!))
+  const endUtc = new Date(Date.UTC(ey!, (em ?? 1) - 1, ed!))
 
   // Safety bound: ~10 years of calendar days
-  for (let i = 0; i < 3700 && cursor.getTime() <= maxMs; i++) {
-    const dateStr = localDateStr(cursor)
-    const dow = cursor.getDay()
+  for (let i = 0; i < 3700 && cursorUtc <= endUtc; i++) {
+    const dateStr = `${cursorUtc.getUTCFullYear()}-${String(cursorUtc.getUTCMonth() + 1).padStart(2, '0')}-${String(cursorUtc.getUTCDate()).padStart(2, '0')}`
+    const midnightMs = tzMidnightUtcMs(dateStr, tz)
+    const dow = tzDow(midnightMs + 12 * 3_600_000, tz)
 
     if (sched.workDays.includes(dow)) {
       const dayOff = schedule[dev.id]?.[dateStr]
       if (!dayOff || dayOff === 'work') {
-        const winStart = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), wsH, wsM).getTime()
-        const winEnd = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), weH, weM).getTime()
+        const winStart = midnightMs + winStartMin * 60_000
+        const winEnd = midnightMs + winEndMin * 60_000
         if (winEnd > winStart) {
           let rawH = 0
           for (const [s, e] of valid) {
@@ -194,7 +202,7 @@ function cappedWorkHours(
       }
     }
 
-    cursor.setDate(cursor.getDate() + 1)
+    cursorUtc.setUTCDate(cursorUtc.getUTCDate() + 1)
   }
 
   return total
@@ -231,6 +239,7 @@ function computeIssue(
   nowMs: number,
 ): IssuePerf {
   const sched = getSchedule(dev)
+  const tz = resolveTrackerTz(sched.timezone)
   const sortedHistory = [...(issue.statusHistory ?? [])].sort((a, b) => atMs(a) - atMs(b))
   const hasInProgress = sortedHistory.some((e) => e.status === 'inprogress')
   const intervals = buildIntervals(sortedHistory, nowMs, dev, schedule, scheduleHours)
@@ -257,12 +266,12 @@ function computeIssue(
   }
 
   const deadlineAssumed = !issue.deadlineTime
-  const deadlineMs = localWallClockMs(issue.deadline, issue.deadlineTime || sched.endTime)
+  const deadlineMs = tzWallClockMs(issue.deadline, issue.deadlineTime || sched.endTime, tz)
 
   // Delivery: LAST MR/PR push wins; fallback — last transition INTO review/done.
   const prInstants = (issue.prs ?? [])
     .filter((p) => p.date)
-    .map((p) => localWallClockMs(p.date, p.time || sched.endTime))
+    .map((p) => tzWallClockMs(p.date, p.time || sched.endTime, tz))
   let deliveryMs: number | null = null
   let deliverySource: IssuePerf['deliverySource'] = null
   if (prInstants.length) {
@@ -344,11 +353,18 @@ function profileOf(d: Pick<DevPerf, 'deliveredCount' | 'onTimePct' | 'flowEffPct
   return `${timeWord[0]!.toUpperCase()}${timeWord.slice(1)} · ${blockWord}${early}`
 }
 
-/** Weeks covered by the range (for throughput); clamped to a minimum of 1. */
+/**
+ * Weeks covered by the range (for throughput); clamped to a minimum of 1.
+ * Not tied to any one developer — range.from/to are the viewer's date-filter
+ * selection, so this uses the browser's own zone (resolveTrackerTz with no
+ * override), same as the app's other viewport-level "what date is selected"
+ * logic in dates.ts.
+ */
 function rangeWeeks(range: PerfRange, issues: IssuePerf[], nowMs: number): number {
+  const tz = resolveTrackerTz()
   let fromMs: number | null = null
   if (range.from) {
-    fromMs = localWallClockMs(range.from, '00:00')
+    fromMs = tzWallClockMs(range.from, '00:00', tz)
   } else {
     const anchors = issues
       .map((i) => i.startMs ?? i.deliveryMs ?? i.deadlineMs)
@@ -356,7 +372,7 @@ function rangeWeeks(range: PerfRange, issues: IssuePerf[], nowMs: number): numbe
     if (anchors.length) fromMs = Math.min(...anchors)
   }
   if (fromMs == null) return 1
-  const toMs = range.to ? localWallClockMs(range.to, '23:59') : nowMs
+  const toMs = range.to ? tzWallClockMs(range.to, '23:59', tz) : nowMs
   return Math.max(1, (toMs - fromMs) / (7 * 86_400_000))
 }
 
