@@ -234,7 +234,15 @@ const FMT_ACTIONS: FmtAction[] = [
     apply: (sel) => sel ? { text: `**${sel}**`, offset: 2 } : { text: '****', offset: 2 },
   },
   {
-    label: 'H', title: 'Heading',
+    label: 'I', title: 'Italic (Ctrl+I)',
+    apply: (sel) => sel ? { text: `_${sel}_`, offset: 1 } : { text: '__', offset: 1 },
+  },
+  {
+    label: 'U', title: 'Underline (Ctrl+U)',
+    apply: (sel) => sel ? { text: sel, offset: 0 } : { text: '', offset: 0 },
+  },
+  {
+    label: 'H', title: 'Heading (Ctrl+H)',
     apply: (sel, before) => {
       const atLineStart = !before || before.endsWith('\n')
       const prefix = atLineStart ? '## ' : '\n## '
@@ -268,6 +276,8 @@ function mdToHtml(src: string): string {
   const inline = (s: string) =>
     esc(s)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.+?)__/g, '<u>$1</u>')
+      .replace(/_(.+?)_/g, '<em>$1</em>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
   return src.split('\n').map((raw) => {
     const line = raw.replace(/\s+$/, '')
@@ -291,6 +301,9 @@ function htmlToMd(html: string): string {
     .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '## $1')
     .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
     .replace(/<b>(.*?)<\/b>/gi, '**$1**')
+    .replace(/<em>(.*?)<\/em>/gi, '_$1_')
+    .replace(/<i>(.*?)<\/i>/gi, '_$1_')
+    .replace(/<u>(.*?)<\/u>/gi, '__$1__')
     .replace(/<code>(.*?)<\/code>/gi, '`$1`')
     .replace(/<br\s*\/?>/gi, '')
     .replace(/<div[^>]*>/gi, '\n')
@@ -344,6 +357,8 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
     if (!(e.ctrlKey || e.metaKey)) return
     const key = e.key.toLowerCase()
     if (key === 'b') { e.preventDefault(); applyFmtByLabel('B') }
+    else if (key === 'i') { e.preventDefault(); applyFmtByLabel('I') }
+    else if (key === 'u') { e.preventDefault(); applyFmtByLabel('U') }
     else if (key === 'h') { e.preventDefault(); applyFmtByLabel('H') }
   }
 
@@ -375,6 +390,10 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
     const selText = sel && sel.rangeCount ? sel.getRangeAt(0).toString() : ''
     if (label === 'B') {
       insertHtmlAtCursor(`<strong>${selText || 'bold'}</strong>`)
+    } else if (label === 'I') {
+      insertHtmlAtCursor(`<em>${selText || 'italic'}</em>`)
+    } else if (label === 'U') {
+      insertHtmlAtCursor(`<u>${selText || 'underline'}</u>`)
     } else if (label === 'H') {
       insertHtmlAtCursor(`<div><h3 class="nv-mdh">${selText || 'Heading'}</h3></div><div><br></div>`)
     } else if (label === '•') {
@@ -394,7 +413,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
       key={action.label}
       title={action.title}
       onMouseDown={(e) => { e.preventDefault(); applyFmt(action) }}
-      style={{ fontFamily: action.label === 'B' ? 'var(--sans)' : 'var(--mono)', fontWeight: action.label === 'B' ? 700 : 400, fontSize: 12, minWidth: 28, height: 26, padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ fontFamily: ['B','I','U'].includes(action.label) ? 'var(--sans)' : 'var(--mono)', fontWeight: action.label === 'B' ? 700 : 400, fontStyle: action.label === 'I' ? 'italic' : 'normal', textDecoration: action.label === 'U' ? 'underline' : 'none', fontSize: 12, minWidth: 28, height: 26, padding: '0 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
     >
       {action.label}
     </button>
@@ -453,7 +472,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
       {/* formatting toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
         {FMT_ACTIONS.map(fmtBtn)}
-        <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold · Ctrl+H heading</span>
+        <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold · Ctrl+I italic · Ctrl+U underline · Ctrl+H heading</span>
       </div>
 
       {/* body — contenteditable, always shows rendered markdown */}
