@@ -66,22 +66,30 @@ export default function SearchView() {
   const [totalCount, setTotalCount] = useState(0)
   const [fetchFailed, setFetchFailed] = useState(false)
 
+  // Search has its own project filter, independent of the globally-selected
+  // project elsewhere in the app (Daily/Reports) — otherwise leaving a board
+  // selected there silently narrows search results to that board's issues,
+  // making a valid issue key search on progressor.work: reproduces with
+  // Daily on a scrum board's project, switch to Search, search another
+  // board's issue key — a real search-not-found bug caused by inherited scope.
+  const [searchProjectId, setSearchProjectId] = useState<string>('ALL')
+
   const state = useStore()
   const {
-    developers, projects, selectedProject,
+    developers, projects,
     searchQuery, setSearchQuery, jiraConnections,
     setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView,
   } = state
   const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
 
-  // Scope search to the selected project's board just like Daily / Reports:
-  // when a board is selected, only its issues appear; hidden issues are excluded.
-  const boardScope = getBoardScope(state)
+  // Scope search to searchProjectId's board just like Daily / Reports do for
+  // their own selection — not the app-wide selectedProject.
+  const boardScope = getBoardScope({ ...state, selectedProject: searchProjectId })
 
   const q = searchQuery.trim()
 
   // Reset to page 1 whenever the query/filters change, then fetch that page.
-  useEffect(() => { setPage(1) }, [q, statusFilter, selectedProject])
+  useEffect(() => { setPage(1) }, [q, statusFilter, searchProjectId])
 
   useEffect(() => {
     let cancelled = false
@@ -90,7 +98,7 @@ export default function SearchView() {
     const handle = setTimeout(() => {
       void searchTasks({
         q: q || undefined,
-        projectId: selectedProject !== 'ALL' ? selectedProject : undefined,
+        projectId: searchProjectId !== 'ALL' ? searchProjectId : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         page,
         take: PAGE_SIZE,
@@ -104,7 +112,7 @@ export default function SearchView() {
       })
     }, DEBOUNCE_MS)
     return () => { cancelled = true; clearTimeout(handle) }
-  }, [q, statusFilter, selectedProject, page])
+  }, [q, statusFilter, searchProjectId, page])
 
   const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
   const devById = new Map(developers.map((d) => [d.id, d]))
@@ -199,8 +207,8 @@ export default function SearchView() {
         )}
       </div>
 
-      {/* status filters */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {/* status + project filters */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         {statuses.map((s) => (
           <button
             key={s}
@@ -210,6 +218,16 @@ export default function SearchView() {
             {s === 'ALL' ? 'All statuses' : STATUS_LABEL[s]}
           </button>
         ))}
+        <select
+          value={searchProjectId}
+          onChange={(e) => setSearchProjectId(e.target.value)}
+          style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rs)', padding: '6px 10px', cursor: 'pointer' }}
+        >
+          <option value="ALL">All projects</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
       </div>
 
       {/* count */}
