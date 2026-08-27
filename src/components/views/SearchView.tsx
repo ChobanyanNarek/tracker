@@ -310,6 +310,13 @@ export default function SearchView() {
                     {issueStatusLabel}
                   </span>
 
+                  {issue.issueTypeName && (
+                    <span title={issue.issueTypeName} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>
+                      {issue.issueTypeIconUrl && <img src={issue.issueTypeIconUrl} alt="" width={10} height={10} style={{ display: 'block' }} />}
+                      {issue.issueTypeName}
+                    </span>
+                  )}
+
                   {dev && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       <div className="av" style={{ background: `rgba(${rgb},.15)`, color: devColor, width: 16, height: 16, fontSize: 8, flexShrink: 0 }}>{initials(dev.name)}</div>

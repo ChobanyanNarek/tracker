@@ -196,6 +196,17 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
             {jiraLbl ?? 'Jira'}
           </a>
         )}
+        {issue.issueTypeName && (
+          <span
+            title={issue.issueTypeName}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+          >
+            {issue.issueTypeIconUrl && (
+              <img src={issue.issueTypeIconUrl} alt="" width={10} height={10} style={{ display: 'block' }} />
+            )}
+            {issue.issueTypeName}
+          </span>
+        )}
         <StatusSelect
           value={issue.status}
           groupId={issue.groupId}

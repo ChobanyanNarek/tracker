@@ -117,6 +117,10 @@ export interface JiraIssue {
   timeOriginalEstimate?: number     // seconds, from Jira fields.timeoriginalestimate
   timeSpent?: number                // seconds, from Jira fields.timespent
   jiraCreatedAt?: string            // ISO date of issue creation in Jira (YYYY-MM-DD)
+  // Issue type (Task/Bug/Story/Epic/…) — NOT a fixed set: every Jira project can define
+  // its own types, so this mirrors whatever `issuetype.name` Jira returns verbatim.
+  issueTypeName?: string
+  issueTypeIconUrl?: string         // Jira's own per-type icon, rendered as-is (no local icon-per-type mapping)
   _srcIdx?: number
 }
 

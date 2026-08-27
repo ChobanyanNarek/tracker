@@ -14,6 +14,7 @@ export interface JiraIssueRaw {
     timespent?: number | null
     customfield_10016?: number | null   // story points (most common)
     customfield_10028?: number | null   // story points (alt field)
+    issuetype?: { name: string; iconUrl?: string } | null   // Task/Bug/Epic/etc — types vary per Jira project, not a fixed set
   }
   changelog?: {
     histories: Array<{
@@ -323,5 +324,7 @@ export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: J
     timeOriginalEstimate: issue.fields.timeoriginalestimate ?? undefined,
     timeSpent: issue.fields.timespent ?? undefined,
     jiraCreatedAt: issue.fields.created ? issue.fields.created.slice(0, 10) : undefined,
+    issueTypeName: issue.fields.issuetype?.name ?? undefined,
+    issueTypeIconUrl: issue.fields.issuetype?.iconUrl ?? undefined,
   }
 }
