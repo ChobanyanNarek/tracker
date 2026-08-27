@@ -166,13 +166,31 @@ export async function adminRefundPayment(paymentId: string): Promise<{ ok: boole
   return { ok: res.ok && body.ok !== false, message: body.message }
 }
 
+// Gzip the JSON body before sending when the browser supports it (all current browsers do).
+// The full state blob can run several MB — compressing it typically cuts that to ~15% of the
+// original size, which meaningfully reduces how long the upload is exposed to being aborted
+// mid-transfer on a slow or unstable connection. express.json() on the backend already
+// auto-decompresses a gzip Content-Encoding body, so no server-side change is needed.
+async function gzipJson(data: Record<string, unknown>): Promise<{ body: BodyInit; headers: Record<string, string> }> {
+  const json = JSON.stringify(data)
+  if (typeof CompressionStream === 'undefined') return { body: json, headers: {} }
+  try {
+    const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))
+    const compressed = await new Response(stream).blob()
+    return { body: compressed, headers: { 'Content-Encoding': 'gzip' } }
+  } catch {
+    return { body: json, headers: {} }
+  }
+}
+
 export async function saveCloudState(data: Record<string, unknown>): Promise<boolean> {
   if (!getToken()) return false
   try {
+    const { body, headers } = await gzipJson(data)
     const res = await fetch(`${API_URL}/pm-tracker/state`, {
       method: 'PUT',
-      headers: authHeaders(),
-      body: JSON.stringify(data),
+      headers: { ...authHeaders(), ...headers },
+      body,
     })
     if (res.status === 401) { clearToken(); return false }
     return res.ok
