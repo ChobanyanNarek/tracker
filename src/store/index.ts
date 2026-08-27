@@ -1364,28 +1364,28 @@ export const useStore = create<Store>((set, get) => {
           const dk = jiraDedupeKey(j.url, j.name)
           return /^[A-Z][A-Z0-9]+-\d+$/.test(dk) ? dk : undefined
         }
-        // Union of every key Jira returned for this connection across all its devs — an
-        // issue present under ANY tracked dev is alive; only ones absent everywhere are gone.
-        const connReturnedKeys = new Set<string>()
-        fetchedDevs.forEach((dId) => returnedKeysByDev.get(dId)?.forEach((k) => connReturnedKeys.add(k)))
         if (fetchedDevs.size) {
           dedupedTasks.forEach((t) => {
             if (!fetchedDevs.has(t.devId) || !t.jiras?.length) return
+            // Prune against THIS dev's own returned keys, not the connection-wide union —
+            // otherwise a reassigned issue (still returned for the new assignee) never gets
+            // pruned from the old assignee's tasks, duplicating it across both.
+            const devReturnedKeys = returnedKeysByDev.get(t.devId) ?? new Set<string>()
             const keep = t.jiras.filter((j) => {
               const ticket = jiraTicket(j)
               if (!ticket) return true                  // manual / non-key issue — never prune
-              // In board mode: prune any issue (including done) not returned by this board.
-              // The board API returns exact membership — absent = moved/deleted.
+              // In board mode: prune any issue (including done) not returned to this dev by this board.
+              // The board API returns exact per-assignee membership — absent = moved/deleted/reassigned.
               if (effectiveBoardId) {
-                return connReturnedKeys.has(ticket)
+                return devReturnedKeys.has(ticket)
               }
               const pfx = keyPrefix(j)
               // Only prune issues whose prefix belongs to this connection's project keys.
               // Issues from other projects are not our responsibility to prune.
               if (connKeys.length && (!pfx || !connKeys.includes(pfx))) return true
-              // For active issues: prune if Jira no longer returns them (moved/deleted).
+              // For active issues: prune if Jira no longer returns them to this dev (moved/deleted/reassigned).
               // For done issues: also prune if absent — done issues from a moved key should not persist.
-              return connReturnedKeys.has(ticket)
+              return devReturnedKeys.has(ticket)
             })
             if (keep.length !== t.jiras.length) {
               connRemoved += t.jiras.length - keep.length
