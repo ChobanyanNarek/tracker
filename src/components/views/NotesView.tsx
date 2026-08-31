@@ -59,7 +59,7 @@ function joinReminder(date: string, time: string): string | undefined {
 
 
 function preview(body: string): string {
-  return body.replace(/[#*`\-\[\]]/g, '').replace(/\s+/g, ' ').trim()
+  return body.replace(/[#*`_\-\[\]]/g, '').replace(/\s+/g, ' ').trim()
 }
 
 export default function NotesView() {
@@ -288,8 +288,9 @@ function mdToHtml(src: string): string {
   }).join('')
 }
 
-// Extract plain markdown back from contenteditable innerHTML
-function htmlToMd(html: string): string {
+// Convert one block element's content to a single markdown line (inline formatting only —
+// no <div>/<br> handling here, since those are handled by walking child elements instead).
+function inlineHtmlToMd(html: string): string {
   return html
     .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '## $1')
     .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
@@ -299,16 +300,56 @@ function htmlToMd(html: string): string {
     .replace(/<u>(.*?)<\/u>/gi, '__$1__')
     .replace(/<code>(.*?)<\/code>/gi, '`$1`')
     .replace(/<br\s*\/?>/gi, '')
-    .replace(/<div[^>]*>/gi, '\n')
-    .replace(/<\/div>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/^[\n]/, '')
-    .split('\n').map((line) => {
-      if (/^• /.test(line)) return '- ' + line.slice(2)
-      if (/^☑ /.test(line)) return '- [x] ' + line.slice(2)
-      if (/^☐ /.test(line)) return '- [ ] ' + line.slice(2)
-      return line
-    }).join('\n')
+}
+
+function mdLinePrefix(line: string): string {
+  if (line.startsWith('• ')) return '- ' + line.slice(2)
+  if (line.startsWith('☑ ')) return '- [x] ' + line.slice(2)
+  if (line.startsWith('☐ ')) return '- [ ] ' + line.slice(2)
+  return line
+}
+
+// Extract plain markdown back from contenteditable innerHTML. Walks the actual DOM tree of
+// top-level <div> children (one per line) instead of regex-replacing the flat HTML string —
+// a naive string replace can't tell a sibling <div> (a new line) from a <div> the browser
+// nested INSIDE another one (which happens on some Enter-key presses in Chrome/Safari), and
+// mishandling that reordered/duplicated lines that were never actually typed that way.
+function htmlToMd(html: string): string {
+  const container = document.createElement('div')
+  container.innerHTML = html
+
+  const lines: string[] = []
+  const walk = (node: ChildNode) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? ''
+      if (text) lines.push(mdLinePrefix(inlineHtmlToMd(text)))
+      return
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    const el = node as HTMLElement
+    if (el.tagName === 'DIV') {
+      // A <div> containing nested block children (not just inline formatting) is itself a
+      // line break, not a line — recurse into its children instead of treating it as one.
+      const hasBlockChild = Array.from(el.childNodes).some(
+        (c) => c.nodeType === Node.ELEMENT_NODE && (c as HTMLElement).tagName === 'DIV',
+      )
+      if (hasBlockChild) {
+        Array.from(el.childNodes).forEach(walk)
+      } else {
+        lines.push(mdLinePrefix(inlineHtmlToMd(el.innerHTML)))
+      }
+    } else if (el.tagName === 'BR') {
+      lines.push('')
+    } else {
+      lines.push(mdLinePrefix(inlineHtmlToMd(el.outerHTML)))
+    }
+  }
+  Array.from(container.childNodes).forEach(walk)
+
+  return lines.join('\n')
 }
 
 function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDelete }: {
@@ -322,7 +363,15 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
   const isComposing = useRef(false)
 
   useEffect(() => {
-    if (initialEdit) { setFocused(true); onEditStart?.() }
+    // setFocused(true) alone only flips React state — it does not move actual browser
+    // focus/selection into the div, so toolbar buttons (which read window.getSelection())
+    // would silently no-op until the user manually clicked into the body first. Focusing
+    // the element for real keeps the two in sync for a freshly-created note.
+    if (initialEdit) {
+      setFocused(true)
+      onEditStart?.()
+      bodyRef.current?.focus()
+    }
   }, [initialEdit])
 
   // Set initial HTML on mount and whenever note changes while not focused
@@ -357,9 +406,21 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
   }
 
   const insertHtmlAtCursor = (html: string) => {
+    const el = bodyRef.current
     const sel = window.getSelection()
-    if (!sel || !sel.rangeCount) return
-    const range = sel.getRangeAt(0)
+    if (!el || !sel) return
+    // The current selection can point anywhere on the page (e.g. the title input, or a
+    // stale range left over from before switching notes) — inserting there instead of into
+    // the note body would corrupt unrelated content. Fall back to placing the cursor at the
+    // end of the body when the selection isn't actually inside it.
+    let range = sel.rangeCount ? sel.getRangeAt(0) : null
+    if (!range || !el.contains(range.commonAncestorContainer)) {
+      range = document.createRange()
+      range.selectNodeContents(el)
+      range.collapse(false)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
     range.deleteContents()
     const tpl = document.createElement('div')
     tpl.innerHTML = html
