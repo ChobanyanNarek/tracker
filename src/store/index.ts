@@ -1206,19 +1206,31 @@ export const useStore = create<Store>((set, get) => {
         // for each. Used to prune issues that were deleted/reassigned away in Jira.
         const fetchedDevs = new Set<string>()
         const returnedKeysByDev = new Map<string, Set<string>>()
+        // Devs whose fetch was cut short by a backend memory-safety cap — pruning MUST skip
+        // these, since an issue's absence here doesn't mean it's no longer assigned, only
+        // that it didn't fit within the cap. Treating a truncated response as complete would
+        // wrongly delete issues that are still genuinely assigned (this happened in
+        // production — see the commit that added this comment).
+        const truncatedDevs = new Set<string>()
         for (const { dev, email } of connDevs) {
           let devIssues: JiraIssueRaw[]
+          let truncated = false
           try {
           if (effectiveBoardId) {
             // Board mode: single board, active sprint only
-            devIssues = await fetchJiraBoardIssues(conn, effectiveBoardId, email)
+            const r = await fetchJiraBoardIssues(conn, effectiveBoardId, email)
+            devIssues = r.issues
+            truncated = r.truncated
           } else if (conn.allowedBoardIds?.length) {
             // Project mode with board filter: fetch from each allowed board and union
             const perBoard = await Promise.all(
-              conn.allowedBoardIds.map((bid) => fetchJiraBoardIssues(conn, bid, email).catch(() => [] as JiraIssueRaw[]))
+              conn.allowedBoardIds.map((bid) =>
+                fetchJiraBoardIssues(conn, bid, email).catch(() => ({ issues: [] as JiraIssueRaw[], truncated: false }))
+              )
             )
+            truncated = perBoard.some((r) => r.truncated)
             const seen = new Set<string>()
-            devIssues = perBoard.flat().filter((issue) => {
+            devIssues = perBoard.flatMap((r) => r.issues).filter((issue) => {
               if (seen.has(issue.key)) return false
               seen.add(issue.key)
               return true
@@ -1236,22 +1248,26 @@ export const useStore = create<Store>((set, get) => {
               [projClause, assigneeClause, withStatus ? statusFilter : '']
                 .filter(Boolean)
                 .join(' AND ') + ' ORDER BY updated DESC'
+            let r: { issues: JiraIssueRaw[]; truncated: boolean }
             try {
-              devIssues = await fetchJiraIssues(conn, buildJql(true))
+              r = await fetchJiraIssues(conn, buildJql(true))
             } catch (e) {
               // The status filter (built from status-group mappings) can reference a status
               // name that no longer exists in Jira, which makes the whole query 500 and
               // silently drops that developer's issues. Retry WITHOUT the status filter so
               // the issues still sync.
               console.warn('[sync] status-filtered search failed, retrying without status filter:', e)
-              devIssues = await fetchJiraIssues(conn, buildJql(false))
+              r = await fetchJiraIssues(conn, buildJql(false))
             }
+            devIssues = r.issues
+            truncated = r.truncated
           }
           } catch {
             // Fetch failed for this dev — skip pruning to avoid wiping issues on a transient error.
             continue
           }
           fetchedDevs.add(dev.id)
+          if (truncated) truncatedDevs.add(dev.id)
           returnedKeysByDev.set(dev.id, new Set(devIssues.map((i) => i.key)))
           if (devIssues.length) byDev.set(dev.id, devIssues)
         }
@@ -1366,7 +1382,10 @@ export const useStore = create<Store>((set, get) => {
         }
         if (fetchedDevs.size) {
           dedupedTasks.forEach((t) => {
-            if (!fetchedDevs.has(t.devId) || !t.jiras?.length) return
+            // A truncated fetch didn't see this dev's full assigned-issue set, so an issue
+            // missing from it may simply not have fit the cap, not have been unassigned —
+            // pruning here would silently delete issues that are still genuinely assigned.
+            if (!fetchedDevs.has(t.devId) || truncatedDevs.has(t.devId) || !t.jiras?.length) return
             // Prune against THIS dev's own returned keys, not the connection-wide union —
             // otherwise a reassigned issue (still returned for the new assignee) never gets
             // pruned from the old assignee's tasks, duplicating it across both.

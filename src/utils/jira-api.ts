@@ -125,7 +125,16 @@ export interface JiraBoardInfo {
   type: string  // 'scrum' | 'kanban' | 'simple'
 }
 
-export async function fetchJiraBoardIssues(config: JiraConfig, boardId: number, assigneeEmail: string): Promise<JiraIssueRaw[]> {
+export interface JiraFetchResult {
+  issues: JiraIssueRaw[]
+  // True when a backend memory-safety cap cut the response short of Jira's real result
+  // count — the caller must not treat an issue's absence as "no longer assigned" in that
+  // case (it may simply not have fit within the cap), or pruning would wrongly delete
+  // issues that are still genuinely assigned.
+  truncated: boolean
+}
+
+export async function fetchJiraBoardIssues(config: JiraConfig, boardId: number, assigneeEmail: string): Promise<JiraFetchResult> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-board-issues`, {
     method: 'POST',
     headers: authHeaders(),
@@ -141,8 +150,8 @@ export async function fetchJiraBoardIssues(config: JiraConfig, boardId: number, 
     const text = await res.text().catch(() => '')
     throw new Error(`Jira ${res.status}: ${text.slice(0, 300) || res.statusText}`)
   }
-  const data = (await res.json()) as { issues?: JiraIssueRaw[] }
-  return data.issues ?? []
+  const data = (await res.json()) as { issues?: JiraIssueRaw[]; truncated?: boolean }
+  return { issues: data.issues ?? [], truncated: !!data.truncated }
 }
 
 // Resolve which Jira project-key prefixes a board covers (e.g. ['COM']).
@@ -273,7 +282,7 @@ export async function fetchJiraStatuses(config: JiraConfig): Promise<JiraStatusI
     .map((s) => ({ name: s.name, categoryKey: s.statusCategory?.key ?? 'new' }))
 }
 
-export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<JiraIssueRaw[]> {
+export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<JiraFetchResult> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-search`, {
     method: 'POST',
     headers: authHeaders(),
@@ -290,8 +299,8 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
     throw new Error(`Jira ${res.status}: ${text.slice(0, 300) || res.statusText}`)
   }
 
-  const data = (await res.json()) as { issues?: JiraIssueRaw[] }
-  return data.issues ?? []
+  const data = (await res.json()) as { issues?: JiraIssueRaw[]; truncated?: boolean }
+  return { issues: data.issues ?? [], truncated: !!data.truncated }
 }
 
 // Returns a JQL status clause, or '' to fetch ALL assigned issues regardless of status.
