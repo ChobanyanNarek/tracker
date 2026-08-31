@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStore, getBoardScope, jiraOnBoard } from '../../store'
+import { useStore } from '../../store'
 import { STATUS_LABEL } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
@@ -66,30 +66,18 @@ export default function SearchView() {
   const [totalCount, setTotalCount] = useState(0)
   const [fetchFailed, setFetchFailed] = useState(false)
 
-  // Search has its own project filter, independent of the globally-selected
-  // project elsewhere in the app (Daily/Reports) — otherwise leaving a board
-  // selected there silently narrows search results to that board's issues,
-  // making a valid issue key search on progressor.work: reproduces with
-  // Daily on a scrum board's project, switch to Search, search another
-  // board's issue key — a real search-not-found bug caused by inherited scope.
-  const [searchProjectId, setSearchProjectId] = useState<string>('ALL')
-
   const state = useStore()
   const {
-    developers, projects,
+    developers, projects, selectedProject,
     searchQuery, setSearchQuery, jiraConnections,
     setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView,
   } = state
   const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
 
-  // Scope search to searchProjectId's board just like Daily / Reports do for
-  // their own selection — not the app-wide selectedProject.
-  const boardScope = getBoardScope({ ...state, selectedProject: searchProjectId })
-
   const q = searchQuery.trim()
 
   // Reset to page 1 whenever the query/filters change, then fetch that page.
-  useEffect(() => { setPage(1) }, [q, statusFilter, searchProjectId])
+  useEffect(() => { setPage(1) }, [q, statusFilter, selectedProject])
 
   useEffect(() => {
     let cancelled = false
@@ -103,7 +91,7 @@ export default function SearchView() {
     const runFetch = (attempt: number) => {
       void searchTasks({
         q: q || undefined,
-        projectId: searchProjectId !== 'ALL' ? searchProjectId : undefined,
+        projectId: selectedProject !== 'ALL' ? selectedProject : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         page,
         take: PAGE_SIZE,
@@ -126,17 +114,16 @@ export default function SearchView() {
     }
     const handle = setTimeout(() => runFetch(0), DEBOUNCE_MS)
     return () => { cancelled = true; clearTimeout(handle) }
-  }, [q, statusFilter, searchProjectId, page])
+  }, [q, statusFilter, selectedProject, page])
 
   const devById = new Map(developers.map((d) => [d.id, d]))
   const projById = new Map(projects.map((p) => [p.id, p]))
 
-  // Expand this page's tasks into per-issue cards, applying the board-scope
-  // filtering the backend doesn't know about — same behavior as before,
-  // just applied to a server-fetched page instead of the full local list.
-  // Unlike Daily/Reports, Search intentionally does NOT exclude archived
-  // developers' tasks — searching by issue key should find historical work
-  // regardless of whether the assignee is still active.
+  // Expand this page's tasks into per-issue cards. Search intentionally does NOT apply
+  // scrum board-scope filtering (unlike Daily/Reports) — it should find any issue matching
+  // the query on a task belonging to the selected project, not just ones on that project's
+  // active sprint/board. It also does NOT exclude archived developers' tasks — searching by
+  // issue key should find historical work regardless of whether the assignee is still active.
   const issueResults: IssueResult[] = []
   const plainResults: PlainResult[] = []
   const seenIssueKeys = new Set<string>()
@@ -160,7 +147,6 @@ export default function SearchView() {
     if (jirasToShow.length) {
       for (const issue of jirasToShow) {
         if (issue.hidden) continue
-        if (!jiraOnBoard(issue, boardScope)) continue
         if (statusFilter !== 'ALL' && issue.status !== statusFilter) continue
         const dk = jiraLabel(issue.url) ?? jiraDedupeKey(issue.url, issue.name)
         const key = `${task.devId}|${dk}`
@@ -233,7 +219,7 @@ export default function SearchView() {
         )}
       </div>
 
-      {/* status + project filters */}
+      {/* status filters — project scope follows the global project selector in the header */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         {statuses.map((s) => (
           <button
@@ -244,16 +230,6 @@ export default function SearchView() {
             {s === 'ALL' ? 'All statuses' : STATUS_LABEL[s]}
           </button>
         ))}
-        <select
-          value={searchProjectId}
-          onChange={(e) => setSearchProjectId(e.target.value)}
-          style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rs)', padding: '6px 10px', cursor: 'pointer' }}
-        >
-          <option value="ALL">All projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
       </div>
 
       {/* count */}
