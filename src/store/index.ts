@@ -145,6 +145,7 @@ interface StoreActions {
   addProject: (p: Omit<Project, 'id'>) => void
   updateProject: (id: string, changes: Partial<Omit<Project, 'id'>>) => void
   deleteProject: (id: string) => void
+  reorderProject: (fromId: string, toId: string) => void
   toggleMember: (projId: string, devId: string) => void
 
   addSprint: (s: Omit<Sprint, 'id'>) => void
@@ -336,6 +337,17 @@ export const useStore = create<Store>((set, get) => {
 
     addProject: (p) =>
       set((s) => withSave({ ...s, projects: [...s.projects, { id: makeId('p'), ...p }] })),
+
+    reorderProject: (fromId, toId) =>
+      set((s) => {
+        const arr = [...s.projects]
+        const fromIdx = arr.findIndex((p) => p.id === fromId)
+        const toIdx = arr.findIndex((p) => p.id === toId)
+        if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return s
+        const [moved] = arr.splice(fromIdx, 1)
+        arr.splice(toIdx, 0, moved!)
+        return withSave({ ...s, projects: arr })
+      }),
 
     updateProject: (id, changes) =>
       set((s) => {

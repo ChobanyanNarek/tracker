@@ -9,7 +9,7 @@ import { hexRgb, initials } from '../../utils/format'
 import { todayStr, formatDate } from '../../utils/dates'
 import { DEFAULT_WORK_SCHEDULE, getSchedule } from '../../utils/working-hours'
 import { fetchJiraBoards, fetchBoardProjectKeys, fetchBoardIssueKeys, type JiraBoardInfo } from '../../utils/jira-api'
-import type { Developer, WorkSchedule } from '../../types'
+import type { Developer, Project, WorkSchedule } from '../../types'
 import Icon, { BrandIcon, BRAND } from '../ui/Icon'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import JiraConfigModal from '../modals/JiraConfigModal'
@@ -191,6 +191,69 @@ function SortableDevRow({ dev, actions }: { dev: Developer; actions: DevRowActio
 
 // ── Connection card ──────────────────────────────────────────────────────────
 
+function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, onDeleteRequest }: {
+  p: Project; isActive: boolean; isEditing: boolean
+  onSelect: () => void; onEditToggle: () => void; onDeleteRequest: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: p.id })
+
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={() => !isEditing && onSelect()}
+      style={{
+        transform: CSS.Transform.toString(transform), transition,
+        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12,
+        cursor: isEditing ? 'default' : 'pointer',
+        border: `1.5px solid ${isDragging ? 'var(--accent)' : isActive ? 'var(--accent)' : isEditing ? 'var(--accent)' : 'transparent'}`,
+        background: isActive ? 'var(--accent-dim)' : 'var(--surface2)',
+        opacity: isDragging ? 0.5 : 1,
+      }}
+      onMouseEnter={e => { if (!isActive && !isEditing) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--surface3)' } }}
+      onMouseLeave={e => { if (!isActive && !isEditing) { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'var(--surface2)' } }}
+    >
+      {/* Drag handle */}
+      <span {...attributes} {...listeners} onClick={e => e.stopPropagation()}
+        style={{ cursor: 'grab', color: 'var(--text4)', fontSize: 15, lineHeight: 1, userSelect: 'none', flexShrink: 0 }}>⠿</span>
+
+      {/* Color */}
+      <div style={{ width: 38, height: 38, borderRadius: 10, background: p.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <div style={{ width: 14, height: 14, borderRadius: 4, background: p.color }} />
+      </div>
+
+      {/* Info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: isActive ? 'var(--accent)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            {p.members.length} dev{p.members.length !== 1 ? 's' : ''}
+            {(p.nonWorkingDays ?? [0, 6]).length > 0 && <span> · off {(p.nonWorkingDays ?? [0, 6]).map(d => DOW_NAME[d]).join(',')}</span>}
+          </span>
+          {p.mode === 'scrum' && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent-dim)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '1px 5px' }}>SCRUM</span>}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+        <button
+          onClick={e => { e.stopPropagation(); onEditToggle() }}
+          title={isEditing ? 'Close' : 'Edit'}
+          style={{ background: isEditing ? 'var(--accent-dim)' : 'none', border: `1.5px solid ${isEditing ? 'var(--accent)' : 'var(--border)'}`, color: isEditing ? 'var(--accent)' : 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          onMouseEnter={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
+          onMouseLeave={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
+        ><Icon name="edit" size={13} /></button>
+        <button
+          onClick={e => { e.stopPropagation(); onDeleteRequest() }}
+          title="Delete"
+          style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
+        ><Icon name="trash" size={13} /></button>
+      </div>
+    </div>
+  )
+}
+
 // ── Main panel ──────────────────────────────────────────────────────────────
 
 export default function ProjectPanel({ open, onClose, topOffset, onToast }: Props) {
@@ -234,7 +297,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
 
   const {
     projects, selectedProject, jiraConnections, gitlabConnections, githubConnections,
-    developers, addProject, updateProject, deleteProject, setSelectedProject,
+    developers, addProject, updateProject, deleteProject, reorderProject, setSelectedProject,
     addDeveloper, archiveDeveloper, unarchiveDeveloper, removeDeveloper, reorderDeveloper,
     syncJira, syncGitlab, syncGithub,
   } = useStore()
@@ -332,6 +395,12 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
     reorderDeveloper(String(active.id), String(over.id))
   }
 
+  const handleProjectDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    reorderProject(String(active.id), String(over.id))
+  }
+
 
   useEffect(() => {
     if (!open) setEditingProjId(null)
@@ -405,56 +474,23 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
             <span style={{ fontSize: 14, fontWeight: 600, color: selectedProject === 'ALL' ? 'var(--accent)' : 'var(--text2)' }}>All projects</span>
           </div>
 
-          {/* Projects */}
+          {/* Projects — drag the handle to reorder */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {projects.map(p => {
-              const isActive = selectedProject === p.id
-              const isEditing = editingProjId === p.id
-              return (
-                <div
-                  key={p.id}
-                  onClick={() => !isEditing && setSelectedProject(p.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, cursor: isEditing ? 'default' : 'pointer', border: `1.5px solid ${isActive ? 'var(--accent)' : isEditing ? 'var(--accent)' : 'transparent'}`, background: isActive ? 'var(--accent-dim)' : 'var(--surface2)', transition: 'all .15s' }}
-                  onMouseEnter={e => { if (!isActive && !isEditing) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--surface3)' } }}
-                  onMouseLeave={e => { if (!isActive && !isEditing) { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'var(--surface2)' } }}
-                >
-                  {/* Color */}
-                  <div style={{ width: 38, height: 38, borderRadius: 10, background: p.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <div style={{ width: 14, height: 14, borderRadius: 4, background: p.color }} />
-                  </div>
-
-                  {/* Info */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: isActive ? 'var(--accent)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                      <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                        {p.members.length} dev{p.members.length !== 1 ? 's' : ''}
-                        {(p.nonWorkingDays ?? [0, 6]).length > 0 && <span> · off {(p.nonWorkingDays ?? [0, 6]).map(d => DOW_NAME[d]).join(',')}</span>}
-                      </span>
-                      {p.mode === 'scrum' && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent-dim)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '1px 5px' }}>SCRUM</span>}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                    <button
-                      onClick={e => { e.stopPropagation(); isEditing ? setEditingProjId(null) : startEdit(p.id) }}
-                      title={isEditing ? 'Close' : 'Edit'}
-                      style={{ background: isEditing ? 'var(--accent-dim)' : 'none', border: `1.5px solid ${isEditing ? 'var(--accent)' : 'var(--border)'}`, color: isEditing ? 'var(--accent)' : 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                      onMouseEnter={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
-                      onMouseLeave={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
-                    ><Icon name="edit" size={13} /></button>
-                    <button
-                      onClick={e => { e.stopPropagation(); setDeletingProjId(p.id) }}
-                      title="Delete"
-                      style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)' }}
-                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
-                    ><Icon name="trash" size={13} /></button>
-                  </div>
-                </div>
-              )
-            })}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleProjectDragEnd}>
+              <SortableContext items={projects.map(p => p.id)} strategy={verticalListSortingStrategy}>
+                {projects.map(p => (
+                  <SortableProjectRow
+                    key={p.id}
+                    p={p}
+                    isActive={selectedProject === p.id}
+                    isEditing={editingProjId === p.id}
+                    onSelect={() => setSelectedProject(p.id)}
+                    onEditToggle={() => editingProjId === p.id ? setEditingProjId(null) : startEdit(p.id)}
+                    onDeleteRequest={() => setDeletingProjId(p.id)}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
             {projects.length === 0 && !showForm && (
               <div style={{ padding: '28px 0', textAlign: 'center', fontSize: 13, color: 'var(--text3)' }}>No projects yet — click + to add one</div>
             )}
