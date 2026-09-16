@@ -18,7 +18,7 @@ export type IconName =
   | 'check' | 'copy' | 'message' | 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
   | 'edit' | 'database' | 'download' | 'upload'
   | 'briefcase' | 'palm' | 'sun' | 'thermometer' | 'party' | 'flag' | 'timeline'
-  | 'notes' | 'pin' | 'star' | 'ban' | 'billing' | 'folder' | 'archive' | 'pen'
+  | 'notes' | 'pin' | 'star' | 'ban' | 'billing' | 'folder' | 'archive' | 'pen' | 'save'
 
 // Brand colors — single source of truth (was duplicated across 3 files with divergent values)
 export const BRAND = {
@@ -100,6 +100,7 @@ const PATHS: Record<IconName, JSX.Element> = {
   folder: <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>,
   archive: <><rect x="2.25" y="3" width="19.5" height="4.5" rx="1.5"/><path d="M3.75 7.5v11.25a1.5 1.5 0 0 0 1.5 1.5h13.5a1.5 1.5 0 0 0 1.5-1.5V7.5"/><line x1="9" y1="13.5" x2="15" y2="13.5"/></>,
   pen: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>,
+  save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
 }
 
 // Brand logo shapes (fill-based)

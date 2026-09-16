@@ -356,11 +356,26 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
   note: Note; projects: Project[]; initialEdit?: boolean
   onChange: (c: Partial<Note>) => void; onDelete: () => void; onEditStart?: () => void
 }) {
-  const { date, time } = splitReminder(note.reminderAt)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [focused, setFocused] = useState(!!initialEdit)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const isComposing = useRef(false)
+
+  // Local draft — no per-keystroke store writes (the previous real-time save on every
+  // input was causing lag/instability). Edits only persist when the user clicks Save.
+  const [draft, setDraft] = useState<Note>(note)
+  const [dirty, setDirty] = useState(false)
+  const { date, time } = splitReminder(draft.reminderAt)
+
+  const patchDraft = (c: Partial<Note>) => {
+    setDraft((d) => ({ ...d, ...c }))
+    setDirty(true)
+  }
+
+  const save = () => {
+    onChange(draft)
+    setDirty(false)
+  }
 
   useEffect(() => {
     // setFocused(true) alone only flips React state — it does not move actual browser
@@ -378,14 +393,26 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
   useEffect(() => {
     const el = bodyRef.current
     if (!el || focused) return
-    el.innerHTML = mdToHtml(note.body)
-  }, [note.body, focused])
+    el.innerHTML = mdToHtml(draft.body)
+  }, [draft.body, focused])
 
   // Also set on mount
   useEffect(() => {
     const el = bodyRef.current
-    if (el) el.innerHTML = mdToHtml(note.body)
+    if (el) el.innerHTML = mdToHtml(draft.body)
   }, [])
+
+  // Ctrl/Cmd+S saves explicitly
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        save()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [draft])
 
   const handleFocus = () => { setFocused(true) }
 
@@ -393,7 +420,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
     if (isComposing.current) return
     const el = bodyRef.current
     if (!el) return
-    onChange({ body: htmlToMd(el.innerHTML) })
+    patchDraft({ body: htmlToMd(el.innerHTML) })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -480,14 +507,22 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <input
-            value={note.title}
-            onChange={(e) => onChange({ title: e.target.value })}
+            value={draft.title}
+            onChange={(e) => patchDraft({ title: e.target.value })}
             placeholder="Note title"
             style={{ flex: 1, fontSize: 20, fontWeight: 700, letterSpacing: '-.3px', lineHeight: 1.25, border: 'none', background: 'transparent', color: 'var(--text)', outline: 'none', fontFamily: 'var(--sans)' }}
           />
-          <button onClick={() => onChange({ pinned: !note.pinned })} title={note.pinned ? 'Unpin' : 'Pin'}
+          <button
+            onClick={save}
+            title="Save (Ctrl+S)"
+            disabled={!dirty}
+            style={{ width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: dirty ? 'pointer' : 'default',
+              border: `1px solid ${dirty ? 'var(--accent)' : 'var(--border)'}`, background: dirty ? 'var(--accent)' : 'var(--surface2)', color: dirty ? '#fff' : 'var(--text4)' }}>
+            <Icon name="save" size={15} />
+          </button>
+          <button onClick={() => patchDraft({ pinned: !draft.pinned })} title={draft.pinned ? 'Unpin' : 'Pin'}
             style={{ width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-              border: `1px solid ${note.pinned ? 'var(--amber-border)' : 'var(--border)'}`, background: note.pinned ? 'var(--amber-dim)' : 'var(--surface2)', color: note.pinned ? 'var(--amber)' : 'var(--text3)' }}>
+              border: `1px solid ${draft.pinned ? 'var(--amber-border)' : 'var(--border)'}`, background: draft.pinned ? 'var(--amber-dim)' : 'var(--surface2)', color: draft.pinned ? 'var(--amber)' : 'var(--text3)' }}>
             <Icon name="pin" size={15} />
           </button>
           <button onClick={() => setConfirmDelete(true)} title="Delete note"
@@ -499,7 +534,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
         {confirmDelete && (
           <ConfirmDialog
             title="Delete note?"
-            message={`"${note.title || 'Untitled note'}" will be permanently deleted.`}
+            message={`"${draft.title || 'Untitled note'}" will be permanently deleted.`}
             onConfirm={() => { setConfirmDelete(false); onDelete() }}
             onCancel={() => setConfirmDelete(false)}
           />
@@ -508,16 +543,16 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontFamily: 'var(--mono)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--text3)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="bell" size={11} /> Remind</span>
-            <DatePicker value={date} onChange={(d) => onChange({ reminderAt: joinReminder(d, time) })} placeholder="No date" />
-            {date && <TimePicker value={time} onChange={(t) => onChange({ reminderAt: joinReminder(date, t) })} />}
-            {note.reminderAt && (
-              <button onClick={() => onChange({ reminderAt: undefined })} title="Clear reminder" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', display: 'flex', padding: 2 }}><Icon name="close" size={12} /></button>
+            <DatePicker value={date} onChange={(d) => patchDraft({ reminderAt: joinReminder(d, time) })} placeholder="No date" />
+            {date && <TimePicker value={time} onChange={(t) => patchDraft({ reminderAt: joinReminder(date, t) })} />}
+            {draft.reminderAt && (
+              <button onClick={() => patchDraft({ reminderAt: undefined })} title="Clear reminder" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', display: 'flex', padding: 2 }}><Icon name="close" size={12} /></button>
             )}
           </span>
 
           <select
-            value={note.projectId ?? ''}
-            onChange={(e) => onChange({ projectId: e.target.value || undefined })}
+            value={draft.projectId ?? ''}
+            onChange={(e) => patchDraft({ projectId: e.target.value || undefined })}
             style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 8px', cursor: 'pointer', outline: 'none' }}
           >
             <option value="">No project</option>
@@ -526,8 +561,8 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
 
           <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginLeft: 'auto' }}>
             {COLORS.map((c) => (
-              <span key={c} onClick={() => onChange({ color: c })} title="Color"
-                style={{ width: 18, height: 18, borderRadius: 5, cursor: 'pointer', background: c, border: `2px solid ${note.color === c ? 'var(--text)' : 'transparent'}` }} />
+              <span key={c} onClick={() => patchDraft({ color: c })} title="Color"
+                style={{ width: 18, height: 18, borderRadius: 5, cursor: 'pointer', background: c, border: `2px solid ${draft.color === c ? 'var(--text)' : 'transparent'}` }} />
             ))}
           </div>
         </div>
@@ -537,6 +572,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
         {FMT_ACTIONS.map(fmtBtn)}
         <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold · Ctrl+I italic · Ctrl+U underline · Ctrl+H heading</span>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--mono)', fontSize: 10, color: dirty ? 'var(--amber)' : 'var(--text4)' }}>{dirty ? 'Unsaved changes' : 'Saved'}</span>
       </div>
 
       {/* body — contenteditable, always shows rendered markdown */}
