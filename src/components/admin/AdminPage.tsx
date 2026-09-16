@@ -15,6 +15,7 @@ const IcoKey     = () => <Icon name="key" size={12} />
 const IcoWipe    = () => <Icon name="wipe" size={12} />
 const IcoTrash   = () => <Icon name="trash" size={12} />
 const IcoPhone   = () => <Icon name="phone" size={12} />
+const IcoMail    = () => <Icon name="mail" size={12} />
 const IcoStar    = () => <Icon name="star" size={12} />
 const IcoBan     = () => <Icon name="ban" size={12} />
 const IcoBilling = () => <Icon name="billing" size={12} />
@@ -209,6 +210,8 @@ export default function AdminPage({ onBack: _onBack }: Props) {
   const [newPw, setNewPw]            = useState('')
   const [phoneTarget, setPhoneTarget] = useState<AdminUser | null>(null)
   const [newPhone, setNewPhone]       = useState('')
+  const [emailTarget, setEmailTarget] = useState<AdminUser | null>(null)
+  const [newEmail, setNewEmail]       = useState('')
   const [grantTarget, setGrantTarget] = useState<AdminUser | null>(null)
   const [grantMonths, setGrantMonths] = useState('0')
   const [grantDays, setGrantDays] = useState('0')
@@ -314,6 +317,23 @@ export default function AdminPage({ onBack: _onBack }: Props) {
     }
   }
 
+  const handleEditEmail = async () => {
+    if (!emailTarget) return
+    const email = newEmail.trim()
+    if (!email) { showToast('Email cannot be empty', false); return }
+    setBusy(true)
+    const ok = await adminEditUser(emailTarget.id, { email })
+    setBusy(false)
+    if (ok) {
+      showToast('Email updated')
+      setUsers((p) => p.map((u) => u.id === emailTarget.id ? { ...u, email } : u))
+      setEmailTarget(null)
+      setNewEmail('')
+    } else {
+      showToast('Email update failed', false)
+    }
+  }
+
   const handleEditPhone = async () => {
     if (!phoneTarget) return
     setBusy(true)
@@ -393,6 +413,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                 <div style={{ marginBottom: 12 }}><SubBadge u={u} /></div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {([
+                    { v: 'pw',   icon: <IcoMail />,  label: 'Email',    action: () => { setEmailTarget(u); setNewEmail(u.email ?? '') } },
                     { v: 'pw',   icon: <IcoPhone />, label: 'Phone',    action: () => { setPhoneTarget(u); setNewPhone(u.phone ?? '') } },
                     { v: 'pw',   icon: <IcoKey />,   label: 'Password', action: () => { setPwTarget(u); setNewPw('') } },
                     { v: 'pw',   icon: <IcoStar />, label: 'Sub',   action: () => { setGrantTarget(u); setGrantMonths('1') } },
@@ -427,6 +448,7 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                     return (
                       <>
                         <TableRow key={u.id} u={u} isLast={i === users.length - 1 && !isExpanded}
+                          onEmail={() => { setEmailTarget(u); setNewEmail(u.email ?? '') }}
                           onPhone={() => { setPhoneTarget(u); setNewPhone(u.phone ?? '') }}
                           onPw={() => { setPwTarget(u); setNewPw('') }}
                           onData={() => setDataTarget(u)}
@@ -558,6 +580,28 @@ export default function AdminPage({ onBack: _onBack }: Props) {
           />
         </Modal>
       )}
+      {emailTarget && (
+        <Modal
+          title="Edit email"
+          icon={<IcoMail />}
+          confirmLabel="Save email" confirmVariant="accent"
+          onConfirm={() => { void handleEditEmail() }}
+          onCancel={() => { if (!busy) { setEmailTarget(null); setNewEmail('') } }}
+          busy={busy}
+        >
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)', marginBottom: 16 }}>{displayName(emailTarget)}</div>
+          <label style={{ display: 'block', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 6 }}>
+            Email address
+          </label>
+          <input
+            type="email" value={newEmail} autoFocus
+            onChange={(e) => setNewEmail(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleEditEmail() }}
+            placeholder="user@example.com"
+            style={{ width: '100%', padding: '9px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }}
+          />
+        </Modal>
+      )}
       {phoneTarget && (
         <Modal
           title="Edit phone number"
@@ -679,7 +723,7 @@ function MobileActionBtn({ variant, onClick, children }: { variant: 'pw' | 'wipe
   )
 }
 
-function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, onPayments, paymentsExpanded }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void; onPayments: () => void; paymentsExpanded: boolean }) {
+function TableRow({ u, isLast, onPw, onData, onDel, onEmail, onPhone, onGrant, onRevoke, onPayments, paymentsExpanded }: { u: AdminUser; isLast: boolean; onPw: () => void; onData: () => void; onDel: () => void; onEmail: () => void; onPhone: () => void; onGrant: () => void; onRevoke: () => void; onPayments: () => void; paymentsExpanded: boolean }) {
   const [hov, setHov] = useState(false)
   return (
     <tr
@@ -718,6 +762,7 @@ function TableRow({ u, isLast, onPw, onData, onDel, onPhone, onGrant, onRevoke, 
       </td>
       <td style={{ padding: '14px 16px' }}>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <ActionBtn variant="pw"   onClick={onEmail}><IcoMail /> Email   </ActionBtn>
           <ActionBtn variant="pw"   onClick={onPhone}><IcoPhone /> Phone   </ActionBtn>
           <ActionBtn variant="pw"   onClick={onPw}>  <IcoKey />   Password</ActionBtn>
           <ActionBtn variant="pw"   onClick={onGrant}><IcoStar /> Sub</ActionBtn>

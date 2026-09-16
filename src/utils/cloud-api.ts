@@ -92,7 +92,7 @@ export async function adminChangePassword(id: string, password: string): Promise
   } catch { return false }
 }
 
-export async function adminEditUser(id: string, data: { phone?: string | null }): Promise<boolean> {
+export async function adminEditUser(id: string, data: { phone?: string | null; email?: string }): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/users/${id}`, {
       method: 'PATCH',
