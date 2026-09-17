@@ -88,6 +88,10 @@ function buildPersistPayload(state: AppState): Record<string, unknown> {
 // state instead of one request per keystroke — cutting network + backend memory pressure.
 let pendingPayload: Record<string, unknown> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+// The Jira sync currently running, if any — see syncJira for why overlap is destructive.
+let jiraSyncInFlight: Promise<{ added: number; updated: number; removed: number }> | null = null
+let gitlabSyncInFlight: Promise<{ linked: number; updated: number; noKey: number; noIssue: number; noKeyList: string[]; noIssueList: string[] }> | null = null
+let githubSyncInFlight: Promise<{ linked: number; updated: number }> | null = null
 // Only ever ONE state PUT in flight at a time. The payload is the entire state blob
 // (multiple MB), so a save can take seconds; without this guard an edit made mid-upload
 // would start a second concurrent full-blob PUT, and the two would race to overwrite each
@@ -1247,6 +1251,14 @@ export const useStore = create<Store>((set, get) => {
     },
 
     syncJira: async () => {
+      // Only one Jira sync at a time. Autosync runs on a timer (startup + interval) with no
+      // coordination with manual syncs, and a sync reads tasks up front but writes them
+      // minutes later, after its network calls. Two overlapping runs therefore had the
+      // slower one write its pre-sync snapshot over the fresher one's results -- issues
+      // appeared, then vanished on the next sync or reload. Concurrent callers now await
+      // the run already in progress instead of starting a competing one.
+      if (jiraSyncInFlight) return jiraSyncInFlight
+      const run = (async () => {
       const { jiraConnections, developers, tasks, projects } = get()
       const enabledConns = jiraConnections.filter((c) => c.enabled && c.baseUrl && c.token)
       if (!enabledConns.length) throw new Error('No Jira connections configured')
@@ -1620,7 +1632,19 @@ export const useStore = create<Store>((set, get) => {
             taskMap.set(identity, arr)
           }
         }
-        const merged = dedupedTasks.map((t) => {
+        // dedupedTasks was built from the snapshot taken BEFORE this sync's network calls.
+        // Another sync (autosync fires on a timer, with no mutual exclusion) can have
+        // written newer tasks in the meantime, so rebuild each task from the CURRENT state
+        // and fall back to the snapshot only for tasks that no longer exist. Writing the
+        // snapshot verbatim silently reverted the other sync's work, which looked exactly
+        // like issues appearing and then disappearing again.
+        const liveById = new Map(s.tasks.map((t) => [t.id, t]))
+        const merged = dedupedTasks.map((snapshot) => {
+          const t = liveById.has(snapshot.id)
+            ? { ...liveById.get(snapshot.id)!, jiras: snapshot.jiras, jiraSync: snapshot.jiraSync, deletedJiraUrls: snapshot.deletedJiraUrls }
+            : snapshot
+          return t
+        }).map((t) => {
           const taskLivePrs = livePrsByTask.get(t.id)
           const jiras = taskLivePrs?.size
             ? (t.jiras ?? []).map((j) => {
@@ -1659,11 +1683,18 @@ export const useStore = create<Store>((set, get) => {
         return withSave({ ...s, tasks: [...merged, ...untouchedStamped, ...newTasks], jiraConnections: finalConns, projects: projectsUpdated })
       })
       return { added, updated, removed }
+      })()
+      jiraSyncInFlight = run
+      try { return await run } finally { jiraSyncInFlight = null }
     },
 
     setGitlabConnections: (gitlabConnections) => set((s) => withSave({ ...s, gitlabConnections })),
 
     syncGitlab: async () => {
+      // Same overlap hazard as syncJira: reads tasks up front, writes them after its network
+      // calls, and autosync runs on a timer alongside manual syncs.
+      if (gitlabSyncInFlight) return gitlabSyncInFlight
+      const run = (async () => {
       const { gitlabConnections, jiraConnections, tasks, developers } = get()
       const enabledConns = gitlabConnections.filter((c) => c.enabled && c.token && c.groupPath)
       if (!enabledConns.length) throw new Error('No GitLab connections configured')
@@ -1845,11 +1876,17 @@ export const useStore = create<Store>((set, get) => {
       }))
 
       return { linked, updated, noKey: skippedNoKey.length, noIssue: skippedNoIssue.length, noKeyList: skippedNoKey, noIssueList: skippedNoIssue }
+      })()
+      gitlabSyncInFlight = run
+      try { return await run } finally { gitlabSyncInFlight = null }
     },
 
     setGithubConnections: (githubConnections) => set((s) => withSave({ ...s, githubConnections })),
 
     syncGithub: async () => {
+      // Same overlap hazard as syncJira.
+      if (githubSyncInFlight) return githubSyncInFlight
+      const run = (async () => {
       const { githubConnections, jiraConnections, tasks, developers } = get()
       const enabledConns = githubConnections.filter((c) => c.enabled && c.token)
       if (!enabledConns.length) throw new Error('No GitHub connections configured')
@@ -2038,6 +2075,9 @@ export const useStore = create<Store>((set, get) => {
       }))
 
       return { linked, updated }
+      })()
+      githubSyncInFlight = run
+      try { return await run } finally { githubSyncInFlight = null }
     },
 
     exportJSON: () => {
