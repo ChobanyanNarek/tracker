@@ -252,8 +252,14 @@ type Store = AppState & StoreActions
 // Without this, actions fired before cloud load (e.g. setNotifsEnabled in
 // AuthedApp's useEffect) would overwrite cloud with an empty freshState().
 let cloudSyncReady = false
+// Bumped on every local mutation that gets persisted. A cloud load that started before a
+// local change must not overwrite that change when it finally resolves -- the initial load
+// of a multi-MB blob easily outlives the startup Jira sync, and applying it afterwards
+// reverted everything the sync had just written.
+let localRevision = 0
 
 function withSave(state: AppState): AppState {
+  localRevision++
   if (cloudSyncReady) persistState(state)
   return state
 }
@@ -2125,7 +2131,15 @@ export const useStore = create<Store>((set, get) => {
   }
 })
 
-function applyCloudState(cloud: Record<string, unknown> | null) {
+function applyCloudState(cloud: Record<string, unknown> | null, startedAtRevision?: number) {
+  // Local work happened while this load was in flight (typically the startup Jira sync).
+  // The response is already stale, so applying it would silently revert that work.
+  if (startedAtRevision !== undefined && localRevision !== startedAtRevision) {
+    if (cloud !== null) cloudSyncReady = true
+    useStore.setState({ cloudSyncing: false })
+    console.warn('[cloud] discarding a stale load — local changes happened while it was in flight')
+    return
+  }
   // Only mark ready when we actually received data. A null response means the user is
   // unauthenticated — setting cloudSyncReady here would allow withSave to overwrite real
   // cloud data with an empty freshState() after a token-clear + reload.
@@ -2166,19 +2180,23 @@ function applyCloudState(cloud: Record<string, unknown> | null) {
 export async function syncCloudToStore(): Promise<void> {
   useStore.setState({ cloudSyncing: true })
   try {
+    const startedAt = localRevision
     const cloud = await loadCloudState()
     // After login the user is authenticated — safe to enable saves even if cloud is empty.
     cloudSyncReady = true
-    applyCloudState(cloud)
+    applyCloudState(cloud, startedAt)
   } catch {
     cloudSyncReady = true
     useStore.setState({ cloudSyncing: false })
   }
 }
 
-loadCloudState().then(applyCloudState).catch(() => {
-  useStore.setState({ cloudSyncing: false })
-})
+{
+  const startedAt = localRevision
+  loadCloudState().then((cloud) => applyCloudState(cloud, startedAt)).catch(() => {
+    useStore.setState({ cloudSyncing: false })
+  })
+}
 
 // Debug helper: expose the store + a one-shot issue tracer on window so issue-visibility
 // problems can be diagnosed without reaching into React internals. Safe, read-only.
