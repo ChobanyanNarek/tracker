@@ -1388,12 +1388,17 @@ export const useStore = create<Store>((set, get) => {
         let connRemoved = 0
 
         byDev.forEach((devIssues, devId) => {
+          // Scope to this connection's project. Matching on devId+date alone meant a
+          // developer who works on two projects had both projects' issues land on whichever
+          // project's task synced first, so the other project showed nothing for them.
+          const connProjectId = conn.projectId ?? ''
+          const inProject = (t: typeof dedupedTasks[number]) => (t.projectId ?? '') === connProjectId
           const syncTask =
-            dedupedTasks.find((t) => t.devId === devId && t.date === today && t.jiraSync) ??
-            dedupedTasks.find((t) => t.devId === devId && t.date === today)
+            dedupedTasks.find((t) => t.devId === devId && t.date === today && inProject(t) && t.jiraSync) ??
+            dedupedTasks.find((t) => t.devId === devId && t.date === today && inProject(t))
 
           const incoming = devIssues.map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings, effectiveBoardId))
-          const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today)
+          const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today && inProject(t))
 
           const keyToTask = new Map<string, { task: typeof dedupedTasks[number]; idx: number }>()
           todayTasks.forEach((t) => {
@@ -1497,6 +1502,11 @@ export const useStore = create<Store>((set, get) => {
             // missing from it may simply not have fit the cap, not have been unassigned —
             // pruning here would silently delete issues that are still genuinely assigned.
             if (!fetchedDevs.has(t.devId) || truncatedDevs.has(t.devId) || !t.jiras?.length) return
+            // Never prune another project's tasks. A developer on two projects has a task per
+            // project, and this connection only knows about its own -- in board mode the check
+            // below prunes anything the board didn't return, which would wipe the other
+            // project's issues outright.
+            if ((t.projectId ?? '') !== (conn.projectId ?? '')) return
             // Prune against THIS dev's own returned keys, not the connection-wide union —
             // otherwise a reassigned issue (still returned for the new assignee) never gets
             // pruned from the old assignee's tasks, duplicating it across both.
