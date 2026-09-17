@@ -1,5 +1,4 @@
 import type { StatusGroup, StatusGroupColor, JiraConfig, JiraStatusMapping } from '../types'
-import type { JiraStatusInfo } from './jira-api'
 
 export const GROUP_COLOR_TOKENS: Record<StatusGroupColor, { bg: string; text: string; border: string }> = {
   gray:   { bg: 'var(--surface3)',   text: 'var(--text3)',   border: 'var(--border2)' },
@@ -70,23 +69,13 @@ export function groupForJiraStatus(
 // API's 100-issue page cap: fetch everything not Done, PLUS Done issues updated recently
 // (last 30 days). Statuses mapped to the 'hidden' group are always excluded.
 // The tracker mirrors Jira; visibility (e.g. hiding done in Daily) is a display concern.
-export function buildJqlFromMappings(
-  mappings: JiraStatusMapping[] | undefined,
-  doneWindowDays = 30,
-): string | null {
-  // Closed issues are bounded by date so a developer's entire history doesn't blow past the
-  // API page cap. This is a separate filter from the status mappings: a Done issue older
-  // than the window is dropped however its status is mapped, which is its own cause of
-  // "not all issues are visible". 0 means no limit.
-  const base = doneWindowDays > 0
-    ? `(statusCategory != Done OR updated >= -${doneWindowDays}d)`
-    : ''
+export function buildJqlFromMappings(mappings: JiraStatusMapping[] | undefined): string | null {
+  const base = `(statusCategory != Done OR updated >= -30d)`
   const hidden = dedupeMappings(mappings)
     .filter((m) => m.groupId === 'hidden')
     .map((m) => `"${m.jiraStatus}"`)
-  if (!hidden.length) return base || null
-  const hiddenClause = `status not in (${hidden.join(', ')})`
-  return base ? `${base} AND ${hiddenClause}` : hiddenClause
+  if (!hidden.length) return base
+  return `${base} AND status not in (${hidden.join(', ')})`
 }
 
 // Jira's /status endpoint returns one row per workflow, so older saved configs accumulated
@@ -101,48 +90,6 @@ export function dedupeMappings(mappings: JiraStatusMapping[] | undefined): JiraS
     if (!prev || (prev.groupId === 'hidden' && m.groupId !== 'hidden')) byName.set(key, m)
   }
   return [...byName.values()]
-}
-
-// One-time repair for configs damaged by an old default.
-//
-// Fetching statuses used to map every `done`-category status to the 'hidden' group, and
-// hidden statuses are excluded from the sync JQL entirely -- so those issues were never
-// fetched and simply went missing from the tracker. Re-fetching did not help, because the
-// merge preserved any mapping that already existed.
-//
-// This moves a hidden status back to the group its Jira category implies. It only touches
-// statuses that look like they were hidden by that default (category 'done', or a category
-// whose natural group is not hidden at all), so a status the user deliberately hid stays
-// hidden. Returns the repaired list plus the names that changed, for reporting.
-export function repairAutoHiddenMappings(
-  mappings: JiraStatusMapping[] | undefined,
-  statuses: JiraStatusInfo[],
-  groups: StatusGroup[],
-): { mappings: JiraStatusMapping[]; repaired: string[] } {
-  const current = dedupeMappings(mappings)
-  if (!current.length || !statuses.length) return { mappings: current, repaired: [] }
-
-  const catByName = new Map<string, string>()
-  for (const s of statuses) catByName.set(s.name.trim().toLowerCase(), s.categoryKey)
-
-  const has = (id: string) => groups.some((g) => g.id === id)
-  const repaired: string[] = []
-
-  const next = current.map((m) => {
-    if (m.groupId !== 'hidden') return m
-    const cat = catByName.get(m.jiraStatus.trim().toLowerCase())
-    // Unknown to this Jira instance -- leave it alone rather than guess.
-    if (!cat) return m
-    const target =
-      cat === 'done' ? 'done'
-      : cat === 'indeterminate' ? 'inprogress'
-      : 'todo'
-    if (!has(target)) return m
-    repaired.push(m.jiraStatus)
-    return { ...m, groupId: target }
-  })
-
-  return { mappings: next, repaired }
 }
 
 // The group an issue belongs to RIGHT NOW, given the current mappings.

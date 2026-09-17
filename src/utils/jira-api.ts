@@ -305,11 +305,8 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
 
 // Returns a JQL status clause, or '' to fetch ALL assigned issues regardless of status.
 // The tracker mirrors Jira (including Done/closed); only 'hidden'-group statuses are excluded.
-export function buildJqlStatusFilter(
-  mappings: JiraStatusMapping[] | undefined,
-  doneWindowDays?: number,
-): string {
-  return buildJqlFromMappings(mappings, doneWindowDays) ?? ''
+export function buildJqlStatusFilter(mappings: JiraStatusMapping[] | undefined): string {
+  return buildJqlFromMappings(mappings) ?? ''
 }
 
 export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: JiraStatusMapping[], boardId?: number): JiraIssue {

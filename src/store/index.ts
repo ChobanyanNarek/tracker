@@ -1311,67 +1311,7 @@ export const useStore = create<Store>((set, get) => {
         // wrongly delete issues that are still genuinely assigned (this happened in
         // production — see the commit that added this comment).
         const truncatedDevs = new Set<string>()
-
-        // Project scope: one query for the whole project instead of one per developer, then
-        // bucket the results by assignee. This is the only way to see issues that the
-        // per-developer queries structurally cannot return -- ones assigned to an account
-        // whose identity isn't configured, or reassigned to someone outside the dev list.
-        // Issues with no assignee, or an assignee matching no known developer, have no task
-        // row to live on, so they're counted and reported rather than silently dropped.
-        let projectScopeUnmatched = 0
-        if (conn.fetchScope === 'project' && !effectiveBoardId && projList) {
-          const statusFilter = buildJqlStatusFilter(conn.statusMappings, conn.doneWindowDays)
-          const jql = [`project in (${projList})`, statusFilter].filter(Boolean).join(' AND ') + ' ORDER BY updated DESC'
-          try {
-            const r = await fetchJiraIssues(conn, jql)
-            // Every identity of every dev, lowercased, mapped back to that dev.
-            const devByIdentity = new Map<string, string>()
-            for (const { dev, emails } of connDevs) {
-              for (const e of emails) {
-                const v = e.trim().toLowerCase()
-                if (!v) continue
-                devByIdentity.set(v, dev.id)
-                if (v.includes('@')) devByIdentity.set(v.slice(0, v.indexOf('@')), dev.id)
-              }
-            }
-            const buckets = new Map<string, JiraIssueRaw[]>()
-            for (const issue of r.issues) {
-              const email = issue.fields.assignee?.emailAddress?.trim().toLowerCase() ?? ''
-              const local = email.includes('@') ? email.slice(0, email.indexOf('@')) : email
-              const devId = devByIdentity.get(email) ?? (local ? devByIdentity.get(local) : undefined)
-              if (!devId) { projectScopeUnmatched++; continue }
-              const list = buckets.get(devId) ?? []
-              list.push(issue)
-              buckets.set(devId, list)
-            }
-            buckets.forEach((issues, devId) => {
-              byDev.set(devId, issues)
-              fetchedDevs.add(devId)
-              returnedKeysByDev.set(devId, new Set(issues.map((i) => i.key)))
-              if (r.truncated) truncatedDevs.add(devId)
-            })
-            // A dev with zero issues in the project still counts as successfully fetched, so
-            // stale issues get pruned -- but not when the response was cut short.
-            if (!r.truncated) {
-              for (const { dev } of connDevs) {
-                if (!fetchedDevs.has(dev.id)) {
-                  fetchedDevs.add(dev.id)
-                  returnedKeysByDev.set(dev.id, new Set())
-                }
-              }
-            }
-            if (projectScopeUnmatched) {
-              console.info(`[sync] project scope: ${projectScopeUnmatched} issue(s) have no assignee matching a known developer`)
-            }
-          } catch (e) {
-            // Fall back to the per-developer path below rather than syncing nothing.
-            console.warn('[sync] project-scope search failed, falling back to per-developer:', e)
-          }
-        }
-
         for (const { dev, emails } of connDevs) {
-          // Already covered by the project-scope query above.
-          if (fetchedDevs.has(dev.id)) continue
           let devIssues: JiraIssueRaw[]
           let truncated = false
           // Merge issues fetched across a developer's identities, keyed by issue key so
@@ -1406,7 +1346,7 @@ export const useStore = create<Store>((set, get) => {
             truncated = perBoard.some((r) => r.truncated)
             devIssues = dedupe(perBoard.map((r) => r.issues))
           } else {
-            const statusFilter = buildJqlStatusFilter(conn.statusMappings, conn.doneWindowDays)
+            const statusFilter = buildJqlStatusFilter(conn.statusMappings)
             // Match every identity by both the full email AND the username (local-part
             // before @) — some Jira instances identify users by username, not email, so
             // `assignee = "email"` alone silently misses those issues.
@@ -1596,7 +1536,7 @@ export const useStore = create<Store>((set, get) => {
           ...conn,
           hoursPerDay,
           lastSync: new Date().toISOString(),
-          lastSyncResult: `+${connAdded} added, ${connUpdated} updated${connRemoved ? `, ${connRemoved} closed removed` : ''}${projectScopeUnmatched ? `, ${projectScopeUnmatched} unassigned/unknown skipped` : ''}`,
+          lastSyncResult: `+${connAdded} added, ${connUpdated} updated${connRemoved ? `, ${connRemoved} closed removed` : ''}`,
         })
       }
 
@@ -2296,8 +2236,22 @@ export function taskMatchesBoard(t: Task, boardId: number): boolean {
 }
 
 // The Jira connection that owns the status-group mappings used for display.
+//
+// Must be scoped to the selected project. Connections are per-project, and picking the
+// first one with mappings meant every project was rendered using whichever connection
+// happened to sit first in the array: one project looked right while the others had their
+// issues scored against a different project's status mappings, so statuses the other Jira
+// defines resolved to no group and displayed wrongly even though the sync was correct.
 export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
-  return state.jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
+  const usable = (c: JiraConfig) => c.enabled && !!c.statusMappings?.length
+  if (state.selectedProject && state.selectedProject !== 'ALL') {
+    const own = state.jiraConnections.find((c) => c.projectId === state.selectedProject && usable(c))
+    if (own) return own
+    // No connection of its own — fall back to a global (unscoped) one rather than borrowing
+    // another project's mappings.
+    return state.jiraConnections.find((c) => !c.projectId && usable(c))
+  }
+  return state.jiraConnections.find(usable)
 }
 
 // Single source of truth for board visibility, shared by Daily AND Deadlines.
