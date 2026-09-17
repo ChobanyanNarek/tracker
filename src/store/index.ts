@@ -1677,6 +1677,10 @@ export const useStore = create<Store>((set, get) => {
       ]
 
       const mrById = new Map<number, Awaited<ReturnType<typeof fetchGroupMRs>>[number]>()
+      // Which project each MR's connection belongs to. MRs are pooled across connections
+      // before they're linked, so without this a connection scoped to one project would
+      // attach its MRs to another project's tasks whenever an issue key happened to match.
+      const mrProjectId = new Map<number, string>()
       const syncedConns: GitLabConfig[] = []
 
       for (const conn of enabledConns) {
@@ -1688,7 +1692,7 @@ export const useStore = create<Store>((set, get) => {
 
         try {
           const groupMrs = await fetchGroupMRs(conn)
-          for (const m of groupMrs) mrById.set(m.id, m)
+          for (const m of groupMrs) { mrById.set(m.id, m); mrProjectId.set(m.id, conn.projectId ?? '') }
         } catch (err) {
           const msg = (err as Error).message
           const isPermission = msg.includes('403') || msg.includes('Forbidden') || msg.includes('401')
@@ -1697,7 +1701,7 @@ export const useStore = create<Store>((set, get) => {
 
         if (devUsernames.length > 0) {
           const userMrs = await fetchUserMRs(devUsernames, conn.token)
-          for (const m of userMrs) mrById.set(m.id, m)
+          for (const m of userMrs) { mrById.set(m.id, m); mrProjectId.set(m.id, conn.projectId ?? '') }
         }
 
         syncedConns.push({ ...conn, lastSync: new Date().toISOString() })
@@ -1746,7 +1750,12 @@ export const useStore = create<Store>((set, get) => {
         let matched = false
         let addedSomewhere = false
 
+        // Only link into the project this MR's connection belongs to. A global (unscoped)
+        // connection still links anywhere. Projects never share tasks, so an issue key that
+        // happens to match in another project must not pull this MR across.
+        const mrProj = mrProjectId.get(mr.id) ?? ''
         for (const task of tasks) {
+          if (mrProj && (task.projectId ?? '') !== mrProj) continue
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
@@ -1854,6 +1863,9 @@ export const useStore = create<Store>((set, get) => {
       ]
 
       const prById = new Map<number, Awaited<ReturnType<typeof fetchOrgPRs>>[number]>()
+      // Which project each PR's connection belongs to — PRs are pooled across connections
+      // before linking, so this keeps one project's PRs off another project's tasks.
+      const prProjectId = new Map<number, string>()
       const syncedConns: GitHubConfig[] = []
 
       for (const conn of enabledConns) {
@@ -1866,7 +1878,7 @@ export const useStore = create<Store>((set, get) => {
         if (conn.orgOrUser.trim()) {
           try {
             const orgPRs = await fetchOrgPRs(conn.orgOrUser, conn.token)
-            for (const p of orgPRs) prById.set(p.id, p)
+            for (const p of orgPRs) { prById.set(p.id, p); prProjectId.set(p.id, conn.projectId ?? '') }
           } catch (err) {
             const msg = (err as Error).message
             const isPermission = msg.includes('403') || msg.includes('Forbidden') || msg.includes('401')
@@ -1877,7 +1889,7 @@ export const useStore = create<Store>((set, get) => {
         if (devUsernames.length > 0) {
           const ownerScope = conn.orgOrUser.trim() ? normalizeGithubPath(conn.orgOrUser).owner : ''
           const userPRs = await Promise.all(devUsernames.map((u) => fetchUserPRs(u, conn.token, ownerScope)))
-          for (const prs of userPRs) for (const p of prs) prById.set(p.id, p)
+          for (const prs of userPRs) for (const p of prs) { prById.set(p.id, p); prProjectId.set(p.id, conn.projectId ?? '') }
         }
 
         syncedConns.push({ ...conn, lastSync: new Date().toISOString() })
@@ -1925,7 +1937,10 @@ export const useStore = create<Store>((set, get) => {
         let matched = false
         let addedSomewhere = false
 
+        // Only link into this PR's own project; a global (unscoped) connection links anywhere.
+        const prProj = prProjectId.get(pr.id) ?? ''
         for (const task of tasks) {
+          if (prProj && (task.projectId ?? '') !== prProj) continue
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
