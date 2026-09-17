@@ -366,3 +366,8 @@ input:focus, select:focus, textarea:focus {
 .nv-editor div { min-height: 1.62em; }
 .nv-editor strong { color: var(--text); font-weight: 660; }
 .nv-editor code { font-family: var(--mono); font-size: 12px; background: var(--surface3); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+/* Clickable checklist box — the glyph itself stays plain text so it round-trips to
+   markdown; only the affordance (cursor, hover, checked color) lives here. */
+.nv-check { cursor: pointer; user-select: none; color: var(--text3); transition: color .12s; }
+.nv-check:hover { color: var(--accent); }
+.nv-check[aria-checked="true"] { color: var(--green); }

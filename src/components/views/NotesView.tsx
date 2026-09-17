@@ -304,7 +304,13 @@ function mdToHtml(src: string): string {
     const chk = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/)
     if (chk) {
       const done = chk[1].toLowerCase() === 'x'
-      return `<div>${done ? '☑' : '☐'} ${inline(chk[2])}</div>`
+      /*
+       * The box is a span so it can be clicked to toggle (see handleBodyClick). It stays a
+       * plain text glyph inside, so htmlToMd — which reads textContent — still round-trips
+       * it to "- [x] " / "- [ ] " without needing to know this markup exists.
+       * contentEditable=false keeps the caret from landing inside the box itself.
+       */
+      return `<div><span class="nv-check" contenteditable="false" role="checkbox" aria-checked="${done}" title="Click to toggle">${done ? '☑' : '☐'}</span> ${inline(chk[2])}</div>`
     }
     const li = line.match(/^\s*[-*]\s+(.*)$/)
     if (li) return `<div>• ${inline(li[1])}</div>`
@@ -462,6 +468,19 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onDirtyChange, o
     patchDraft({ body: htmlToMd(el.innerHTML) })
   }
 
+  // Tick/untick a checklist item by clicking its box. Mutating the glyph in place (rather
+  // than re-rendering the note from markdown) keeps the caret and the rest of the line
+  // untouched, then reports the change through the normal input path.
+  const handleBodyClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const box = (e.target as HTMLElement).closest?.('.nv-check')
+    if (!box) return
+    e.preventDefault()
+    const done = box.textContent?.trim() === '☑'
+    box.textContent = done ? '☐' : '☑'
+    box.setAttribute('aria-checked', String(!done))
+    handleInput()
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!(e.ctrlKey || e.metaKey)) return
     const key = e.key.toLowerCase()
@@ -520,7 +539,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onDirtyChange, o
     } else if (label === '•') {
       insertHtmlAtCursor(`<div>• ${selText || 'Item'}</div>`)
     } else if (label === '☐') {
-      insertHtmlAtCursor(`<div>☐ ${selText || 'Task'}</div>`)
+      insertHtmlAtCursor(`<div><span class="nv-check" contenteditable="false" role="checkbox" aria-checked="false" title="Click to toggle">☐</span> ${selText || 'Task'}</div>`)
     } else if (label === '`') {
       insertHtmlAtCursor(`<code>${selText || 'code'}</code>`)
     }
@@ -621,6 +640,7 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onDirtyChange, o
           contentEditable
           suppressContentEditableWarning
           className="nv-md nv-editor"
+          onClick={handleBodyClick}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onCompositionStart={() => { isComposing.current = true }}
