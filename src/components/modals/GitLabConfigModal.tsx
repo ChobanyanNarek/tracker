@@ -7,7 +7,8 @@ import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 
-interface Props { onClose: () => void; projectId?: string }
+// projectId is required: a connection always belongs to exactly one project.
+interface Props { onClose: () => void; projectId: string }
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)',
@@ -19,7 +20,8 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4, display: 'block',
 }
 
-function makeEmptyConn(projectId?: string): GitLabConfig {
+// Every connection belongs to exactly one project -- there is no global connection.
+function makeEmptyConn(projectId: string): GitLabConfig {
   return {
     id: 'gl_' + Date.now().toString(36),
     name: '',
@@ -28,7 +30,7 @@ function makeEmptyConn(projectId?: string): GitLabConfig {
     groupPath: '',
     syncInterval: 0,
     developerUsernames: {},
-    ...(projectId ? { projectId } : {}),
+    projectId,
   }
 }
 
@@ -241,7 +243,12 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 export default function GitLabConfigModal({ onClose, projectId }: Props) {
   const { gitlabConnections, developers, setGitlabConnections, syncGitlab } = useStore()
 
-  const filteredConns = projectId ? gitlabConnections.filter((c) => c.projectId === projectId) : gitlabConnections
+  // Connections saved before every connection had to belong to a project have no
+  // projectId. They would now sync nothing and be invisible everywhere, so the first
+  // project that opens this modal adopts them rather than silently losing the setup.
+  const filteredConns = gitlabConnections
+    .filter((c) => c.projectId === projectId || !c.projectId)
+    .map((c) => (c.projectId ? c : { ...c, projectId }))
   const [conns, setConns] = useState<GitLabConfig[]>(
     filteredConns.length ? filteredConns : [makeEmptyConn(projectId)]
   )
@@ -261,22 +268,20 @@ export default function GitLabConfigModal({ onClose, projectId }: Props) {
   }
 
   function save() {
-    if (projectId) {
-      const others = gitlabConnections.filter((c) => c.projectId !== projectId)
-      setGitlabConnections([...others, ...conns])
-    } else {
-      setGitlabConnections(conns)
-    }
+    // Keep other projects' connections untouched; replace only this project's. Unscoped
+    // ones were adopted into this project above, so drop them here too or they'd survive
+    // alongside their adopted copy.
+    const others = gitlabConnections.filter((c) => c.projectId && c.projectId !== projectId)
+    setGitlabConnections([...others, ...conns])
     onClose()
   }
 
   async function handleSyncNow() {
-    if (projectId) {
-      const others = gitlabConnections.filter((c) => c.projectId !== projectId)
-      setGitlabConnections([...others, ...conns])
-    } else {
-      setGitlabConnections(conns)
-    }
+    // Keep other projects' connections untouched; replace only this project's. Unscoped
+    // ones were adopted into this project above, so drop them here too or they'd survive
+    // alongside their adopted copy.
+    const others = gitlabConnections.filter((c) => c.projectId && c.projectId !== projectId)
+    setGitlabConnections([...others, ...conns])
     setSyncing(true)
     setSyncResult(null)
     try {

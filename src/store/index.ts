@@ -1750,12 +1750,12 @@ export const useStore = create<Store>((set, get) => {
         let matched = false
         let addedSomewhere = false
 
-        // Only link into the project this MR's connection belongs to. A global (unscoped)
-        // connection still links anywhere. Projects never share tasks, so an issue key that
-        // happens to match in another project must not pull this MR across.
+        // Only link into the project this MR's connection belongs to. Every connection
+        // belongs to exactly one project, so an issue key that happens to match in another
+        // project must never pull this MR across.
         const mrProj = mrProjectId.get(mr.id) ?? ''
         for (const task of tasks) {
-          if (mrProj && (task.projectId ?? '') !== mrProj) continue
+          if ((task.projectId ?? '') !== mrProj) continue
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
@@ -1937,10 +1937,10 @@ export const useStore = create<Store>((set, get) => {
         let matched = false
         let addedSomewhere = false
 
-        // Only link into this PR's own project; a global (unscoped) connection links anywhere.
+        // Only link into this PR's own project. Every connection belongs to one project.
         const prProj = prProjectId.get(pr.id) ?? ''
         for (const task of tasks) {
-          if (prProj && (task.projectId ?? '') !== prProj) continue
+          if ((task.projectId ?? '') !== prProj) continue
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
@@ -2246,13 +2246,12 @@ export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
   // against a different Jira's mappings. Statuses that other instance doesn't define matched
   // nothing and fell back to 'todo', so a whole project displayed as To Do.
   if (state.selectedProject && state.selectedProject !== 'ALL') {
-    const own = state.jiraConnections.find((c) => c.projectId === state.selectedProject && usable(c))
-    if (own) return own
-    // No connection of its own — use a global (unscoped) one rather than another project's.
-    const global = state.jiraConnections.find((c) => !c.projectId && usable(c))
-    if (global) return global
-    return undefined
+    // A project uses its own connection or none at all. There is no global connection to
+    // fall back to, and another project's must never be borrowed.
+    return state.jiraConnections.find((c) => c.projectId === state.selectedProject && usable(c))
   }
+  // "All projects" spans every project, so no single connection owns the view; use the
+  // first usable one purely so status groups still render.
   return state.jiraConnections.find(usable)
 }
 

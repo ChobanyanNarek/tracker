@@ -7,7 +7,8 @@ import { identityList } from '../../utils/format'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 
-interface Props { onClose: () => void; projectId?: string }
+// projectId is required: a connection always belongs to exactly one project.
+interface Props { onClose: () => void; projectId: string }
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)',
@@ -19,7 +20,8 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4, display: 'block',
 }
 
-function makeEmptyConn(projectId?: string): GitHubConfig {
+// Every connection belongs to exactly one project -- there is no global connection.
+function makeEmptyConn(projectId: string): GitHubConfig {
   return {
     id: 'gh_' + Date.now().toString(36),
     name: '',
@@ -28,7 +30,7 @@ function makeEmptyConn(projectId?: string): GitHubConfig {
     orgOrUser: '',
     syncInterval: 0,
     developerUsernames: {},
-    ...(projectId ? { projectId } : {}),
+    projectId,
   }
 }
 
@@ -271,7 +273,12 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 export default function GitHubConfigModal({ onClose, projectId }: Props) {
   const { githubConnections, developers, setGithubConnections, syncGithub } = useStore()
 
-  const filteredConns = projectId ? githubConnections.filter((c) => c.projectId === projectId) : githubConnections
+  // Connections saved before every connection had to belong to a project have no
+  // projectId. They would now sync nothing and be invisible everywhere, so the first
+  // project that opens this modal adopts them rather than silently losing the setup.
+  const filteredConns = githubConnections
+    .filter((c) => c.projectId === projectId || !c.projectId)
+    .map((c) => (c.projectId ? c : { ...c, projectId }))
   const [conns, setConns] = useState<GitHubConfig[]>(
     filteredConns.length ? filteredConns : [makeEmptyConn(projectId)]
   )
@@ -291,22 +298,20 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
   }
 
   function save() {
-    if (projectId) {
-      const others = githubConnections.filter((c) => c.projectId !== projectId)
-      setGithubConnections([...others, ...conns])
-    } else {
-      setGithubConnections(conns)
-    }
+    // Keep other projects' connections untouched; replace only this project's. Unscoped
+    // ones were adopted into this project above, so drop them here too or they'd survive
+    // alongside their adopted copy.
+    const others = githubConnections.filter((c) => c.projectId && c.projectId !== projectId)
+    setGithubConnections([...others, ...conns])
     onClose()
   }
 
   async function handleSyncNow() {
-    if (projectId) {
-      const others = githubConnections.filter((c) => c.projectId !== projectId)
-      setGithubConnections([...others, ...conns])
-    } else {
-      setGithubConnections(conns)
-    }
+    // Keep other projects' connections untouched; replace only this project's. Unscoped
+    // ones were adopted into this project above, so drop them here too or they'd survive
+    // alongside their adopted copy.
+    const others = githubConnections.filter((c) => c.projectId && c.projectId !== projectId)
+    setGithubConnections([...others, ...conns])
     setSyncing(true)
     setSyncResult(null)
     try {

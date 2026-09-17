@@ -8,7 +8,8 @@ import Icon, { BrandIcon } from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
 import { identityList } from '../../utils/format'
 
-interface Props { onClose: () => void; projectId?: string }
+// projectId is required: a connection always belongs to exactly one project.
+interface Props { onClose: () => void; projectId: string }
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)',
@@ -22,12 +23,13 @@ const labelStyle: React.CSSProperties = {
 
 const COLOR_OPTIONS: StatusGroupColor[] = ['gray', 'blue', 'amber', 'red', 'purple', 'green', 'teal', 'pink', 'orange']
 
-function makeEmptyConn(projectId?: string): JiraConfig {
+// Every connection belongs to exactly one project -- there is no global connection.
+function makeEmptyConn(projectId: string): JiraConfig {
   return {
     id: 'j_' + Date.now().toString(36),
     name: '', enabled: true, baseUrl: '', email: '', token: '',
     projectKeys: [], syncInterval: 5,
-    ...(projectId ? { projectId } : {}),
+    projectId,
   }
 }
 
@@ -552,7 +554,12 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
 // ── Main Modal ─────────────────────────────────────────────────
 export default function JiraConfigModal({ onClose, projectId }: Props) {
   const { jiraConnections, developers, setJiraConnections, syncJira } = useStore()
-  const filteredConns = projectId ? jiraConnections.filter((c) => c.projectId === projectId) : jiraConnections
+  // Connections saved before every connection had to belong to a project have no
+  // projectId. They would now sync nothing and be invisible everywhere, so the first
+  // project that opens this modal adopts them rather than silently losing the setup.
+  const filteredConns = jiraConnections
+    .filter((c) => c.projectId === projectId || !c.projectId)
+    .map((c) => (c.projectId ? c : { ...c, projectId }))
   const [conns, setConns] = useState<JiraConfig[]>(filteredConns.length ? filteredConns : [makeEmptyConn(projectId)])
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
@@ -562,23 +569,20 @@ export default function JiraConfigModal({ onClose, projectId }: Props) {
   }
 
   function save() {
-    if (projectId) {
-      // Merge: keep connections not belonging to this project, replace this project's connections
-      const others = jiraConnections.filter((c) => c.projectId !== projectId)
-      setJiraConnections([...others, ...conns])
-    } else {
-      setJiraConnections(conns)
-    }
+    // Keep other projects' connections untouched; replace only this project's. Unscoped
+    // ones were adopted into this project above, so drop them here too or they'd survive
+    // alongside their adopted copy.
+    const others = jiraConnections.filter((c) => c.projectId && c.projectId !== projectId)
+    setJiraConnections([...others, ...conns])
     onClose()
   }
 
   async function handleSyncNow() {
-    if (projectId) {
-      const others = jiraConnections.filter((c) => c.projectId !== projectId)
-      setJiraConnections([...others, ...conns])
-    } else {
-      setJiraConnections(conns)
-    }
+    // Keep other projects' connections untouched; replace only this project's. Unscoped
+    // ones were adopted into this project above, so drop them here too or they'd survive
+    // alongside their adopted copy.
+    const others = jiraConnections.filter((c) => c.projectId && c.projectId !== projectId)
+    setJiraConnections([...others, ...conns])
     setSyncing(true); setSyncResult(null)
     try {
       const { added, updated, removed } = await syncJira()
