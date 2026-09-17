@@ -183,19 +183,44 @@ async function gzipJson(data: Record<string, unknown>): Promise<{ body: BodyInit
   }
 }
 
-export async function saveCloudState(data: Record<string, unknown>): Promise<boolean> {
-  if (!getToken()) return false
+export type SaveFailReason = 'unauthorized' | 'network'
+export interface SaveResult { ok: boolean; reason?: SaveFailReason }
+
+// Set on pagehide so the final save switches to a keepalive request, which the browser
+// allows to outlive the document instead of killing it mid-flight.
+let unloading = false
+export function markUnloading(): void { unloading = true }
+
+// A state PUT that never settles would block the save queue forever (nothing else can
+// flush while one is in flight), so give it a hard ceiling and let the retry take over.
+const SAVE_TIMEOUT_MS = 45_000
+// keepalive requests are capped at 64KB by the fetch spec — only usable for a payload
+// that actually fits, which gzip usually achieves for all but the largest states.
+const KEEPALIVE_MAX_BYTES = 60_000
+
+export async function saveCloudState(data: Record<string, unknown>): Promise<SaveResult> {
+  if (!getToken()) return { ok: false, reason: 'unauthorized' }
   try {
     const { body, headers } = await gzipJson(data)
-    const res = await fetch(`${API_URL}/pm-tracker/state`, {
-      method: 'PUT',
-      headers: { ...authHeaders(), ...headers },
-      body,
-    })
-    if (res.status === 401) { clearToken(); return false }
-    return res.ok
+    const size = body instanceof Blob ? body.size : new Blob([body as string]).size
+    const useKeepalive = unloading && size <= KEEPALIVE_MAX_BYTES
+
+    const controller = new AbortController()
+    const timer = useKeepalive ? null : setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS)
+    try {
+      const res = await fetch(`${API_URL}/pm-tracker/state`, {
+        method: 'PUT',
+        headers: { ...authHeaders(), ...headers },
+        body,
+        ...(useKeepalive ? { keepalive: true } : { signal: controller.signal }),
+      })
+      if (res.status === 401) { clearToken(); return { ok: false, reason: 'unauthorized' } }
+      return res.ok ? { ok: true } : { ok: false, reason: 'network' }
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   } catch {
-    return false
+    return { ok: false, reason: 'network' }
   }
 }
 

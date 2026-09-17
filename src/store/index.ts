@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
-import { loadCloudState, saveCloudState } from '../utils/cloud-api'
+import { loadCloudState, saveCloudState, markUnloading } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
@@ -88,43 +88,80 @@ function buildPersistPayload(state: AppState): Record<string, unknown> {
 // state instead of one request per keystroke — cutting network + backend memory pressure.
 let pendingPayload: Record<string, unknown> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+// Only ever ONE state PUT in flight at a time. The payload is the entire state blob
+// (multiple MB), so a save can take seconds; without this guard an edit made mid-upload
+// would start a second concurrent full-blob PUT, and the two would race to overwrite each
+// other while competing for the same connection and backend memory.
+let saveInFlight = false
+let retryAttempt = 0
 const SAVE_DEBOUNCE_MS = 800
-const SAVE_RETRY_MS = 5000
+const SAVE_RETRY_BASE_MS = 2000
+const SAVE_RETRY_MAX_MS = 60_000
+
+// Exponential backoff with jitter — a fixed 5s retry against a struggling backend just
+// keeps hammering it with multi-MB uploads, which is what turns a blip into an outage.
+function retryDelay(attempt: number): number {
+  const exp = Math.min(SAVE_RETRY_BASE_MS * 2 ** attempt, SAVE_RETRY_MAX_MS)
+  return exp / 2 + Math.random() * (exp / 2)
+}
+
+function scheduleFlush(ms: number): void {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => { saveTimer = null; flushPersist() }, ms)
+}
 
 function flushPersist(): void {
   if (!pendingPayload) return
+  // A save is already uploading — leave the payload queued. Whatever is pending when that
+  // one finishes gets flushed then, so the newest state still reaches the server.
+  if (saveInFlight) return
   const payload = pendingPayload
   pendingPayload = null
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  saveInFlight = true
   useStore.setState({ saveStatus: 'saving' })
-  void saveCloudState(payload).then((ok) => {
-    if (ok) {
-      useStore.setState({ saveStatus: 'saved' })
-    } else {
-      useStore.setState({ saveStatus: 'error' })
-      // retry with the same payload unless a newer save has since superseded it
-      if (!pendingPayload) {
-        pendingPayload = payload
-        if (saveTimer) clearTimeout(saveTimer)
-        saveTimer = setTimeout(flushPersist, SAVE_RETRY_MS)
-      }
+  void saveCloudState(payload).then((res) => {
+    saveInFlight = false
+    if (res.ok) {
+      retryAttempt = 0
+      useStore.setState({ saveStatus: pendingPayload ? 'saving' : 'saved', saveError: null })
+      // A newer edit arrived while this was uploading — send it now.
+      if (pendingPayload) scheduleFlush(0)
+      return
     }
+    // Session expired: retrying is pointless (every attempt fails instantly with no token)
+    // and silently pretending to "retry automatically" is how edits get lost. Surface it.
+    if (res.reason === 'unauthorized') {
+      pendingPayload = payload
+      useStore.setState({ saveStatus: 'error', saveError: 'unauthorized' })
+      return
+    }
+    useStore.setState({ saveStatus: 'error', saveError: 'network' })
+    // Keep the failed payload unless a newer one already superseded it — never drop edits.
+    if (!pendingPayload) pendingPayload = payload
+    scheduleFlush(retryDelay(retryAttempt++))
   })
 }
 
 function persistState(state: AppState): void {
   pendingPayload = buildPersistPayload(state)
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(flushPersist, SAVE_DEBOUNCE_MS)
+  // Don't let a fresh edit reset an in-progress backoff timer into a tight loop; the
+  // post-flight flush above already picks up whatever is pending.
+  if (saveInFlight) return
+  scheduleFlush(SAVE_DEBOUNCE_MS)
 }
 
 // Don't lose a pending debounced save when the tab is hidden or closed.
 if (typeof window !== 'undefined') {
   const flushIfHidden = () => { if (document.visibilityState === 'hidden') flushPersist() }
   window.addEventListener('visibilitychange', flushIfHidden)
-  window.addEventListener('pagehide', flushPersist)
-  // Retry immediately once connectivity returns, instead of waiting out SAVE_RETRY_MS.
-  window.addEventListener('online', () => { if (pendingPayload) flushPersist() })
+  // On pagehide the document is going away, so a normal fetch is killed mid-flight —
+  // saveCloudState uses keepalive for this case so the request still completes.
+  window.addEventListener('pagehide', () => { markUnloading(); flushPersist() })
+  // Retry immediately once connectivity returns, instead of waiting out the backoff.
+  window.addEventListener('online', () => {
+    if (pendingPayload) { retryAttempt = 0; scheduleFlush(0) }
+  })
 }
 
 interface StoreActions {
@@ -194,6 +231,9 @@ interface StoreActions {
   setSearchQuery: (q: string) => void
   cloudSyncing: boolean
   saveStatus: 'saved' | 'saving' | 'error'
+  // Distinguishes a transient network failure (genuinely retrying) from an expired session
+  // (retrying is futile — the user must sign in again or their edits are never saved).
+  saveError: 'unauthorized' | 'network' | null
 
   setReleaseNoteColumns: (cols: ReleaseNoteColumn[]) => void
   setReleaseNoteData: (data: Record<string, ReleaseNoteIssueData>) => void
@@ -219,6 +259,7 @@ export const useStore = create<Store>((set, get) => {
     ...base,
     cloudSyncing: true,
     saveStatus: 'saved',
+    saveError: null,
     searchQuery: '',
 
     setView: (view) => set({ view }),
@@ -1929,7 +1970,7 @@ export const useStore = create<Store>((set, get) => {
         selectedProject: 'ALL',
       }
       set(next)
-      return saveCloudState({
+      const res = await saveCloudState({
         _v: 2,
         developers: next.developers,
         projects: next.projects,
@@ -1942,6 +1983,7 @@ export const useStore = create<Store>((set, get) => {
         githubConnections: next.githubConnections,
         trackerTimezone: next.trackerTimezone,
       })
+      return res.ok
     },
   }
 })
