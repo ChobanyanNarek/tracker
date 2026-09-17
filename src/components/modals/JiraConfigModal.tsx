@@ -250,13 +250,19 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       const fetched = await fetchJiraStatuses(conn)
       setStatuses(fetched)
       const existing = conn.statusMappings ?? []
-      const merged: JiraStatusMapping[] = fetched.map((s) => {
-        const prev = existing.find((m) => m.jiraStatus.toLowerCase() === s.name.toLowerCase())
-        if (prev) return prev
+      // One mapping per distinct status name. Mapping over the raw list wrote a row per
+      // Jira workflow, so duplicates piled up and a stale copy could override an edit.
+      const seen = new Set<string>()
+      const merged: JiraStatusMapping[] = fetched.flatMap((s) => {
+        const key = s.name.trim().toLowerCase()
+        if (!key || seen.has(key)) return []
+        seen.add(key)
+        const prev = existing.find((m) => m.jiraStatus.trim().toLowerCase() === key)
+        if (prev) return [prev]
         let groupId = 'todo'
         if (s.categoryKey === 'indeterminate') groupId = 'inprogress'
         if (s.categoryKey === 'done') groupId = 'hidden'
-        return { jiraStatus: s.name, groupId }
+        return [{ jiraStatus: s.name, groupId }]
       })
       onChange({ ...conn, statusMappings: merged })
     } catch (err) {
@@ -265,12 +271,40 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     setFetchingStatuses(false)
   }
 
-  function updateMapping(idx: number, m: JiraStatusMapping) {
-    const updated = [...(conn.statusMappings ?? [])]; updated[idx] = m
-    onChange({ ...conn, statusMappings: updated })
+  // Match on status NAME, never on array index. `statuses` (fetched from Jira) and
+  // `statusMappings` (saved) are separate arrays with different lengths and order, so
+  // writing mappings[i] for statuses[i] lands the change on an unrelated status.
+  function findMapping(statusName: string): JiraStatusMapping | undefined {
+    const key = statusName.trim().toLowerCase()
+    return (conn.statusMappings ?? []).find((m) => m.jiraStatus.trim().toLowerCase() === key)
   }
 
-  const mappings = conn.statusMappings ?? []
+  function setMappingFor(statusName: string, m: JiraStatusMapping) {
+    const key = statusName.trim().toLowerCase()
+    const current = conn.statusMappings ?? []
+    let found = false
+    // Jira returns one status row per workflow, so the same name can be saved several
+    // times. Update every row for that name, or the stale copies keep fighting the change.
+    const updated = current.map((x) => {
+      if (x.jiraStatus.trim().toLowerCase() !== key) return x
+      found = true
+      return { ...m, jiraStatus: x.jiraStatus }
+    })
+    onChange({ ...conn, statusMappings: found ? updated : [...current, { ...m, jiraStatus: statusName }] })
+  }
+
+  // Jira returns one row per workflow, so a name like "Code Review" comes back several
+  // times and rendered as duplicate rows that each wrote to a different mapping.
+  const uniqueStatuses = (() => {
+    const byName = new Map<string, JiraStatusInfo>()
+    for (const st of statuses) {
+      const key = st.name.trim().toLowerCase()
+      if (!key) continue
+      const prev = byName.get(key)
+      if (!prev || (prev.categoryKey === 'new' && st.categoryKey !== 'new')) byName.set(key, st)
+    }
+    return [...byName.values()]
+  })()
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '14px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
@@ -445,8 +479,14 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
               <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Show as group</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {statuses.map((s, i) => (
-                <MappingRow key={s.name} info={s} mapping={mappings[i] ?? { jiraStatus: s.name, groupId: 'todo' }} groups={groups} onChange={(m) => updateMapping(i, m)} />
+              {uniqueStatuses.map((s) => (
+                <MappingRow
+                  key={s.name}
+                  info={s}
+                  mapping={findMapping(s.name) ?? { jiraStatus: s.name, groupId: 'todo' }}
+                  groups={groups}
+                  onChange={(m) => setMappingFor(s.name, m)}
+                />
               ))}
             </div>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', background: 'var(--surface3)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', marginTop: 8, lineHeight: 1.5 }}>
