@@ -24,7 +24,7 @@ export interface GitLabConfig {
   token: string
   groupPath: string       // e.g. 'mycompany' or 'mycompany/subgroup'
   syncInterval: number    // minutes; 0 = manual only
-  developerUsernames?: Record<string, string>  // devId → gitlab username for this connection
+  developerUsernames?: Record<string, string | string[]>  // devId → gitlab username(s) for this connection; read via identityList()
   lastSync?: string
   lastSyncResult?: string
   projectId?: string      // if set, this connection belongs to a specific project; empty = global
@@ -37,7 +37,7 @@ export interface GitHubConfig {
   token: string
   orgOrUser: string       // GitHub org or user — all repos in this org are scanned (mirrors GitLab groupPath)
   syncInterval: number    // minutes; 0 = manual only
-  developerUsernames?: Record<string, string>  // devId → github username
+  developerUsernames?: Record<string, string | string[]>  // devId → github username(s); read via identityList()
   lastSync?: string
   lastSyncResult?: string
   projectId?: string      // if set, this connection belongs to a specific project; empty = global
@@ -66,7 +66,7 @@ export interface JiraConfig {
   token: string
   projectKeys: string[]
   syncInterval: number  // minutes; 0 = manual only
-  developerEmails?: Record<string, string>  // devId → jira email for this connection
+  developerEmails?: Record<string, string | string[]>  // devId → jira email(s) for this connection; read via identityList()
   statusGroups?: StatusGroup[]              // user-defined display groups
   statusMappings?: JiraStatusMapping[]      // jiraStatus → groupId mapping
   boardId?: number                          // board mode: sync only issues from this one board (Agile API)
@@ -172,10 +172,15 @@ export interface Developer {
    * Default integration identities. Each sync prefers the per-connection override
    * (conn.developerEmails / conn.developerUsernames) and falls back to these, so a
    * username set once here works across every connection without re-entry.
+   *
+   * A developer can legitimately have several identities per service (work vs personal
+   * account, a renamed handle, separate Jira instances), so these accept a list. The
+   * bare-string form is still accepted because that's what existing saved data holds —
+   * always read them through identityList() rather than touching them directly.
    */
-  jiraEmail?: string
-  gitlabUsername?: string
-  githubUsername?: string
+  jiraEmail?: string | string[]
+  gitlabUsername?: string | string[]
+  githubUsername?: string | string[]
   archivedAt?: string
   workSchedule?: WorkSchedule
 }

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
 import { loadCloudState, saveCloudState, markUnloading } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
-import { getJiras, jiraDedupeKey } from '../utils/format'
+import { getJiras, jiraDedupeKey, resolveIdentities } from '../utils/format'
 import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
@@ -1233,8 +1233,7 @@ export const useStore = create<Store>((set, get) => {
       const members = proj.members ?? []
       const emails = [...new Set(developers
         .filter((d) => members.length === 0 || members.includes(d.id))
-        .map((d) => conn.developerEmails?.[d.id] || d.jiraEmail || '')
-        .filter(Boolean))]
+        .flatMap((d) => resolveIdentities(conn.developerEmails?.[d.id], d.jiraEmail)))]
       try {
         const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
         set((s) => ({ ...s, projects: s.projects.map((p) => p.id === projectId ? { ...p, boardIssueKeys: keys } : p) }))
@@ -1287,9 +1286,15 @@ export const useStore = create<Store>((set, get) => {
 
       for (const conn of enabledConns) {
         const projList = conn.projectKeys.map((k) => `"${k.trim()}"`).join(',')
+        // A developer can hold several Jira identities (separate instances, a renamed
+        // account). `emails` carries all of them; `email` is the primary, used where a
+        // single value is required (the board API takes one assignee per call).
         const connDevs = developers
-          .map((d) => ({ dev: d, email: conn.developerEmails?.[d.id] || d.jiraEmail || '' }))
-          .filter((x) => x.email)
+          .map((d) => {
+            const emails = resolveIdentities(conn.developerEmails?.[d.id], d.jiraEmail)
+            return { dev: d, emails, email: emails[0] ?? '' }
+          })
+          .filter((x) => x.emails.length > 0)
 
         // Resolve effective board ID: project's jiraBoardId takes priority over conn.boardId
         const linkedProj = conn.projectId ? projects.find((p) => p.id === conn.projectId) : null
@@ -1306,36 +1311,48 @@ export const useStore = create<Store>((set, get) => {
         // wrongly delete issues that are still genuinely assigned (this happened in
         // production — see the commit that added this comment).
         const truncatedDevs = new Set<string>()
-        for (const { dev, email } of connDevs) {
+        for (const { dev, emails } of connDevs) {
           let devIssues: JiraIssueRaw[]
           let truncated = false
-          try {
-          if (effectiveBoardId) {
-            // Board mode: single board, active sprint only
-            const r = await fetchJiraBoardIssues(conn, effectiveBoardId, email)
-            devIssues = r.issues
-            truncated = r.truncated
-          } else if (conn.allowedBoardIds?.length) {
-            // Project mode with board filter: fetch from each allowed board and union
-            const perBoard = await Promise.all(
-              conn.allowedBoardIds.map((bid) =>
-                fetchJiraBoardIssues(conn, bid, email).catch(() => ({ issues: [] as JiraIssueRaw[], truncated: false }))
-              )
-            )
-            truncated = perBoard.some((r) => r.truncated)
+          // Merge issues fetched across a developer's identities, keyed by issue key so
+          // the same issue found under two accounts appears once.
+          const dedupe = (lists: JiraIssueRaw[][]): JiraIssueRaw[] => {
             const seen = new Set<string>()
-            devIssues = perBoard.flatMap((r) => r.issues).filter((issue) => {
+            return lists.flat().filter((issue) => {
               if (seen.has(issue.key)) return false
               seen.add(issue.key)
               return true
             })
+          }
+          try {
+          if (effectiveBoardId) {
+            // Board mode: one board, one assignee per call — so query each identity.
+            const perEmail = await Promise.all(
+              emails.map((e) =>
+                fetchJiraBoardIssues(conn, effectiveBoardId, e).catch(() => ({ issues: [] as JiraIssueRaw[], truncated: false }))
+              )
+            )
+            truncated = perEmail.some((r) => r.truncated)
+            devIssues = dedupe(perEmail.map((r) => r.issues))
+          } else if (conn.allowedBoardIds?.length) {
+            // Project mode with board filter: every allowed board × every identity.
+            const perBoard = await Promise.all(
+              conn.allowedBoardIds.flatMap((bid) =>
+                emails.map((e) =>
+                  fetchJiraBoardIssues(conn, bid, e).catch(() => ({ issues: [] as JiraIssueRaw[], truncated: false }))
+                )
+              )
+            )
+            truncated = perBoard.some((r) => r.truncated)
+            devIssues = dedupe(perBoard.map((r) => r.issues))
           } else {
             const statusFilter = buildJqlStatusFilter(conn.statusMappings)
-            // Match assignee by both the full email AND the username (local-part before @).
-            // Some Jira instances identify users by username, not email, so `assignee = "email"`
-            // alone silently misses those issues.
-            const localPart = email.includes('@') ? email.slice(0, email.indexOf('@')) : email
-            const assigneeVals = [...new Set([email, localPart])].map((v) => `"${v}"`).join(', ')
+            // Match every identity by both the full email AND the username (local-part
+            // before @) — some Jira instances identify users by username, not email, so
+            // `assignee = "email"` alone silently misses those issues.
+            const assigneeVals = [...new Set(
+              emails.flatMap((e) => [e, e.includes('@') ? e.slice(0, e.indexOf('@')) : e]),
+            )].map((v) => `"${v}"`).join(', ')
             const assigneeClause = `assignee in (${assigneeVals})`
             const projClause = projList ? `project in (${projList})` : ''
             const buildJql = (withStatus: boolean) =>
@@ -1556,8 +1573,7 @@ export const useStore = create<Store>((set, get) => {
         const members = proj.members ?? []
         const emails = [...new Set(developers
           .filter((d) => members.length === 0 || members.includes(d.id))
-          .map((d) => conn.developerEmails?.[d.id] || d.jiraEmail || '')
-          .filter(Boolean))]
+          .flatMap((d) => resolveIdentities(conn.developerEmails?.[d.id], d.jiraEmail)))]
         try {
           const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
           boardKeyUpdates.set(proj.id, keys)
@@ -1654,10 +1670,11 @@ export const useStore = create<Store>((set, get) => {
       const syncedConns: GitLabConfig[] = []
 
       for (const conn of enabledConns) {
-        const devUsernames = developers
+        // Every identity a developer has — these only widen which MRs get fetched into
+        // the shared pool; linking to tasks happens by Jira key, not by username.
+        const devUsernames = [...new Set(developers
           .filter((d) => !d.archivedAt)
-          .map((d) => (conn.developerUsernames?.[d.id] || d.gitlabUsername || '').trim())
-          .filter(Boolean)
+          .flatMap((d) => resolveIdentities(conn.developerUsernames?.[d.id], d.gitlabUsername)))]
 
         try {
           const groupMrs = await fetchGroupMRs(conn)
@@ -1830,12 +1847,11 @@ export const useStore = create<Store>((set, get) => {
       const syncedConns: GitHubConfig[] = []
 
       for (const conn of enabledConns) {
-        const devUsernames = developers
+        // Every identity a developer has — these only widen which PRs get fetched into
+        // the shared pool; linking to tasks happens by Jira key, not by username.
+        const devUsernames = [...new Set(developers
           .filter((d) => !d.archivedAt)
-          // Fall back to the developer's own GitHub username, matching how the Jira and
-          // GitLab syncs already treat their per-developer defaults.
-          .map((d) => (conn.developerUsernames?.[d.id] || d.githubUsername || '').trim())
-          .filter(Boolean)
+          .flatMap((d) => resolveIdentities(conn.developerUsernames?.[d.id], d.githubUsername)))]
 
         if (conn.orgOrUser.trim()) {
           try {

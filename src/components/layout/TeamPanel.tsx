@@ -17,6 +17,16 @@ interface PanelProps {
 
 const PALETTE = ['#2563eb', '#d97706', '#16a34a', '#0d9488', '#db2777', '#7c3aed', '#dc2626']
 
+/*
+ * Raw editable rows for an identity field: unlike identityList(), this KEEPS blank rows,
+ * because a just-added empty row must survive long enough for the user to type into it.
+ * Only handles the legacy bare-string shape; everything else is passed through as-is.
+ */
+function identityRows(value: string | string[] | undefined): string[] {
+  if (value == null) return []
+  return Array.isArray(value) ? value : [value]
+}
+
 const field: React.CSSProperties = {
   width: '100%', padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)',
   background: 'var(--surface)', color: 'var(--text)', fontSize: 13, outline: 'none', boxSizing: 'border-box',
@@ -24,6 +34,57 @@ const field: React.CSSProperties = {
 const label: React.CSSProperties = {
   display: 'block', fontFamily: 'var(--mono)', fontSize: 9, fontWeight: 600,
   letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 4,
+}
+
+/*
+ * One identity per row, with a + to add more — a developer often has several accounts per
+ * service (work vs personal, a renamed handle, separate Jira instances) and every one of
+ * them is used when syncing. Always emits an array, even for a single value, so callers
+ * never have to deal with the legacy bare-string shape.
+ */
+function IdentityRows({ values, placeholder, onChange }: {
+  values: string[]
+  placeholder: string
+  onChange: (next: string[]) => void
+}) {
+  /*
+   * Rows are rendered from the RAW stored array, not a cleaned list: a freshly added row
+   * is empty, and filtering blanks out would delete it the instant it appeared, making
+   * "Add another" look broken. Blanks are ignored when reading (identityList) and are
+   * harmless in storage, so they can safely live here until the user types or removes them.
+   */
+  const rows = values.length ? values : ['']
+
+  const setAt = (i: number, v: string) => {
+    const next = [...rows]
+    next[i] = v
+    onChange(next)
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {rows.map((v, i) => (
+        <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <input style={field} value={v} placeholder={placeholder} onChange={(e) => setAt(i, e.target.value)} />
+          {rows.length > 1 && (
+            <button
+              onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              title="Remove"
+              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text3)', cursor: 'pointer', display: 'flex', padding: 5, flexShrink: 0 }}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        onClick={() => onChange([...rows, ''])}
+        style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 10, padding: '2px 0' }}
+      >
+        <Icon name="plus" size={10} /> Add another
+      </button>
+    </div>
+  )
 }
 
 export default function TeamPanel({ open, onClose, topOffset }: PanelProps) {
@@ -121,15 +182,15 @@ export default function TeamPanel({ open, onClose, topOffset }: PanelProps) {
             <input style={field} value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} placeholder="e.g. Frontend" onKeyDown={(e) => e.key === 'Enter' && handleAdd()} />
           </div>
           <div>
-            <span style={label}>Jira email</span>
+            <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="jira" size={10} /> Jira email</span>
             <input style={field} value={draft.jiraEmail} onChange={(e) => setDraft({ ...draft, jiraEmail: e.target.value })} placeholder="name@company.com" />
           </div>
           <div>
-            <span style={label}>GitLab username</span>
+            <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="gitlab" size={10} /> GitLab username</span>
             <input style={field} value={draft.gitlabUsername} onChange={(e) => setDraft({ ...draft, gitlabUsername: e.target.value })} placeholder="username" />
           </div>
           <div>
-            <span style={label}>GitHub username</span>
+            <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="github" size={10} /> GitHub username</span>
             <input style={field} value={draft.githubUsername} onChange={(e) => setDraft({ ...draft, githubUsername: e.target.value })} placeholder="username" />
           </div>
           <div>
@@ -280,20 +341,33 @@ function DevCard({ dev, projects, expanded, onToggle, onUpdate, onToggleMember, 
             <span style={label}>Integrations</span>
             <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
               <div>
-                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="jira" size={10} /> Jira email</span>
-                <input style={field} value={dev.jiraEmail ?? ''} onChange={(e) => onUpdate({ jiraEmail: e.target.value || undefined })} placeholder="name@company.com" />
+                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="jira" size={10} /> Jira emails</span>
+                <IdentityRows
+                  values={identityRows(dev.jiraEmail)}
+                  placeholder="name@company.com"
+                  onChange={(next) => onUpdate({ jiraEmail: next })}
+                />
               </div>
               <div>
-                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="gitlab" size={10} /> GitLab username</span>
-                <input style={field} value={dev.gitlabUsername ?? ''} onChange={(e) => onUpdate({ gitlabUsername: e.target.value || undefined })} placeholder="username" />
+                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="gitlab" size={10} /> GitLab usernames</span>
+                <IdentityRows
+                  values={identityRows(dev.gitlabUsername)}
+                  placeholder="username"
+                  onChange={(next) => onUpdate({ gitlabUsername: next })}
+                />
               </div>
               <div>
-                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="github" size={10} /> GitHub username</span>
-                <input style={field} value={dev.githubUsername ?? ''} onChange={(e) => onUpdate({ githubUsername: e.target.value || undefined })} placeholder="username" />
+                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="github" size={10} /> GitHub usernames</span>
+                <IdentityRows
+                  values={identityRows(dev.githubUsername)}
+                  placeholder="username"
+                  onChange={(next) => onUpdate({ githubUsername: next })}
+                />
               </div>
             </div>
             <div style={{ fontSize: 10, color: 'var(--text4)', marginTop: 6 }}>
-              Used by every connection unless that connection sets its own override for this developer.
+              All values are used when syncing — add several if a developer has more than one
+              account. A connection that sets its own override for this developer wins.
             </div>
           </div>
 

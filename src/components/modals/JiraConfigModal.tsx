@@ -6,6 +6,7 @@ import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX } from '../.
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
+import { identityList } from '../../utils/format'
 
 interface Props { onClose: () => void; projectId?: string }
 
@@ -194,17 +195,19 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, [key]: value })
   }
   function addDev(devId: string) {
-    // Prefill from the developer's default Jira email (set in Team) so it doesn't have to
-    // be retyped for every connection; still editable as a per-connection override.
-    const fallback = developers.find((d) => d.id === devId)?.jiraEmail ?? ''
-    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: fallback } })
+    // Prefill from the developer's default Jira email(s) (set in Team) so they don't have
+    // to be retyped for every connection; still editable as a per-connection override.
+    const fallback = identityList(developers.find((d) => d.id === devId)?.jiraEmail)
+    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: fallback.length ? fallback : [''] } })
   }
   function removeDev(devId: string) {
     const emails = { ...(conn.developerEmails ?? {}) }; delete emails[devId]
     onChange({ ...conn, developerEmails: emails })
   }
   function setDevEmail(devId: string, email: string) {
-    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: email } })
+    // Comma-separated: a developer can have several Jira identities (separate instances,
+    // a renamed account), and all of them are matched. identityList() trims and drops blanks.
+    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: email.split(',').map((s) => s.trim()) } })
   }
   function commitKeys(raw: string) {
     setProjectKeysRaw(raw)
@@ -466,7 +469,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
               <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
                 <span style={{ fontSize: 12, color: 'var(--text)', width: 110, flexShrink: 0 }}>{d.name}</span>
-                <input style={{ ...inputStyle, flex: 1 }} placeholder="jira@company.com" value={conn.developerEmails?.[d.id] ?? ''} onChange={(e) => setDevEmail(d.id, e.target.value)} />
+                <input style={{ ...inputStyle, flex: 1 }} placeholder="jira@company.com, other@company.com" title="Separate multiple emails with commas" value={identityList(conn.developerEmails?.[d.id]).join(', ')} onChange={(e) => setDevEmail(d.id, e.target.value)} />
                 <button onClick={() => removeDev(d.id)} title="Remove" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px' }}><Icon name="close" size={13} /></button>
               </div>
             ))}

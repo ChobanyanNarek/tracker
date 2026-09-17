@@ -152,3 +152,36 @@ export function subscribePresets(fn: () => void): () => void {
   _presetListeners.add(fn)
   return () => _presetListeners.delete(fn)
 }
+
+/*
+ * Integration identities (Jira emails, GitLab/GitHub usernames) are stored either as a
+ * single string (the original shape, still present in saved data) or as a list. This is
+ * the ONLY place that difference is handled — everything else should call this and work
+ * with a clean array of non-empty, trimmed values.
+ */
+export function identityList(value: string | string[] | undefined): string[] {
+  if (!value) return []
+  const arr = Array.isArray(value) ? value : [value]
+  const seen = new Set<string>()
+  return arr
+    .map((v) => (v ?? '').trim())
+    .filter((v) => {
+      if (!v || seen.has(v)) return false
+      seen.add(v)
+      return true
+    })
+}
+
+/*
+ * Resolve a developer's identities for one connection: the connection's own override
+ * wins when it has any usable value, otherwise the developer's global default. An
+ * override that exists but is blank must NOT beat the default — that silently synced
+ * nothing before.
+ */
+export function resolveIdentities(
+  override: string | string[] | undefined,
+  fallback: string | string[] | undefined,
+): string[] {
+  const o = identityList(override)
+  return o.length ? o : identityList(fallback)
+}

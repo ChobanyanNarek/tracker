@@ -3,6 +3,7 @@ import { useStore } from '../../store'
 import type { GitHubConfig } from '../../types'
 import { normalizeGithubPath } from '../../utils/github-api'
 import { formatDateTime } from '../../utils/dates'
+import { identityList } from '../../utils/format'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 
@@ -49,10 +50,10 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   }
 
   function addDev(devId: string) {
-    // Prefill from the developer's default GitHub username (set in Team) so it doesn't
+    // Prefill from the developer's default GitHub username(s) (set in Team) so they don't
     // have to be retyped for every connection; still editable as a per-connection override.
-    const fallback = developers.find((d) => d.id === devId)?.githubUsername ?? ''
-    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: fallback } })
+    const fallback = identityList(developers.find((d) => d.id === devId)?.githubUsername)
+    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: fallback.length ? fallback : [''] } })
   }
 
   function removeDev(devId: string) {
@@ -62,7 +63,9 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   }
 
   function setDevUsername(devId: string, username: string) {
-    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: username } })
+    // Comma-separated: a developer can have several GitHub accounts, and all of them are
+    // used when fetching. Stored as an array; identityList() trims and drops blanks.
+    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: username.split(',').map((s) => s.trim()) } })
   }
 
   function formatGithubError(msg: string): string {
@@ -215,10 +218,11 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
                 <span style={{ fontSize: 12, color: 'var(--text)', width: 110, flexShrink: 0 }}>{d.name}</span>
                 <input
                   style={{ ...inputStyle, flex: 1 }}
-                  placeholder="github-username"
-                  value={conn.developerUsernames?.[d.id] ?? ''}
+                  placeholder="github-username, another-account"
+                  title="Separate multiple usernames with commas"
+                  value={identityList(conn.developerUsernames?.[d.id]).join(', ')}
                   onChange={(e) => setDevUsername(d.id, e.target.value)}
-                  autoFocus={conn.developerUsernames?.[d.id] === ''}
+                  autoFocus={identityList(conn.developerUsernames?.[d.id]).length === 0}
                 />
                 <button onClick={() => removeDev(d.id)} title="Remove" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}><Icon name="close" size={13} /></button>
               </div>
