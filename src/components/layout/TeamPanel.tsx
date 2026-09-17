@@ -3,9 +3,17 @@ import { useStore } from '../../store'
 import { hexRgb, initials } from '../../utils/format'
 import { todayStr, formatDate } from '../../utils/dates'
 import type { Developer } from '../../types'
-import Icon from '../ui/Icon'
+import Icon, { BrandIcon } from '../ui/Icon'
 import EmptyState from '../ui/EmptyState'
 import ConfirmDialog from '../ui/ConfirmDialog'
+
+const PANEL_W = 560
+
+interface PanelProps {
+  open: boolean
+  onClose: () => void
+  topOffset: number
+}
 
 const PALETTE = ['#2563eb', '#d97706', '#16a34a', '#0d9488', '#db2777', '#7c3aed', '#dc2626']
 
@@ -18,7 +26,7 @@ const label: React.CSSProperties = {
   letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 4,
 }
 
-export default function TeamView() {
+export default function TeamPanel({ open, onClose, topOffset }: PanelProps) {
   const developers = useStore((s) => s.developers)
   const projects = useStore((s) => s.projects)
   const addDeveloper = useStore((s) => s.addDeveloper)
@@ -33,14 +41,14 @@ export default function TeamView() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState({ name: '', role: '', color: PALETTE[0]!, jiraEmail: '', gitlabUsername: '' })
+  const [draft, setDraft] = useState({ name: '', role: '', color: PALETTE[0]!, jiraEmail: '', gitlabUsername: '', githubUsername: '' })
 
   const active = developers.filter((d) => !d.archivedAt)
   const archived = developers.filter((d) => d.archivedAt)
   const shown = showArchived ? archived : active
   const deleting = developers.find((d) => d.id === deletingId)
 
-  const resetDraft = () => setDraft({ name: '', role: '', color: PALETTE[0]!, jiraEmail: '', gitlabUsername: '' })
+  const resetDraft = () => setDraft({ name: '', role: '', color: PALETTE[0]!, jiraEmail: '', gitlabUsername: '', githubUsername: '' })
 
   const handleAdd = () => {
     if (!draft.name.trim()) return
@@ -50,34 +58,55 @@ export default function TeamView() {
       color: draft.color,
       jiraEmail: draft.jiraEmail.trim() || undefined,
       gitlabUsername: draft.gitlabUsername.trim() || undefined,
+      githubUsername: draft.githubUsername.trim() || undefined,
     })
     resetDraft()
     setAdding(false)
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-      {/* header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <Icon name="users" size={16} color="var(--accent)" />
-        <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700 }}>Team</span>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', background: 'var(--surface3)', borderRadius: 20, padding: '2px 8px' }}>
-          {active.length} active{archived.length > 0 ? ` · ${archived.length} archived` : ''}
-        </span>
+    <>
+      {/* Backdrop */}
+      {open && (
+        <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 190, background: 'rgba(10,14,35,.2)', backdropFilter: 'blur(1px)', WebkitBackdropFilter: 'blur(1px)' }} />
+      )}
 
-        <div style={{ display: 'flex', gap: 5, marginLeft: 'auto', alignItems: 'center' }}>
-          {archived.length > 0 && (
-            <button className="btn-soft" onClick={() => setShowArchived((v) => !v)}>
-              <Icon name="archive" size={12} /> {showArchived ? 'Show active' : `Archived (${archived.length})`}
-            </button>
-          )}
-          <button
-            onClick={() => { setAdding((v) => !v); setEditingId(null) }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--accent)', background: adding ? 'var(--accent-dim)' : 'var(--accent)', color: adding ? 'var(--accent)' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-          >
-            <Icon name="plus" size={13} /> Add developer
+      <div style={{
+        position: 'fixed', top: topOffset, left: 0, width: PANEL_W, maxWidth: '100vw',
+        height: `calc(100vh - ${topOffset}px)`,
+        background: 'var(--surface)', borderRight: '1px solid var(--border)',
+        boxShadow: open ? '8px 0 40px rgba(25,35,90,.13)' : 'none',
+        zIndex: 200, display: 'flex', flexDirection: 'column',
+        transform: open ? 'translateX(0)' : 'translateX(-100%)',
+        transition: 'transform .24s cubic-bezier(.4,0,.2,1), box-shadow .24s',
+        overflow: 'hidden',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <Icon name="users" size={15} color="var(--accent)" />
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '1px' }}>Team</span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', background: 'var(--surface3)', borderRadius: 20, padding: '2px 8px' }}>
+            {active.length} active{archived.length > 0 ? ` · ${archived.length} archived` : ''}
+          </span>
+          <button onClick={onClose} title="Close" className="icon-btn" style={{ marginLeft: 'auto' }}>
+            <Icon name="close" size={14} />
           </button>
         </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+      {/* actions */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        {archived.length > 0 && (
+          <button className="btn-soft" onClick={() => setShowArchived((v) => !v)}>
+            <Icon name="archive" size={12} /> {showArchived ? 'Show active' : `Archived (${archived.length})`}
+          </button>
+        )}
+        <button
+          onClick={() => { setAdding((v) => !v); setEditingId(null) }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginLeft: 'auto', padding: '6px 12px', borderRadius: 8, border: '1px solid var(--accent)', background: adding ? 'var(--accent-dim)' : 'var(--accent)', color: adding ? 'var(--accent)' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+        >
+          <Icon name="plus" size={13} /> Add developer
+        </button>
       </div>
 
       {/* add form */}
@@ -98,6 +127,10 @@ export default function TeamView() {
           <div>
             <span style={label}>GitLab username</span>
             <input style={field} value={draft.gitlabUsername} onChange={(e) => setDraft({ ...draft, gitlabUsername: e.target.value })} placeholder="username" />
+          </div>
+          <div>
+            <span style={label}>GitHub username</span>
+            <input style={field} value={draft.githubUsername} onChange={(e) => setDraft({ ...draft, githubUsername: e.target.value })} placeholder="username" />
           </div>
           <div>
             <span style={label}>Color</span>
@@ -154,7 +187,9 @@ export default function TeamView() {
           onCancel={() => setDeletingId(null)}
         />
       )}
-    </div>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -228,14 +263,6 @@ function DevCard({ dev, projects, expanded, onToggle, onUpdate, onToggleMember, 
               <input style={field} value={dev.role} onChange={(e) => onUpdate({ role: e.target.value })} />
             </div>
             <div>
-              <span style={label}>Jira email</span>
-              <input style={field} value={dev.jiraEmail ?? ''} onChange={(e) => onUpdate({ jiraEmail: e.target.value || undefined })} placeholder="name@company.com" />
-            </div>
-            <div>
-              <span style={label}>GitLab username</span>
-              <input style={field} value={dev.gitlabUsername ?? ''} onChange={(e) => onUpdate({ gitlabUsername: e.target.value || undefined })} placeholder="username" />
-            </div>
-            <div>
               <span style={label}>Color</span>
               <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
                 {PALETTE.map((c) => (
@@ -245,6 +272,28 @@ function DevCard({ dev, projects, expanded, onToggle, onUpdate, onToggleMember, 
                 <input type="color" value={dev.color} onChange={(e) => onUpdate({ color: e.target.value })}
                   style={{ width: 30, height: 24, padding: 1, cursor: 'pointer', borderRadius: 6, border: '1px solid var(--border)', background: 'none' }} />
               </div>
+            </div>
+          </div>
+
+          {/* integration identities */}
+          <div>
+            <span style={label}>Integrations</span>
+            <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
+              <div>
+                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="jira" size={10} /> Jira email</span>
+                <input style={field} value={dev.jiraEmail ?? ''} onChange={(e) => onUpdate({ jiraEmail: e.target.value || undefined })} placeholder="name@company.com" />
+              </div>
+              <div>
+                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="gitlab" size={10} /> GitLab username</span>
+                <input style={field} value={dev.gitlabUsername ?? ''} onChange={(e) => onUpdate({ gitlabUsername: e.target.value || undefined })} placeholder="username" />
+              </div>
+              <div>
+                <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}><BrandIcon brand="github" size={10} /> GitHub username</span>
+                <input style={field} value={dev.githubUsername ?? ''} onChange={(e) => onUpdate({ githubUsername: e.target.value || undefined })} placeholder="username" />
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text4)', marginTop: 6 }}>
+              Used by every connection unless that connection sets its own override for this developer.
             </div>
           </div>
 

@@ -14,6 +14,7 @@ import Icon from './components/ui/Icon'
 import LoadingSpinner from './components/ui/LoadingSpinner'
 
 import ProjectPanel from './components/layout/ProjectPanel'
+import TeamPanel from './components/layout/TeamPanel'
 import Calendar from './components/calendar/Calendar'
 import DailyView from './components/views/DailyView'
 import DeadlinesView from './components/views/DeadlinesView'
@@ -25,7 +26,6 @@ import TimelineView from './components/views/TimelineView'
 import SprintBand from './components/sprint/SprintBand'
 import ReportView from './components/views/ReportView'
 import NotesView from './components/views/NotesView'
-import TeamView from './components/views/TeamView'
 
 const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
@@ -35,7 +35,6 @@ const VIEW_LABELS: Record<string, string> = {
   timeline: 'Timeline',
   report: 'Report',
   notes: 'Notes',
-  team: 'Team',
 }
 
 const VIEW_ICONS: Record<string, ReactNode> = {
@@ -47,7 +46,6 @@ const VIEW_ICONS: Record<string, ReactNode> = {
   timeline: <Icon name="timeline" size={14} />,
   report: <Icon name="chart" size={14} />,
   notes: <Icon name="notes" size={14} />,
-  team: <Icon name="users" size={14} />,
 }
 
 function PaymentCallback({ onDone }: { onDone: () => void }) {
@@ -229,8 +227,8 @@ function AuthedApp() {
     return () => window.removeEventListener('resize', check)
   }, [])
   const [toast, setToast] = useState<string | null>(null)
-  const [openPanel, setOpenPanel] = useState<'proj' | null>(null)
-  const togglePanel = (which: 'proj') => setOpenPanel((p) => (p === which ? null : which))
+  const [openPanel, setOpenPanel] = useState<'proj' | 'team' | null>(null)
+  const togglePanel = (which: 'proj' | 'team') => setOpenPanel((p) => (p === which ? null : which))
 
   const urgentProj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
   const filteredTasks = urgentProj ? tasks.filter((t) => t.projectId === selectedProject) : tasks
@@ -335,6 +333,7 @@ function AuthedApp() {
         onFeedback={showToast}
         onProjPanel={() => togglePanel('proj')}
         projPanelOpen={openPanel === 'proj'}
+        onTeamPanel={() => togglePanel('team')}
       />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
@@ -398,11 +397,11 @@ function AuthedApp() {
             {view === 'timeline' && <TimelineView />}
             {view === 'report' && <ReportView />}
             {view === 'notes' && <NotesView />}
-            {view === 'team' && <TeamView />}
           </div>
         </div>
 
         <ProjectPanel open={openPanel === 'proj'} onClose={() => setOpenPanel(null)} topOffset={isMobile ? 90 : 54} onToast={showToast} />
+        <TeamPanel open={openPanel === 'team'} onClose={() => setOpenPanel(null)} topOffset={isMobile ? 90 : 54} />
       </div>
 
       {toast && (

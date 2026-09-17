@@ -50,7 +50,10 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   }
 
   function addDev(devId: string) {
-    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: '' } })
+    // Prefill from the developer's default GitLab username (set in Team) so it doesn't
+    // have to be retyped for every connection; still editable as a per-connection override.
+    const fallback = developers.find((d) => d.id === devId)?.gitlabUsername ?? ''
+    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: fallback } })
   }
 
   function removeDev(devId: string) {

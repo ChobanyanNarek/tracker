@@ -366,7 +366,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
           const members = editingProjNow?.members ?? []
           const emails = developers
             .filter(d => members.length === 0 || members.includes(d.id))
-            .map(d => conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '')
+            .map(d => conn.developerEmails?.[d.id] || d.jiraEmail || '')
             .filter(Boolean)
           const [issueKeys, prefixes] = await Promise.all([
             fetchBoardIssueKeys(conn, boardId, [...new Set(emails)]),

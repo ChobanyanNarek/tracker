@@ -15,6 +15,7 @@ interface TopBarProps {
   urgentCount: number
   onFeedback: (msg: string) => void
   onProjPanel: () => void
+  onTeamPanel: () => void
   onAdminOpen?: () => void
   projPanelOpen: boolean
 }
@@ -24,7 +25,7 @@ const GearLogo = ({ size = 26 }: { size?: number }) => <LoadingSpinner size={siz
 const BellOn = () => <Icon name="bell" size={14} />
 const BellOff = () => <Icon name="bell-off" size={14} />
 
-function DevSelector() {
+function DevSelector({ onManageTeam }: { onManageTeam: () => void }) {
   const { developers, selectedDev, setSelectedDev, selectedProject, projects } = useStore()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -80,13 +81,27 @@ function DevSelector() {
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
             </button>
           ))}
+
+          {/* Manage, below the filter list — mirrors how the project segment both
+              filters and opens its settings panel. */}
+          <div style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 4 }}>
+            <button
+              onClick={() => { setOpen(false); onManageTeam() }}
+              style={{ width: '100%', padding: '7px 12px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: 8 }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)'; e.currentTarget.style.color = 'var(--accent)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text2)' }}
+            >
+              <Icon name="users" size={11} />
+              Manage team
+            </button>
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
+export default function TopBar({ urgentCount, onFeedback, onProjPanel, onTeamPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
   const { setNotifsEnabled, notifsEnabled, setView, setSelectedDate, searchQuery, setSearchQuery } = useStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
@@ -291,7 +306,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
         <div style={{ display: 'flex', alignItems: 'stretch', borderTop: '1px solid var(--border)', height: 40 }}>
           <ProjectSelector open={projPanelOpen} onToggle={onProjPanel} fill />
           <div style={{ display: 'flex', alignItems: 'center', padding: '0 8px', borderLeft: '1px solid var(--border)' }}>
-            <DevSelector />
+            <DevSelector onManageTeam={onTeamPanel} />
           </div>
         </div>
       </div>
@@ -317,7 +332,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, projPanel
         </button>
         <ProjectSelector open={projPanelOpen} onToggle={onProjPanel} />
         <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px', borderLeft: '1px solid var(--border)', height: '100%' }}>
-          <DevSelector />
+          <DevSelector onManageTeam={onTeamPanel} />
         </div>
       </div>
 

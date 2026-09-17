@@ -194,7 +194,10 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, [key]: value })
   }
   function addDev(devId: string) {
-    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: '' } })
+    // Prefill from the developer's default Jira email (set in Team) so it doesn't have to
+    // be retyped for every connection; still editable as a per-connection override.
+    const fallback = developers.find((d) => d.id === devId)?.jiraEmail ?? ''
+    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: fallback } })
   }
   function removeDev(devId: string) {
     const emails = { ...(conn.developerEmails ?? {}) }; delete emails[devId]

@@ -168,8 +168,14 @@ export interface Developer {
   role: string
   color: string
   periods?: EmploymentPeriod[]
+  /*
+   * Default integration identities. Each sync prefers the per-connection override
+   * (conn.developerEmails / conn.developerUsernames) and falls back to these, so a
+   * username set once here works across every connection without re-entry.
+   */
   jiraEmail?: string
   gitlabUsername?: string
+  githubUsername?: string
   archivedAt?: string
   workSchedule?: WorkSchedule
 }

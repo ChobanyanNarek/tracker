@@ -1233,7 +1233,7 @@ export const useStore = create<Store>((set, get) => {
       const members = proj.members ?? []
       const emails = [...new Set(developers
         .filter((d) => members.length === 0 || members.includes(d.id))
-        .map((d) => conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '')
+        .map((d) => conn.developerEmails?.[d.id] || d.jiraEmail || '')
         .filter(Boolean))]
       try {
         const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
@@ -1288,7 +1288,7 @@ export const useStore = create<Store>((set, get) => {
       for (const conn of enabledConns) {
         const projList = conn.projectKeys.map((k) => `"${k.trim()}"`).join(',')
         const connDevs = developers
-          .map((d) => ({ dev: d, email: conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '' }))
+          .map((d) => ({ dev: d, email: conn.developerEmails?.[d.id] || d.jiraEmail || '' }))
           .filter((x) => x.email)
 
         // Resolve effective board ID: project's jiraBoardId takes priority over conn.boardId
@@ -1556,7 +1556,7 @@ export const useStore = create<Store>((set, get) => {
         const members = proj.members ?? []
         const emails = [...new Set(developers
           .filter((d) => members.length === 0 || members.includes(d.id))
-          .map((d) => conn.developerEmails?.[d.id] ?? d.jiraEmail ?? '')
+          .map((d) => conn.developerEmails?.[d.id] || d.jiraEmail || '')
           .filter(Boolean))]
         try {
           const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
@@ -1656,7 +1656,7 @@ export const useStore = create<Store>((set, get) => {
       for (const conn of enabledConns) {
         const devUsernames = developers
           .filter((d) => !d.archivedAt)
-          .map((d) => (conn.developerUsernames?.[d.id] ?? d.gitlabUsername ?? '').trim())
+          .map((d) => (conn.developerUsernames?.[d.id] || d.gitlabUsername || '').trim())
           .filter(Boolean)
 
         try {
@@ -1832,7 +1832,9 @@ export const useStore = create<Store>((set, get) => {
       for (const conn of enabledConns) {
         const devUsernames = developers
           .filter((d) => !d.archivedAt)
-          .map((d) => (conn.developerUsernames?.[d.id] ?? '').trim())
+          // Fall back to the developer's own GitHub username, matching how the Jira and
+          // GitLab syncs already treat their per-developer defaults.
+          .map((d) => (conn.developerUsernames?.[d.id] || d.githubUsername || '').trim())
           .filter(Boolean)
 
         if (conn.orgOrUser.trim()) {
