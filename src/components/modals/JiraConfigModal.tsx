@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store'
 import type { JiraConfig, JiraStatusMapping, StatusGroup, StatusGroupColor } from '../../types'
 import { fetchJiraIssues, fetchJiraStatuses, fetchJiraBoards, type JiraStatusInfo, type JiraBoardInfo } from '../../utils/jira-api'
-import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX, dedupeMappings } from '../../utils/status-groups'
+import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX, dedupeMappings, repairAutoHiddenMappings } from '../../utils/status-groups'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
@@ -274,7 +274,16 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         if (s.categoryKey === 'done') groupId = 'done'
         return { jiraStatus: s.name, groupId }
       })
-      onChange({ ...conn, statusMappings: merged })
+      // Repair statuses that an older build auto-hid: hidden statuses are cut from the sync
+      // JQL, so their issues never arrived at all.
+      const { mappings: repairedMappings, repaired } = repairAutoHiddenMappings(merged, fetched, groups)
+      onChange({ ...conn, statusMappings: repairedMappings })
+      if (repaired.length) {
+        setTestResult({
+          ok: true,
+          msg: `Restored ${repaired.length} status${repaired.length === 1 ? '' : 'es'} that were hidden and therefore never synced: ${repaired.join(', ')}. Sync now to pull the missing issues.`,
+        })
+      }
     } catch (err) {
       setTestResult({ ok: false, msg: `Failed to fetch statuses: ${(err as Error).message}` })
     }
@@ -297,6 +306,39 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   }
 
   const mappings = conn.statusMappings ?? []
+  const hiddenCount = dedupeMappings(mappings).filter((m) => m.groupId === 'hidden').length
+
+  // Hidden statuses are excluded from the sync JQL, so their issues are never fetched.
+  // Each one is moved to the group its Jira category implies, so Done stays Done instead
+  // of reappearing as To Do -- which means we need the categories, and fetch them first if
+  // this session doesn't have them yet.
+  async function unhideAll() {
+    let known = statuses
+    if (!known.length && conn.baseUrl && conn.token) {
+      setFetchingStatuses(true)
+      try {
+        known = await fetchJiraStatuses(conn)
+        setStatuses(known)
+      } catch {
+        // Fall through: without categories we still un-hide, just less precisely.
+      }
+      setFetchingStatuses(false)
+    }
+
+    const { mappings: next, repaired } = repairAutoHiddenMappings(mappings, known, groups)
+    // Anything Jira didn't report has no category to go on; surface it rather than leave
+    // it silently excluded from the sync.
+    const unknown = next.filter((m) => m.groupId === 'hidden')
+    const final = next.map((m) => (m.groupId === 'hidden' ? { ...m, groupId: 'todo' } : m))
+    const total = repaired.length + unknown.length
+    onChange({ ...conn, statusMappings: final })
+    if (total) {
+      const note = unknown.length
+        ? ` ${unknown.length} (${unknown.map((m) => m.jiraStatus).join(', ')}) aren't in Jira's status list, so they were set to To Do — adjust if needed.`
+        : ''
+      setTestResult({ ok: true, msg: `${total} status${total === 1 ? '' : 'es'} un-hidden.${note} Click Save, then Sync now to pull the issues that were never fetched.` })
+    }
+  }
   // Use the same precedence the sync does, so what the row shows is what actually applies:
   // a name left visible by any saved row is shown as visible, not hidden by a stale duplicate.
   const effectiveMappings = dedupeMappings(mappings)
@@ -465,9 +507,21 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>Jira status → group</span>
-          <button onClick={fetchStatuses} disabled={fetchingStatuses || !conn.baseUrl || !conn.token} style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}>
-            {fetchingStatuses ? '…loading' : '⟳ Fetch statuses'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {hiddenCount > 0 && (
+              <button
+                onClick={() => { void unhideAll() }}
+                disabled={fetchingStatuses}
+                title="Hidden statuses are excluded from the sync, so their issues never arrive. This makes them visible again, using each status's Jira category to pick the right group."
+                style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--amber-dim)', border: '1px solid var(--amber-border)', color: 'var(--amber)', borderRadius: 5, padding: '3px 9px', cursor: fetchingStatuses ? 'default' : 'pointer', opacity: fetchingStatuses ? 0.5 : 1 }}
+              >
+                Unhide {hiddenCount} hidden
+              </button>
+            )}
+            <button onClick={fetchStatuses} disabled={fetchingStatuses || !conn.baseUrl || !conn.token} style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}>
+              {fetchingStatuses ? '…loading' : '⟳ Fetch statuses'}
+            </button>
+          </div>
         </div>
         {statuses.length > 0 ? (
           <>
