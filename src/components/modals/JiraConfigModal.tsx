@@ -480,6 +480,24 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         </select>
       </div>
 
+      {/* Which issues to pull. Assignee scope can only ever return issues assigned to a
+          configured identity; project scope also catches reassignments and accounts whose
+          identity isn't set up. */}
+      <div>
+        <span style={labelStyle}>Fetch issues by</span>
+        <select value={conn.fetchScope ?? 'assignee'} onChange={(e) => patch('fetchScope', e.target.value as 'assignee' | 'project')} style={{ ...inputStyle, cursor: 'pointer', width: 'auto', minWidth: 220 }}>
+          <option value="assignee">Assignee — only issues assigned to your developers</option>
+          <option value="project">Whole project — also finds reassigned issues</option>
+        </select>
+        {(conn.fetchScope ?? 'assignee') === 'project' && (
+          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 4, lineHeight: 1.5 }}>
+            Queries the whole project, then files each issue under its assignee. Issues with no
+            assignee — or one that matches no developer here — have no row to sit on and are
+            reported as skipped in the sync result. Requires project keys; ignored in board mode.
+          </div>
+        )}
+      </div>
+
       {/* How far back to pull closed issues. Separate from the status mappings: a Done issue
           older than this is skipped whatever group it maps to. */}
       <div>
