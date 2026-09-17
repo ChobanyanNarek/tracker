@@ -61,6 +61,25 @@ function freshState(): AppState {
   }
 }
 
+// A short, persistent record of what the save/load layer actually did. It survives
+// reloads, so when issues disappear the evidence of WHY is still there afterwards --
+// rather than needing the problem reproduced with the console already open.
+type SyncLogEntry = { t: string; ev: string; tasks?: number; jiras?: number; note?: string }
+function syncLog(ev: string, extra: Omit<SyncLogEntry, 't' | 'ev'> = {}): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    const prev = JSON.parse(localStorage.getItem('pm_sync_log') ?? '[]') as SyncLogEntry[]
+    prev.push({ t: new Date().toISOString().slice(11, 23), ev, ...extra })
+    localStorage.setItem('pm_sync_log', JSON.stringify(prev.slice(-40)))
+  } catch { /* storage full or blocked — diagnostics must never break the app */ }
+}
+
+function countJiras(tasks: AppState['tasks']): number {
+  let n = 0
+  for (const t of tasks) n += (t.jiras ?? []).length
+  return n
+}
+
 function buildPersistPayload(state: AppState): Record<string, unknown> {
   return {
     _v: 2,
@@ -123,11 +142,13 @@ function flushPersist(): void {
   pendingPayload = null
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
   saveInFlight = true
+  syncLog('save:start', { tasks: (payload.tasks as AppState['tasks'])?.length, jiras: countJiras((payload.tasks as AppState['tasks']) ?? []) })
   useStore.setState({ saveStatus: 'saving' })
   void saveCloudState(payload).then((res) => {
     saveInFlight = false
     if (res.ok) {
       retryAttempt = 0
+      syncLog('save:ok')
       useStore.setState({ saveStatus: pendingPayload ? 'saving' : 'saved', saveError: null })
       // A newer edit arrived while this was uploading — send it now.
       if (pendingPayload) scheduleFlush(0)
@@ -137,9 +158,11 @@ function flushPersist(): void {
     // and silently pretending to "retry automatically" is how edits get lost. Surface it.
     if (res.reason === 'unauthorized') {
       pendingPayload = payload
+      syncLog('save:FAIL', { note: 'unauthorized' })
       useStore.setState({ saveStatus: 'error', saveError: 'unauthorized' })
       return
     }
+    syncLog('save:FAIL', { note: 'network' })
     useStore.setState({ saveStatus: 'error', saveError: 'network' })
     // Keep the failed payload unless a newer one already superseded it — never drop edits.
     if (!pendingPayload) pendingPayload = payload
@@ -151,6 +174,7 @@ function flushPersist(): void {
 // is about to be killed anyway -- and sends the queued payload with keepalive so the
 // browser delivers it after the page is gone.
 function forceFlushOnUnload(): void {
+  syncLog('unload', { note: pendingPayload ? 'pending payload -> sending' : 'nothing pending' })
   if (!pendingPayload) return
   const payload = pendingPayload
   pendingPayload = null
@@ -1714,6 +1738,7 @@ export const useStore = create<Store>((set, get) => {
       // Push the sync's result to the server straight away rather than waiting out the
       // 800ms debounce. A reload inside that window used to discard everything the sync had
       // just fetched, which is why issues appeared and then vanished on the next page load.
+      syncLog('sync:done', { tasks: get().tasks.length, jiras: countJiras(get().tasks), note: `+${added} ~${updated} -${removed}` })
       persistNow(get())
       return { added, updated, removed }
       })()
@@ -2159,6 +2184,12 @@ export const useStore = create<Store>((set, get) => {
 })
 
 function applyCloudState(cloud: Record<string, unknown> | null, startedAtRevision?: number) {
+  const incoming = (cloud?.tasks as AppState['tasks'] | undefined)
+  syncLog('load', {
+    tasks: incoming?.length,
+    jiras: incoming ? countJiras(incoming) : undefined,
+    note: cloud === null ? 'null (unauthenticated / no data)' : undefined,
+  })
   // Local work happened while this load was in flight (typically the startup Jira sync).
   // The response is already stale, so applying it would silently revert that work.
   if (startedAtRevision !== undefined && localRevision !== startedAtRevision) {
@@ -2229,6 +2260,14 @@ export async function syncCloudToStore(): Promise<void> {
 // problems can be diagnosed without reaching into React internals. Safe, read-only.
 if (typeof window !== 'undefined') {
   ;(window as any).pmStore = useStore
+  // Paste the output of pmLog() to see exactly what the save/load layer did, including
+  // across reloads. pmLog(true) clears it.
+  ;(window as any).pmLog = (clear?: boolean) => {
+    if (clear) { localStorage.removeItem('pm_sync_log'); return 'cleared' }
+    const rows = JSON.parse(localStorage.getItem('pm_sync_log') ?? '[]')
+    console.table(rows)
+    return rows
+  }
   ;(window as any).pmWhy = (needle: string) => {
     const s = useStore.getState() as AppState
     const conn = getActiveJiraConn(s)
