@@ -281,6 +281,14 @@ export const useStore = create<Store>((set, get) => {
           ...s,
           developers: s.developers.filter((d) => d.id !== id),
           tasks: s.tasks.filter((t) => t.devId !== id),
+          // Also scrub them from every project's membership and join dates — otherwise a
+          // deleted developer lingers as a dangling id that member lookups can't resolve.
+          projects: s.projects.map((p) => {
+            if (!p.members.includes(id) && !p.joinDates?.[id]) return p
+            const joinDates = { ...(p.joinDates ?? {}) }
+            delete joinDates[id]
+            return { ...p, members: p.members.filter((m) => m !== id), joinDates }
+          }),
           selectedDev: s.selectedDev === id ? 'ALL' : s.selectedDev,
         }),
       ),
@@ -543,9 +551,17 @@ export const useStore = create<Store>((set, get) => {
           ...s,
           projects: s.projects.map((p) => {
             if (p.id !== projId) return p
-            const members = p.members.includes(devId)
+            const wasMember = p.members.includes(devId)
+            const members = wasMember
               ? p.members.filter((id) => id !== devId)
               : [...p.members, devId]
+            // Drop the join date when removing, so re-adding later doesn't silently
+            // resurrect a stale date the user never set for the new membership.
+            if (wasMember && p.joinDates?.[devId]) {
+              const joinDates = { ...p.joinDates }
+              delete joinDates[devId]
+              return { ...p, members, joinDates }
+            }
             return { ...p, members }
           }),
         }),

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore } from '../../../store'
+import { useStore, joinedByDate } from '../../../store'
 import { copyText } from '../../../utils/clipboard'
 import { formatDateTime, daysInMonth, padDate, isAmHoliday } from '../../../utils/dates'
 import Icon from '../../ui/Icon'
@@ -78,6 +78,9 @@ export default function MonthlySection() {
       let worked = 0
       daysList.forEach((ds) => {
         if (isWeekend(ds)) return
+        // Keep this in step with ScheduleView: days before the developer joined aren't
+        // theirs, so counting them here would contradict the Schedule dashboard.
+        if (!joinedByDate(projects, selectedProject, dev.id, ds)) return
         const amHol = isAmHoliday(ds)
         const entry = schedule[dev.id]?.[ds]
         const ddmm = ds.slice(8) + '.' + ds.slice(5, 7)
