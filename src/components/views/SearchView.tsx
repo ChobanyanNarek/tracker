@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStore } from '../../store'
+import { useStore, getActiveJiraConn } from '../../store'
 import { STATUS_LABEL } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
@@ -69,10 +69,10 @@ export default function SearchView() {
   const state = useStore()
   const {
     developers, projects, selectedProject,
-    searchQuery, setSearchQuery, jiraConnections,
+    searchQuery, setSearchQuery,
     setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView,
   } = state
-  const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
+  const conn = getActiveJiraConn(state)
 
   const q = searchQuery.trim()
 

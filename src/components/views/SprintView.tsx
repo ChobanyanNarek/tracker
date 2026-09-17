@@ -208,7 +208,8 @@ export default function SprintView() {
 
   const syncFromJira = async () => {
     if (!proj || proj.mode !== 'scrum' || !proj.jiraBoardId) return
-    const conn = jiraConnections.find((c) => c.enabled)
+    // This project's own connection only — never borrow another project's credentials.
+    const conn = jiraConnections.find((c) => c.enabled && c.projectId === proj.id)
     if (!conn) return
     setSyncing(true)
     setSyncError(null)

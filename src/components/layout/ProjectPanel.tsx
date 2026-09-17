@@ -308,7 +308,9 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
 
   useEffect(() => {
     if (editMode !== 'scrum') return
-    const conn = jiraConnections.find(c => c.id === editJiraConnectionId && c.enabled) ?? jiraConnections.find(c => c.enabled)
+    // Only this project's own connection; another project's credentials must never be used.
+    const conn = jiraConnections.find(c => c.id === editJiraConnectionId && c.enabled)
+      ?? jiraConnections.find(c => c.enabled && c.projectId === editingProjId)
     if (!conn) return
     setLoadingBoards(true)
     fetchJiraBoards(conn).then(b => setBoards(b.filter(x => x.type === 'scrum'))).catch(() => {}).finally(() => setLoadingBoards(false))
@@ -359,7 +361,8 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
     // (a board holds a specific subset of issues; prefix alone is too coarse).
     if (boardId) {
       const editingProjNow = projects.find(p => p.id === projId)
-      const conn = jiraConnections.find(c => c.id === connId && c.enabled) ?? jiraConnections.find(c => c.enabled)
+      const conn = jiraConnections.find(c => c.id === connId && c.enabled)
+        ?? jiraConnections.find(c => c.enabled && c.projectId === projId)
       if (conn) {
         setResolvingBoard(true)
         try {
@@ -371,7 +374,12 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
             fetchBoardIssueKeys(conn, boardId, [...new Set(emails)]),
             fetchBoardProjectKeys(conn, boardId, [...new Set(emails)]),
           ])
-          updateProject(projId, { boardIssueKeys: issueKeys, boardProjectKeys: prefixes })
+          // An empty key set would hide every issue in the project, and it almost always
+          // means the token can't read the board rather than an empty board. Store it only
+          // when it actually found something.
+          updateProject(projId, issueKeys.length
+            ? { boardIssueKeys: issueKeys, boardProjectKeys: prefixes }
+            : { boardIssueKeys: undefined, boardProjectKeys: prefixes })
         } catch { /* leave undefined — filter falls back to prefix / no-op */ }
         finally { setResolvingBoard(false) }
       }

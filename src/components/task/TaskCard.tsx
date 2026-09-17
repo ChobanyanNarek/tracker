@@ -19,8 +19,10 @@ interface Props {
  *  checkpoints for the same developer+day read as one seamless block. */
 export default function TaskCard({ task, onToast }: Props) {
   const { updateJiraStatus, updateJiraPriority, updateJira, reorderJiras, deleteJira, toggleJiraHidden, jiraConnections } = useStore()
-  // Find the Jira connection that covers this task's issues (for status group resolution)
-  const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
+  // The connection for THIS task's project — a card can be rendered in a view that spans
+  // projects, so resolving status groups against the first connection would label a task
+  // with another project's mappings.
+  const conn = jiraConnections.find((c) => c.enabled && c.projectId === task.projectId && c.statusMappings?.length)
   const [deletingIssue, setDeletingIssue] = useState<{ issueId: string | undefined; url: string; name: string } | null>(null)
   const [editingIssueKey, setEditingIssueKey] = useState<string | null>(null)
 

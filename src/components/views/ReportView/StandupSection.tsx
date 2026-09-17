@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore, getVisibleTasks, getVisibleDevIds } from '../../../store'
+import { useStore, getVisibleTasks, getVisibleDevIds, getActiveJiraConn } from '../../../store'
 import { STATUS_EMOJI } from '../../../constants'
 import { resolveIssueDisplay } from '../../ui/StatusBadge'
 import { getJiras, jiraLabel } from '../../../utils/format'
@@ -17,8 +17,8 @@ const OFF_LABEL: Record<string, string> = {
 
 export default function StandupSection() {
   const state = useStore()
-  const { developers, projects, schedule, selectedDev, selectedProject, selectedDate, jiraConnections } = state
-  const conn = jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
+  const { developers, projects, schedule, selectedDev, selectedProject, selectedDate } = state
+  const conn = getActiveJiraConn(state)
 
   const [reportDate, setReportDate] = useState(selectedDate)
   const [copied, setCopied] = useState(false)

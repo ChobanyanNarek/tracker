@@ -1226,9 +1226,9 @@ export const useStore = create<Store>((set, get) => {
       const { projects, jiraConnections, developers } = get()
       const proj = projects.find((p) => p.id === projectId)
       if (!proj || proj.mode !== 'scrum' || !proj.jiraBoardId) return
+      // Only this project's own connection -- never borrow another project's credentials.
       const conn = (proj.jiraConnectionId ? jiraConnections.find((c) => c.id === proj.jiraConnectionId && c.enabled) : undefined)
         ?? jiraConnections.find((c) => c.projectId === proj.id && c.enabled)
-        ?? jiraConnections.find((c) => c.enabled && c.token)
       if (!conn) return
       const members = proj.members ?? []
       const emails = [...new Set(developers
@@ -1236,6 +1236,12 @@ export const useStore = create<Store>((set, get) => {
         .flatMap((d) => identityList(conn.developerEmails?.[d.id])))]
       try {
         const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
+        // Never overwrite a good key set with an empty one -- an empty result is far more
+        // likely a permissions or API problem than a genuinely empty board.
+        if (!keys.length) {
+          console.warn('[board] key lookup returned 0 issues — keeping the previous set')
+          return
+        }
         set((s) => ({ ...s, projects: s.projects.map((p) => p.id === projectId ? { ...p, boardIssueKeys: keys } : p) }))
       } catch { /* keep existing on failure */ }
     },
@@ -1590,7 +1596,10 @@ export const useStore = create<Store>((set, get) => {
           .flatMap((d) => identityList(conn.developerEmails?.[d.id])))]
         try {
           const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
-          boardKeyUpdates.set(proj.id, keys)
+          // An empty result would hide every issue in the project on the next render, so
+          // keep the previous set rather than trusting it.
+          if (keys.length) boardKeyUpdates.set(proj.id, keys)
+          else console.warn('[sync] board key lookup returned 0 issues — keeping the previous set')
           if (!keys.length) console.warn(`[board-keys] ${proj.name} (board ${proj.jiraBoardId}) resolved 0 keys`)
         } catch (e) {
           console.warn(`[board-keys] ${proj.name} (board ${proj.jiraBoardId}) resolve FAILED — board scope will fall back to boardId/prefix:`, e)
@@ -2234,6 +2243,11 @@ export function getActiveBoardIssueKeys(state: AppState): Set<string> | undefine
   const proj = state.projects.find((p) => p.id === state.selectedProject)
   if (!proj?.jiraBoardId) return undefined
   if (proj.boardIssueKeys === undefined) return undefined  // not resolved yet
+  // An EMPTY key set means the board lookup came back with nothing -- a token that can't
+  // read the board, a stale board id, a transient API failure. Treating that as the
+  // authoritative membership list hides every issue in the project, which looked like the
+  // tracker had lost them. Fall back to the coarser filters instead.
+  if (proj.boardIssueKeys.length === 0) return undefined
   return new Set(proj.boardIssueKeys.map((k) => k.trim().toUpperCase()))
 }
 

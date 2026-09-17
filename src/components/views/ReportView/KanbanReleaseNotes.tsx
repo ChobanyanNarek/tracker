@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { useStore, getBoardScope, jiraOnBoard } from '../../../store'
+import { useStore, getBoardScope, jiraOnBoard, getActiveJiraConn } from '../../../store'
 import { resolveIssueDisplay } from '../../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey } from '../../../utils/format'
 import { copyText } from '../../../utils/clipboard'
@@ -41,8 +41,8 @@ function toLocalTask(remote: RemoteTask): Task {
 
 export default function KanbanReleaseNotes() {
   const state = useStore()
-  const { developers, projects, selectedProject, selectedDev, jiraConnections, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = state
-  const conn: JiraConfig | undefined = jiraConnections.find((c: JiraConfig) => c.enabled && c.statusMappings?.length)
+  const { developers, projects, selectedProject, selectedDev, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = state
+  const conn: JiraConfig | undefined = getActiveJiraConn(state)
   const hpd = conn?.hoursPerDay ?? 8
   const boardScope = getBoardScope(state)
 
