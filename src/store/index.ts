@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
 import { loadCloudState, saveCloudState, markUnloading } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
-import { getJiras, jiraDedupeKey, resolveIdentities } from '../utils/format'
+import { getJiras, identityList, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
@@ -1233,7 +1233,7 @@ export const useStore = create<Store>((set, get) => {
       const members = proj.members ?? []
       const emails = [...new Set(developers
         .filter((d) => members.length === 0 || members.includes(d.id))
-        .flatMap((d) => resolveIdentities(conn.developerEmails?.[d.id], d.jiraEmail)))]
+        .flatMap((d) => identityList(conn.developerEmails?.[d.id])))]
       try {
         const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
         set((s) => ({ ...s, projects: s.projects.map((p) => p.id === projectId ? { ...p, boardIssueKeys: keys } : p) }))
@@ -1291,7 +1291,7 @@ export const useStore = create<Store>((set, get) => {
         // single value is required (the board API takes one assignee per call).
         const connDevs = developers
           .map((d) => {
-            const emails = resolveIdentities(conn.developerEmails?.[d.id], d.jiraEmail)
+            const emails = identityList(conn.developerEmails?.[d.id])
             return { dev: d, emails, email: emails[0] ?? '' }
           })
           .filter((x) => x.emails.length > 0)
@@ -1583,7 +1583,7 @@ export const useStore = create<Store>((set, get) => {
         const members = proj.members ?? []
         const emails = [...new Set(developers
           .filter((d) => members.length === 0 || members.includes(d.id))
-          .flatMap((d) => resolveIdentities(conn.developerEmails?.[d.id], d.jiraEmail)))]
+          .flatMap((d) => identityList(conn.developerEmails?.[d.id])))]
         try {
           const keys = await fetchBoardIssueKeys(conn, proj.jiraBoardId, emails)
           boardKeyUpdates.set(proj.id, keys)
@@ -1688,7 +1688,7 @@ export const useStore = create<Store>((set, get) => {
         // the shared pool; linking to tasks happens by Jira key, not by username.
         const devUsernames = [...new Set(developers
           .filter((d) => !d.archivedAt)
-          .flatMap((d) => resolveIdentities(conn.developerUsernames?.[d.id], d.gitlabUsername)))]
+          .flatMap((d) => identityList(conn.developerUsernames?.[d.id])))]
 
         try {
           const groupMrs = await fetchGroupMRs(conn)
@@ -1873,7 +1873,7 @@ export const useStore = create<Store>((set, get) => {
         // the shared pool; linking to tasks happens by Jira key, not by username.
         const devUsernames = [...new Set(developers
           .filter((d) => !d.archivedAt)
-          .flatMap((d) => resolveIdentities(conn.developerUsernames?.[d.id], d.githubUsername)))]
+          .flatMap((d) => identityList(conn.developerUsernames?.[d.id])))]
 
         if (conn.orgOrUser.trim()) {
           try {

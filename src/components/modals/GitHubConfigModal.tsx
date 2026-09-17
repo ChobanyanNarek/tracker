@@ -50,10 +50,9 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   }
 
   function addDev(devId: string) {
-    // Prefill from the developer's default GitHub username(s) (set in Team) so they don't
-    // have to be retyped for every connection; still editable as a per-connection override.
-    const fallback = identityList(developers.find((d) => d.id === devId)?.githubUsername)
-    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: fallback.length ? fallback : [''] } })
+    // Start blank. A developer can hold several GitHub accounts in Team, and only this
+    // project knows which one it uses -- a credential set here applies to this project alone.
+    onChange({ ...conn, developerUsernames: { ...(conn.developerUsernames ?? {}), [devId]: [''] } })
   }
 
   function removeDev(devId: string) {
@@ -212,21 +211,44 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
           <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developers in this connection</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {developers.filter((d) => d.id in (conn.developerUsernames ?? {})).map((d) => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: 'var(--text)', width: 110, flexShrink: 0 }}>{d.name}</span>
-                <input
-                  style={{ ...inputStyle, flex: 1 }}
-                  placeholder="github-username, another-account"
-                  title="Separate multiple usernames with commas"
-                  value={identityList(conn.developerUsernames?.[d.id]).join(', ')}
-                  onChange={(e) => setDevUsername(d.id, e.target.value)}
-                  autoFocus={identityList(conn.developerUsernames?.[d.id]).length === 0}
-                />
-                <button onClick={() => removeDev(d.id)} title="Remove" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}><Icon name="close" size={13} /></button>
-              </div>
-            ))}
+            {developers.filter((d) => d.id in (conn.developerUsernames ?? {})).map((d) => {
+              const chosen = identityList(conn.developerUsernames?.[d.id])
+              // Accounts this developer holds in Team that this project hasn't picked yet --
+              // suggestions only, nothing is used until it's added here.
+              const available = identityList(d.githubUsername).filter((u) => !chosen.some((c) => c.toLowerCase() === u.toLowerCase()))
+              return (
+                <div key={d.id} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: 'var(--text)', width: 110, flexShrink: 0 }}>{d.name}</span>
+                    <input
+                      style={{ ...inputStyle, flex: 1 }}
+                      placeholder="github-username, another-account"
+                      title="Separate multiple usernames with commas"
+                      value={chosen.join(', ')}
+                      onChange={(e) => setDevUsername(d.id, e.target.value)}
+                      autoFocus={chosen.length === 0}
+                    />
+                    <button onClick={() => removeDev(d.id)} title="Remove" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}><Icon name="close" size={13} /></button>
+                  </div>
+                  {available.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, paddingLeft: 126 }}>
+                      <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)', alignSelf: 'center' }}>from team:</span>
+                      {available.map((u) => (
+                        <button
+                          key={u}
+                          onClick={() => setDevUsername(d.id, [...chosen, u].join(', '))}
+                          title="Use this account for this project"
+                          style={{ fontSize: 9, fontFamily: 'var(--mono)', background: 'var(--surface3)', border: '1px dashed var(--border2)', color: 'var(--text3)', borderRadius: 4, padding: '2px 7px', cursor: 'pointer' }}
+                        >
+                          + {u}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             {developers.some((d) => !(d.id in (conn.developerUsernames ?? {}))) && (
               <select
                 value=""

@@ -195,10 +195,10 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     onChange({ ...conn, [key]: value })
   }
   function addDev(devId: string) {
-    // Prefill from the developer's default Jira email(s) (set in Team) so they don't have
-    // to be retyped for every connection; still editable as a per-connection override.
-    const fallback = identityList(developers.find((d) => d.id === devId)?.jiraEmail)
-    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: fallback.length ? fallback : [''] } })
+    // Start blank. A developer can hold several Jira emails in Team, and only this project
+    // knows which one it uses -- prefilling would silently pick one, and a credential set
+    // here must apply to this project alone.
+    onChange({ ...conn, developerEmails: { ...(conn.developerEmails ?? {}), [devId]: [''] } })
   }
   function removeDev(devId: string) {
     const emails = { ...(conn.developerEmails ?? {}) }; delete emails[devId]
@@ -505,14 +505,37 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
           <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Developers in this connection</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {developers.filter((d) => d.id in (conn.developerEmails ?? {})).map((d) => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: 'var(--text)', width: 110, flexShrink: 0 }}>{d.name}</span>
-                <input style={{ ...inputStyle, flex: 1 }} placeholder="jira@company.com, other@company.com" title="Separate multiple emails with commas" value={identityList(conn.developerEmails?.[d.id]).join(', ')} onChange={(e) => setDevEmail(d.id, e.target.value)} />
-                <button onClick={() => removeDev(d.id)} title="Remove" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px' }}><Icon name="close" size={13} /></button>
-              </div>
-            ))}
+            {developers.filter((d) => d.id in (conn.developerEmails ?? {})).map((d) => {
+              const chosen = identityList(conn.developerEmails?.[d.id])
+              // Emails this developer holds in Team that this project hasn't picked yet.
+              // They're only suggestions: nothing is used until it's added here.
+              const available = identityList(d.jiraEmail).filter((e) => !chosen.some((c) => c.toLowerCase() === e.toLowerCase()))
+              return (
+                <div key={d.id} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: 'var(--text)', width: 110, flexShrink: 0 }}>{d.name}</span>
+                    <input style={{ ...inputStyle, flex: 1 }} placeholder="jira@company.com, other@company.com" title="Separate multiple emails with commas" value={chosen.join(', ')} onChange={(e) => setDevEmail(d.id, e.target.value)} />
+                    <button onClick={() => removeDev(d.id)} title="Remove" style={{ display: 'inline-flex', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 2px' }}><Icon name="close" size={13} /></button>
+                  </div>
+                  {available.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, paddingLeft: 126 }}>
+                      <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)', alignSelf: 'center' }}>from team:</span>
+                      {available.map((e) => (
+                        <button
+                          key={e}
+                          onClick={() => setDevEmail(d.id, [...chosen, e].join(', '))}
+                          title="Use this email for this project"
+                          style={{ fontSize: 9, fontFamily: 'var(--mono)', background: 'var(--surface3)', border: '1px dashed var(--border2)', color: 'var(--text3)', borderRadius: 4, padding: '2px 7px', cursor: 'pointer' }}
+                        >
+                          + {e}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             {developers.some((d) => !(d.id in (conn.developerEmails ?? {}))) && (
               <select value="" onChange={(e) => { if (e.target.value) addDev(e.target.value) }} style={{ ...inputStyle, color: 'var(--text3)', cursor: 'pointer' }}>
                 <option value="">+ Add developer…</option>

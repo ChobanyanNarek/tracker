@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useStore } from '../../store'
 import { PALETTE } from '../../constants'
-import { hexRgb, initials, resolveIdentities } from '../../utils/format'
+import { hexRgb, identityList, initials } from '../../utils/format'
 import { todayStr, formatDate } from '../../utils/dates'
 import { DEFAULT_WORK_SCHEDULE, getSchedule } from '../../utils/working-hours'
 import { fetchJiraBoards, fetchBoardProjectKeys, fetchBoardIssueKeys, type JiraBoardInfo } from '../../utils/jira-api'
@@ -366,7 +366,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
           const members = editingProjNow?.members ?? []
           const emails = developers
             .filter(d => members.length === 0 || members.includes(d.id))
-            .flatMap(d => resolveIdentities(conn.developerEmails?.[d.id], d.jiraEmail))
+            .flatMap(d => identityList(conn.developerEmails?.[d.id]))
           const [issueKeys, prefixes] = await Promise.all([
             fetchBoardIssueKeys(conn, boardId, [...new Set(emails)]),
             fetchBoardProjectKeys(conn, boardId, [...new Set(emails)]),
