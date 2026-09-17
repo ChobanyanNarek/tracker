@@ -1256,11 +1256,15 @@ export const useStore = create<Store>((set, get) => {
         jiraSync: t.jiraSync || t.title === 'Jira Issues' || undefined,
       }))
 
+      // Collapse duplicate sync tasks for the same developer and day -- but only WITHIN a
+      // project. Keying on devId+date alone merged a developer's tasks across projects and
+      // deleted all but one, so a developer on two projects permanently lost one project's
+      // issues on the next sync (and after a reload, since the merge is what gets saved).
       const mergedIds = new Set<string>()
       const primarySyncTask = new Map<string, typeof tasksCopy[number]>()
       tasksCopy.forEach((t) => {
         if (!t.jiraSync) return
-        const key = `${t.devId}_${t.date}`
+        const key = `${t.projectId ?? ''}_${t.devId}_${t.date}`
         const primary = primarySyncTask.get(key)
         if (!primary) {
           primarySyncTask.set(key, t)
