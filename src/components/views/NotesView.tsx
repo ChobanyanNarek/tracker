@@ -63,10 +63,16 @@ function preview(body: string): string {
 }
 
 export default function NotesView() {
-  const { notes, projects, selectedProject, addNote, updateNote, deleteNote, highlightedNoteId, setHighlightedNoteId } = useStore()
+  const { notes, projects, addNote, updateNote, deleteNote, highlightedNoteId, setHighlightedNoteId } = useStore()
 
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<'all' | 'reminders' | 'project'>('all')
+  /*
+   * 'all' | 'reminders' | a project id. Previously this could only ever filter by the
+   * globally-selected project, so exactly one project chip was reachable at a time —
+   * every other project was simply unavailable here. Holding the id lets Notes filter by
+   * any project independently of the header selection.
+   */
+  const [filter, setFilter] = useState<string>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const hasActiveReminders = (notes ?? []).some((n) => n.reminderAt && !n.archivedAt)
@@ -90,10 +96,12 @@ export default function NotesView() {
     const q = query.trim().toLowerCase()
     return (notes ?? [])
       .filter((n) => !n.archivedAt)
-      .filter((n) => filter !== 'project' || n.projectId === selectedProject)
+      // A project filter whose project no longer exists would silently hide everything,
+      // so fall back to showing all rather than an unexplained empty list.
+      .filter((n) => filter === 'all' || filter === 'reminders' || !projects.some((p) => p.id === filter) || n.projectId === filter)
       .filter((n) => filter !== 'reminders' || !!n.reminderAt)
       .filter((n) => !q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q))
-  }, [notes, query, filter, selectedProject])
+  }, [notes, query, filter, projects])
 
   // group: pinned first, then reminders (by time), then the rest (by updatedAt)
   const groups = useMemo(() => {
@@ -166,10 +174,25 @@ export default function NotesView() {
               <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', display: 'flex', color: 'var(--text3)' }}><Icon name="search" size={13} /></span>
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search notes…" style={{ width: '100%', fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 9px 6px 28px', outline: 'none' }} />
             </div>
-            <div style={{ display: 'flex', gap: 4 }}>
+            {/* One chip per project — wraps, since there can be more than a row's worth. */}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               <button style={railBtn(filter === 'all')} onClick={() => setFilter('all')}>All</button>
               <button style={railBtn(filter === 'reminders')} onClick={() => setFilter('reminders')}>Reminders</button>
-              {selectedProject !== 'ALL' && <button style={railBtn(filter === 'project')} onClick={() => setFilter('project')}>{projName(selectedProject) ?? 'Project'}</button>}
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  style={{
+                    ...railBtn(filter === p.id),
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    maxWidth: 130,
+                  }}
+                  title={p.name}
+                  onClick={() => setFilter(p.id)}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                </button>
+              ))}
             </div>
             {overdueNotes.length > 0 && (
               <button onClick={clearAllOverdue} style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', border: '1px solid var(--red-border)', background: 'var(--red-dim)', color: 'var(--red)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
