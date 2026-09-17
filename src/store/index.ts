@@ -147,12 +147,29 @@ function flushPersist(): void {
   })
 }
 
-function persistState(state: AppState): void {
+// Last chance to persist as the document goes away. Ignores saveInFlight -- that request
+// is about to be killed anyway -- and sends the queued payload with keepalive so the
+// browser delivers it after the page is gone.
+function forceFlushOnUnload(): void {
+  if (!pendingPayload) return
+  const payload = pendingPayload
+  pendingPayload = null
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  void saveCloudState(payload)
+}
+
+function persistState(state: AppState, immediate = false): void {
   pendingPayload = buildPersistPayload(state)
   // Don't let a fresh edit reset an in-progress backoff timer into a tight loop; the
   // post-flight flush above already picks up whatever is pending.
   if (saveInFlight) return
-  scheduleFlush(SAVE_DEBOUNCE_MS)
+  scheduleFlush(immediate ? 0 : SAVE_DEBOUNCE_MS)
+}
+
+// A sync's result is expensive to reproduce -- it costs a full round of Jira calls -- and
+// waiting out the debounce means a reload in the next 800ms loses all of it. Flush at once.
+export function persistNow(state: AppState): void {
+  if (cloudSyncReady) persistState(state, true)
 }
 
 // Don't lose a pending debounced save when the tab is hidden or closed.
@@ -161,7 +178,13 @@ if (typeof window !== 'undefined') {
   window.addEventListener('visibilitychange', flushIfHidden)
   // On pagehide the document is going away, so a normal fetch is killed mid-flight —
   // saveCloudState uses keepalive for this case so the request still completes.
-  window.addEventListener('pagehide', () => { markUnloading(); flushPersist() })
+  //
+  // flushPersist() alone was not enough here. A sync writes state repeatedly, so a save is
+  // usually still uploading when the page is closed; flushPersist() then returns early and
+  // the queued payload -- containing everything the sync just produced -- was never sent.
+  // The in-flight request dies with the document, so nothing reached the server and the
+  // issues were gone on the next load. Force the pending payload out instead of deferring.
+  window.addEventListener('pagehide', () => { markUnloading(); forceFlushOnUnload() })
   // Retry immediately once connectivity returns, instead of waiting out the backoff.
   window.addEventListener('online', () => {
     if (pendingPayload) { retryAttempt = 0; scheduleFlush(0) }
@@ -1688,6 +1711,10 @@ export const useStore = create<Store>((set, get) => {
           : s.projects
         return withSave({ ...s, tasks: [...merged, ...untouchedStamped, ...newTasks], jiraConnections: finalConns, projects: projectsUpdated })
       })
+      // Push the sync's result to the server straight away rather than waiting out the
+      // 800ms debounce. A reload inside that window used to discard everything the sync had
+      // just fetched, which is why issues appeared and then vanished on the next page load.
+      persistNow(get())
       return { added, updated, removed }
       })()
       jiraSyncInFlight = run
