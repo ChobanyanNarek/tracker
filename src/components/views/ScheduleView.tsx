@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useStore } from '../../store'
+import { useStore, joinedByDate } from '../../store'
 import { hexRgb, initials } from '../../utils/format'
 import { daysInMonth, padDate, isAmHoliday, formatDate } from '../../utils/dates'
 import Icon, { type IconName } from '../ui/Icon'
@@ -263,6 +263,9 @@ export default function ScheduleView() {
               const counts: Record<string, number> = {}
               daysList.forEach((ds) => {
                 if (isWeekend(ds)) return
+                // Days before the developer joined aren't theirs to account for — don't
+                // count them as worked, or they'd look like a full month on day one.
+                if (!joinedByDate(projects, selectedProject, dev.id, ds)) return
                 const amHol = isAmHoliday(ds)
                 const entry = getEntry(dev.id, ds)
                 if (entry) {
@@ -279,6 +282,21 @@ export default function ScheduleView() {
               const activePeriods = periods.filter((p) => (p.from || '0000-01-01') <= monthEnd && (p.to || '9999-12-31') >= monthStart)
               const empSlash = activePeriods.length === 0 ? '' : activePeriods.map((p) => p.type === 'part' ? `Part (${p.hours || 4}h)` : 'Full').join(' / ')
 
+              /*
+               * Join date to surface for this row. With a project selected it's that
+               * project's date; on 'ALL' it's the earliest across their projects, which
+               * is when they effectively started being trackable at all.
+               */
+              const joinDate = (() => {
+                const rel = selectedProject === 'ALL'
+                  ? projects.filter((p) => p.members.includes(dev.id))
+                  : projects.filter((p) => p.id === selectedProject)
+                const ds = rel.map((p) => p.joinDates?.[dev.id]).filter((d): d is string => !!d)
+                // On 'ALL', an undated membership means "always", so show nothing.
+                if (selectedProject === 'ALL' && ds.length !== rel.length) return null
+                return ds.length ? ds.sort()[0] : null
+              })()
+
               return (
                 <tr key={dev.id} style={{ background: di % 2 === 0 ? 'var(--surface)' : 'var(--surface2)' }}>
                   <td style={{ padding: '5px 10px', borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)', position: 'sticky', left: 0, background: 'inherit', zIndex: 1 }}>
@@ -290,6 +308,11 @@ export default function ScheduleView() {
                           <button onClick={() => setEmpModal(dev.id)} title="Edit employment periods" style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', padding: '0 2px', flexShrink: 0 }}><Icon name="edit" size={11} /></button>
                         </div>
                         {empSlash && <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--accent)', marginBottom: 2 }}>{empSlash}</div>}
+                        {joinDate && (
+                          <div title={`Joined ${formatDate(joinDate)}`} style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', marginBottom: 2, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <Icon name="calendar" size={9} /> from {formatDate(joinDate)}
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           {worked > 0 && <span title="Worked" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--green)', fontFamily: 'var(--mono)' }}><Icon name="briefcase" size={10} color="var(--green)" />{worked}d</span>}
                           {(counts['vacation'] ?? 0) > 0 && <span title="Vacation" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, color: 'var(--teal)', fontFamily: 'var(--mono)' }}><Icon name="palm" size={10} color="var(--teal)" />{counts['vacation']}</span>}
@@ -310,8 +333,11 @@ export default function ScheduleView() {
                     const isTodayCol = ds === today
                     const hours = getDevHoursForDate(dev, ds)
                     const isPartial = !effective && !isWe && hours !== 8
+                    // Before this developer joined the project — shown inactive and not editable.
+                    const preJoin = !joinedByDate(projects, selectedProject, dev.id, ds)
 
-                    const cellBg = isRS ? 'var(--accent-border)'
+                    const cellBg = preJoin ? 'var(--surface2)'
+                      : isRS ? 'var(--accent-border)'
                       : dt ? dt.bg
                       : isWe ? 'var(--surface3)'
                       : amHol ? 'var(--pink-dim)'
@@ -323,22 +349,23 @@ export default function ScheduleView() {
                       <td
                         key={ds}
                         onClick={(e) => {
-                          if (isWe) return
+                          if (isWe || preJoin) return
                           e.stopPropagation()
                           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                           handleCellClick(dev.id, ds, rect)
                         }}
-                        title={amHol || dt?.label || (isPartial && !isWe ? `${hours}h / part-time` : 'Full day')}
+                        title={preJoin ? 'Before this developer joined' : (amHol || dt?.label || (isPartial && !isWe ? `${hours}h / part-time` : 'Full day'))}
                         style={{
                           padding: 2, borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)', textAlign: 'center',
                           borderLeft: isTodayCol ? '2px solid var(--accent)' : undefined,
-                          cursor: isWe ? 'default' : 'pointer',
+                          cursor: (isWe || preJoin) ? 'default' : 'pointer',
                           background: cellBg,
+                          opacity: preJoin ? 0.45 : undefined,
                           transition: 'filter .1s',
                           height: 30,
                           verticalAlign: 'middle',
                         }}
-                        onMouseEnter={(e) => { if (!isWe) e.currentTarget.style.filter = 'brightness(0.93)' }}
+                        onMouseEnter={(e) => { if (!isWe && !preJoin) e.currentTarget.style.filter = 'brightness(0.93)' }}
                         onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
                       >
                         {dt && (

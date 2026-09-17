@@ -12,7 +12,7 @@ export type IconName =
   | 'daily' | 'deadlines' | 'performance' | 'schedule' | 'sprint'
   | 'gear' | 'sync' | 'trash' | 'restore' | 'close' | 'plus'
   | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'back'
-  | 'user' | 'logout' | 'bell' | 'bell-off' | 'search' | 'info'
+  | 'user' | 'users' | 'logout' | 'bell' | 'bell-off' | 'search' | 'info'
   | 'eye' | 'eye-off' | 'key' | 'wipe' | 'phone' | 'mail' | 'refresh'
   | 'calendar' | 'clock' | 'external' | 'link' | 'chart' | 'list'
   | 'check' | 'copy' | 'message' | 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
@@ -57,6 +57,7 @@ const PATHS: Record<IconName, JSX.Element> = {
   'chevron-down': <polyline points="6 9 12 15 18 9"/>,
   back: <path d="M15 18l-6-6 6-6"/>,
   user: <><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></>,
+  users: <><circle cx="9" cy="8" r="3.5"/><path d="M15.5 21a6.5 6.5 0 1 0-13 0"/><path d="M16 5.2a3.5 3.5 0 0 1 0 6.6"/><path d="M18 14.3a6.5 6.5 0 0 1 3.5 5.7"/></>,
   logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>,
   bell: <><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></>,
   'bell-off': <><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18.63 13A17.89 17.89 0 0 1 18 8"/><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 0 0-9.33-5"/><line x1="1" y1="1" x2="23" y2="23"/></>,

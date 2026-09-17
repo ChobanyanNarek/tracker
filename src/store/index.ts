@@ -173,6 +173,8 @@ interface StoreActions {
 
   addDeveloper: (dev: Omit<Developer, 'id'>) => void
   removeDeveloper: (id: string) => void
+  updateDeveloper: (id: string, changes: Partial<Omit<Developer, 'id'>>) => void
+  setMemberJoinDate: (projId: string, devId: string, date: string | null) => void
   updateDeveloperPeriods: (devId: string, periods: EmploymentPeriod[]) => void
   updateDeveloperSchedule: (devId: string, workSchedule: import('../types').WorkSchedule) => void
   reorderDeveloper: (fromId: string, toId: string) => void
@@ -280,6 +282,29 @@ export const useStore = create<Store>((set, get) => {
           developers: s.developers.filter((d) => d.id !== id),
           tasks: s.tasks.filter((t) => t.devId !== id),
           selectedDev: s.selectedDev === id ? 'ALL' : s.selectedDev,
+        }),
+      ),
+
+    updateDeveloper: (id, changes) =>
+      set((s) =>
+        withSave({
+          ...s,
+          developers: s.developers.map((d) => (d.id === id ? { ...d, ...changes } : d)),
+        }),
+      ),
+
+    // date === null clears the join date (member is treated as always on the project).
+    setMemberJoinDate: (projId, devId, date) =>
+      set((s) =>
+        withSave({
+          ...s,
+          projects: s.projects.map((p) => {
+            if (p.id !== projId) return p
+            const joinDates = { ...(p.joinDates ?? {}) }
+            if (date) joinDates[devId] = date
+            else delete joinDates[devId]
+            return { ...p, joinDates }
+          }),
         }),
       ),
 
@@ -2075,6 +2100,37 @@ if (typeof window !== 'undefined') {
     console.table(rows)
     return rows
   }
+}
+
+/*
+ * Had this developer joined the project by `dateStr`? A member with no recorded join date
+ * counts as always having been on the project, so adding this feature can't retroactively
+ * blank out history for anyone whose date hasn't been filled in yet.
+ *
+ * With no project selected ('ALL') the earliest join date across the dev's projects is
+ * used — otherwise a dev on two projects would look un-joined whenever the view isn't
+ * scoped to the project they started on first.
+ */
+export function joinedByDate(
+  projects: Project[],
+  selectedProject: string,
+  devId: string,
+  dateStr: string,
+): boolean {
+  const relevant = selectedProject === 'ALL'
+    ? projects.filter((p) => p.members.includes(devId))
+    : projects.filter((p) => p.id === selectedProject)
+
+  if (relevant.length === 0) return true
+
+  /*
+   * Joined if ANY relevant project says so. A membership with no date counts as "always",
+   * so a dev on one dated and one undated project is never hidden by the dated one.
+   */
+  return relevant.some((p) => {
+    const d = p.joinDates?.[devId]
+    return !d || dateStr >= d
+  })
 }
 
 export function getVisibleDevIds(state: AppState): string[] {

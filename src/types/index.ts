@@ -1,7 +1,7 @@
 export type Status = 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
 export type Priority = 'low' | 'medium' | 'high' | 'critical'
 export type ScheduleType = 'work' | 'vacation' | 'dayoff' | 'sick' | 'holiday'
-export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule' | 'sprint' | 'timeline' | 'report' | 'notes'
+export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule' | 'sprint' | 'timeline' | 'report' | 'notes' | 'team'
 
 export interface Note {
   id: string
@@ -190,6 +190,14 @@ export interface Project {
   color: string
   desc: string
   members: string[]
+  /*
+   * When each member joined THIS project (YYYY-MM-DD), keyed by developer id. Kept
+   * alongside `members` rather than turning that into an array of objects, because
+   * members is read in a couple of dozen places as a plain id list. A member with no
+   * entry here simply has no known join date and is treated as always having been on
+   * the project.
+   */
+  joinDates?: Record<string, string>
   nonWorkingDays?: number[]  // 0=Sun 1=Mon … 6=Sat; defaults to [0,6] when absent
   mode?: 'kanban' | 'scrum'
   jiraBoardId?: number

@@ -25,6 +25,7 @@ import TimelineView from './components/views/TimelineView'
 import SprintBand from './components/sprint/SprintBand'
 import ReportView from './components/views/ReportView'
 import NotesView from './components/views/NotesView'
+import TeamView from './components/views/TeamView'
 
 const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
@@ -34,6 +35,7 @@ const VIEW_LABELS: Record<string, string> = {
   timeline: 'Timeline',
   report: 'Report',
   notes: 'Notes',
+  team: 'Team',
 }
 
 const VIEW_ICONS: Record<string, ReactNode> = {
@@ -45,6 +47,7 @@ const VIEW_ICONS: Record<string, ReactNode> = {
   timeline: <Icon name="timeline" size={14} />,
   report: <Icon name="chart" size={14} />,
   notes: <Icon name="notes" size={14} />,
+  team: <Icon name="users" size={14} />,
 }
 
 function PaymentCallback({ onDone }: { onDone: () => void }) {
@@ -395,6 +398,7 @@ function AuthedApp() {
             {view === 'timeline' && <TimelineView />}
             {view === 'report' && <ReportView />}
             {view === 'notes' && <NotesView />}
+            {view === 'team' && <TeamView />}
           </div>
         </div>
 
