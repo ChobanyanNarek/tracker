@@ -106,11 +106,36 @@ export default function NotesView() {
   const selected = (notes ?? []).find((n) => n.id === selectedId) ?? null
 
   const [autoEdit, setAutoEdit] = useState(false)
+  // Tracked here (not inside the editor) because switching notes REMOUNTS the editor —
+  // its draft would be discarded before it could warn about losing unsaved work.
+  const dirtyRef = useRef(false)
+
+  const confirmDiscard = () =>
+    !dirtyRef.current || window.confirm('This note has unsaved changes. Discard them?')
+
+  const selectNote = (id: string) => {
+    if (id === selectedId || !confirmDiscard()) return
+    dirtyRef.current = false
+    setSelectedId(id)
+  }
+
   const createNote = () => {
+    if (!confirmDiscard()) return
+    dirtyRef.current = false
     const id = addNote()
     setSelectedId(id)
     setAutoEdit(true)
   }
+
+  // Closing the tab or reloading with unsaved note edits should prompt, the same as any
+  // editor — the draft lives only in memory until Save.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) e.preventDefault()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
 
   // ── styles ────────────────────────────────────────────────────────────────
   const railBtn = (on: boolean): React.CSSProperties => ({
@@ -167,15 +192,15 @@ export default function NotesView() {
               </div>
             )}
             {groups.withRem.length > 0 && <GroupLabel text="Has reminder" />}
-            {groups.withRem.map((n) => <NoteItem key={n.id} note={n} selected={n.id === selectedId} onClick={() => setSelectedId(n.id)} onSnooze={snoozeOneHour} projName={projName} projColor={projColor} />)}
+            {groups.withRem.map((n) => <NoteItem key={n.id} note={n} selected={n.id === selectedId} onClick={() => selectNote(n.id)} onSnooze={snoozeOneHour} projName={projName} projColor={projColor} />)}
             {groups.noRem.length > 0 && <GroupLabel text="Notes" />}
-            {groups.noRem.map((n) => <NoteItem key={n.id} note={n} selected={n.id === selectedId} onClick={() => setSelectedId(n.id)} onSnooze={snoozeOneHour} projName={projName} projColor={projColor} />)}
+            {groups.noRem.map((n) => <NoteItem key={n.id} note={n} selected={n.id === selectedId} onClick={() => selectNote(n.id)} onSnooze={snoozeOneHour} projName={projName} projColor={projColor} />)}
           </div>
         </aside>
 
         {/* ── RIGHT DETAIL ── */}
         {selected
-          ? <NoteEditor key={selected.id} note={selected} projects={projects} initialEdit={autoEdit} onEditStart={() => setAutoEdit(false)} onChange={(c) => updateNote(selected.id, c)} onDelete={() => { deleteNote(selected.id); setSelectedId(null) }} />
+          ? <NoteEditor key={selected.id} note={selected} projects={projects} initialEdit={autoEdit} onEditStart={() => setAutoEdit(false)} onDirtyChange={(d) => { dirtyRef.current = d }} onChange={(c) => updateNote(selected.id, c)} onDelete={() => { dirtyRef.current = false; deleteNote(selected.id); setSelectedId(null) }} />
           : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <EmptyState icon="notes" title="Select a note" hint="Or create a new one with the + button" />
@@ -288,23 +313,7 @@ function mdToHtml(src: string): string {
   }).join('')
 }
 
-// Convert one block element's content to a single markdown line (inline formatting only —
-// no <div>/<br> handling here, since those are handled by walking child elements instead).
-function inlineHtmlToMd(html: string): string {
-  return html
-    .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '## $1')
-    .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
-    .replace(/<b>(.*?)<\/b>/gi, '**$1**')
-    .replace(/<em>(.*?)<\/em>/gi, '_$1_')
-    .replace(/<i>(.*?)<\/i>/gi, '_$1_')
-    .replace(/<u>(.*?)<\/u>/gi, '__$1__')
-    .replace(/<code>(.*?)<\/code>/gi, '`$1`')
-    .replace(/<br\s*\/?>/gi, '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-}
-
+// Markdown markers a line can start with, mapped back from the glyphs mdToHtml renders.
 function mdLinePrefix(line: string): string {
   if (line.startsWith('• ')) return '- ' + line.slice(2)
   if (line.startsWith('☑ ')) return '- [x] ' + line.slice(2)
@@ -312,52 +321,83 @@ function mdLinePrefix(line: string): string {
   return line
 }
 
-// Extract plain markdown back from contenteditable innerHTML. Walks the actual DOM tree of
-// top-level <div> children (one per line) instead of regex-replacing the flat HTML string —
-// a naive string replace can't tell a sibling <div> (a new line) from a <div> the browser
-// nested INSIDE another one (which happens on some Enter-key presses in Chrome/Safari), and
-// mishandling that reordered/duplicated lines that were never actually typed that way.
+const BLOCK_TAGS = new Set(['DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'UL', 'OL', 'BLOCKQUOTE', 'PRE'])
+
+// Inline tags that map to a symmetric markdown marker around their contents.
+const INLINE_WRAP: Record<string, string> = {
+  STRONG: '**', B: '**',
+  EM: '_', I: '_',
+  U: '__',
+  CODE: '`',
+}
+
+/*
+ * Extract markdown from contenteditable HTML by walking the DOM and emitting a line break
+ * wherever the browser actually renders one — i.e. matching innerText, which is the only
+ * definition of "a line" the user can see.
+ *
+ * The previous version handled <br> only at the top level and stripped it everywhere else,
+ * so `<div>first<br>second</div>` (what you get pressing Enter then Shift+Enter) saved as
+ * "firstsecond" — two visible lines silently collapsed into one. It also emitted a blank
+ * line for every top-level <br>, so soft breaks multiplied on each save/reload round-trip.
+ *
+ * Emitting breaks structurally instead of accumulating whole lines fixes both: a <br> is
+ * exactly one break, and a block element is one break before and after, deduplicated.
+ */
 function htmlToMd(html: string): string {
   const container = document.createElement('div')
   container.innerHTML = html
 
-  const lines: string[] = []
-  const walk = (node: ChildNode) => {
+  // Build the text as a flat stream with explicit break markers, then split. This avoids
+  // the "is this element a line or a container of lines?" ambiguity entirely.
+  let out = ''
+  const breakLine = () => { if (out !== '' && !out.endsWith('\n')) out += '\n' }
+
+  const walk = (node: ChildNode): void => {
     if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent ?? ''
-      if (text) lines.push(mdLinePrefix(inlineHtmlToMd(text)))
+      // Normalize the non-breaking spaces contenteditable inserts, but keep real text as-is.
+      out += (node.textContent ?? '').replace(/ /g, ' ')
       return
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return
     const el = node as HTMLElement
-    if (el.tagName === 'DIV') {
-      // A <div> containing nested block children (not just inline formatting) is itself a
-      // line break, not a line — recurse into its children instead of treating it as one.
-      const hasBlockChild = Array.from(el.childNodes).some(
-        (c) => c.nodeType === Node.ELEMENT_NODE && (c as HTMLElement).tagName === 'DIV',
-      )
-      if (hasBlockChild) {
-        Array.from(el.childNodes).forEach(walk)
-      } else {
-        lines.push(mdLinePrefix(inlineHtmlToMd(el.innerHTML)))
-      }
-    } else if (el.tagName === 'BR') {
-      lines.push('')
-    } else {
-      lines.push(mdLinePrefix(inlineHtmlToMd(el.outerHTML)))
+
+    if (el.tagName === 'BR') { out += '\n'; return }
+
+    const isBlock = BLOCK_TAGS.has(el.tagName)
+    if (isBlock) breakLine()
+
+    // Inline formatting wraps its children; recurse so nesting (bold inside italic, a <br>
+    // inside bold, …) is preserved rather than flattened by a regex.
+    const wrap = INLINE_WRAP[el.tagName]
+    if (wrap) out += wrap
+    Array.from(el.childNodes).forEach(walk)
+    if (wrap) out += wrap
+
+    // A heading is a whole line in markdown, so mark it once its text is known.
+    if (/^H[1-6]$/.test(el.tagName)) {
+      const start = out.lastIndexOf('\n') + 1
+      out = out.slice(0, start) + '## ' + out.slice(start)
     }
+    if (isBlock) breakLine()
   }
+
   Array.from(container.childNodes).forEach(walk)
 
-  return lines.join('\n')
+  return out
+    .split('\n')
+    .map((line) => mdLinePrefix(line.replace(/[ \t]+$/, '')))
+    .join('\n')
+    // An empty trailing line is an artifact of the final block's closing break, not content.
+    .replace(/\n+$/, '')
 }
 
-function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDelete }: {
+function NoteEditor({ note, projects, initialEdit, onEditStart, onDirtyChange, onChange, onDelete }: {
   note: Note; projects: Project[]; initialEdit?: boolean
   onChange: (c: Partial<Note>) => void; onDelete: () => void; onEditStart?: () => void
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const bodyRef = useRef<HTMLDivElement>(null)
-  const [focused, setFocused] = useState(!!initialEdit)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const isComposing = useRef(false)
 
@@ -370,11 +410,13 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
   const patchDraft = (c: Partial<Note>) => {
     setDraft((d) => ({ ...d, ...c }))
     setDirty(true)
+    onDirtyChange?.(true)
   }
 
   const save = () => {
     onChange(draft)
     setDirty(false)
+    onDirtyChange?.(false)
   }
 
   useEffect(() => {
@@ -383,24 +425,23 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
     // would silently no-op until the user manually clicked into the body first. Focusing
     // the element for real keeps the two in sync for a freshly-created note.
     if (initialEdit) {
-      setFocused(true)
       onEditStart?.()
       bodyRef.current?.focus()
     }
   }, [initialEdit])
 
-  // Set initial HTML on mount and whenever note changes while not focused
+  /*
+   * Render markdown into the editor ONLY when a different note is loaded — never in
+   * response to the user's own typing. Writing innerHTML resets the caret to the start,
+   * and draft.body changes on every keystroke, so keying this on the body (as before)
+   * yanked the cursor mid-word whenever `focused` happened to be stale — which it was
+   * the moment a toolbar or Save click blurred the editor.
+   */
   useEffect(() => {
     const el = bodyRef.current
-    if (!el || focused) return
-    el.innerHTML = mdToHtml(draft.body)
-  }, [draft.body, focused])
-
-  // Also set on mount
-  useEffect(() => {
-    const el = bodyRef.current
-    if (el) el.innerHTML = mdToHtml(draft.body)
-  }, [])
+    if (el) el.innerHTML = mdToHtml(note.body)
+    // note.id, not note.body: identity change means "load a different note".
+  }, [note.id])
 
   // Ctrl/Cmd+S saves explicitly
   useEffect(() => {
@@ -413,8 +454,6 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [draft])
-
-  const handleFocus = () => { setFocused(true) }
 
   const handleInput = () => {
     if (isComposing.current) return
@@ -582,8 +621,6 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onChange, onDele
           contentEditable
           suppressContentEditableWarning
           className="nv-md nv-editor"
-          onFocus={handleFocus}
-          onBlur={() => setFocused(false)}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onCompositionStart={() => { isComposing.current = true }}
