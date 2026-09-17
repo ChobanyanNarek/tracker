@@ -8,7 +8,7 @@ import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, fetchOrgPRs, normalizeGithubPath, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
-import { isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
+import { groupForJiraStatus, isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
 
 function makeId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 6)
@@ -2221,7 +2221,13 @@ export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
 // An issue shows on the board unless its status group is 'hidden' or marked isClosed
 // (per the integration settings). Falls back to legacy status for issues with no group.
 export function issueShowsOnBoard(j: JiraIssue, conn: JiraConfig | undefined): boolean {
-  const gid = j.groupId
+  // Re-derive the group from the issue's raw Jira status instead of trusting the groupId
+  // stamped at sync time. That snapshot freezes whatever the mappings said when the issue
+  // was fetched, so an issue synced while a status was hidden stayed invisible for good --
+  // changing the status back to visible had no effect until it was re-synced.
+  const gid = (j.jiraStatusName && conn?.statusMappings?.length)
+    ? (groupForJiraStatus(j.jiraStatusName, conn.statusMappings) ?? j.groupId)
+    : j.groupId
   if (gid === 'hidden') return false
   if (gid ? isClosedGroup(gid, conn) : j.status === 'done') return false
   return true
