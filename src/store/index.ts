@@ -2214,7 +2214,21 @@ export function taskMatchesBoard(t: Task, boardId: number): boolean {
 
 // The Jira connection that owns the status-group mappings used for display.
 export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
-  return state.jiraConnections.find((c) => c.enabled && c.statusMappings?.length)
+  const usable = (c: JiraConfig) => c.enabled && !!c.statusMappings?.length
+  // Scope to the selected project. Connections are per-project, so taking the first usable
+  // one meant every project was rendered with whichever connection happened to sit first in
+  // the array: its own project looked right, while the others had their issues resolved
+  // against a different Jira's mappings. Statuses that other instance doesn't define matched
+  // nothing and fell back to 'todo', so a whole project displayed as To Do.
+  if (state.selectedProject && state.selectedProject !== 'ALL') {
+    const own = state.jiraConnections.find((c) => c.projectId === state.selectedProject && usable(c))
+    if (own) return own
+    // No connection of its own — use a global (unscoped) one rather than another project's.
+    const global = state.jiraConnections.find((c) => !c.projectId && usable(c))
+    if (global) return global
+    return undefined
+  }
+  return state.jiraConnections.find(usable)
 }
 
 // Single source of truth for board visibility, shared by Daily AND Deadlines.
