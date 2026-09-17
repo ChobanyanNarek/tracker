@@ -480,6 +480,19 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         </select>
       </div>
 
+      {/* How far back to pull closed issues. Separate from the status mappings: a Done issue
+          older than this is skipped whatever group it maps to. */}
+      <div>
+        <span style={labelStyle}>Fetch closed issues from</span>
+        <select value={conn.doneWindowDays ?? 30} onChange={(e) => patch('doneWindowDays', Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer', width: 'auto', minWidth: 140 }}>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+          <option value={180}>Last 180 days</option>
+          <option value={365}>Last year</option>
+          <option value={0}>No limit (slower)</option>
+        </select>
+      </div>
+
       {/* test */}
       {testResult && (
         <div style={{ fontSize: 11, padding: '7px 10px', borderRadius: 6, background: testResult.ok ? 'var(--green-dim)' : 'var(--red-dim)', color: testResult.ok ? 'var(--green)' : 'var(--red)', border: `1px solid ${testResult.ok ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)' }}>

@@ -1,10 +1,10 @@
 import type { JiraIssue, JiraConfig, Status } from '../../types'
-import { resolveGroupForIssue, GROUP_COLOR_TOKENS, DEFAULT_STATUS_GROUPS, legacyStatusToGroupId } from '../../utils/status-groups'
+import { resolveGroupForIssue, GROUP_COLOR_TOKENS, DEFAULT_STATUS_GROUPS, legacyStatusToGroupId, resolveLiveGroupId } from '../../utils/status-groups'
 import { STATUS_LABEL } from '../../constants'
 
 // Resolve display info for an issue: label + color tokens
 export function resolveIssueDisplay(issue: JiraIssue, conn?: JiraConfig): { label: string; bg: string; text: string; border: string } {
-  const groupId = issue.groupId ?? legacyStatusToGroupId(issue.status)
+  const groupId = resolveLiveGroupId(issue, conn) ?? legacyStatusToGroupId(issue.status)
   const group = resolveGroupForIssue(groupId, conn) ?? DEFAULT_STATUS_GROUPS.find((g) => g.id === 'todo')!
   const tokens = GROUP_COLOR_TOKENS[group.color]
   return { label: group.label, ...tokens }
@@ -12,7 +12,7 @@ export function resolveIssueDisplay(issue: JiraIssue, conn?: JiraConfig): { labe
 
 // Resolve display color hex for charts/dots
 export function resolveIssueColor(issue: JiraIssue, conn?: JiraConfig): string {
-  const groupId = issue.groupId ?? legacyStatusToGroupId(issue.status)
+  const groupId = resolveLiveGroupId(issue, conn) ?? legacyStatusToGroupId(issue.status)
   const group = resolveGroupForIssue(groupId, conn) ?? DEFAULT_STATUS_GROUPS.find((g) => g.id === 'todo')!
   const tokens = GROUP_COLOR_TOKENS[group.color]
   return tokens.text.startsWith('var(') ? tokens.text : tokens.text

@@ -58,7 +58,10 @@ export function groupForJiraStatus(
   mappings: JiraStatusMapping[] | undefined,
 ): string | undefined {
   if (!mappings?.length) return undefined
-  const m = mappings.find((m) => m.jiraStatus.toLowerCase() === jiraStatusName.toLowerCase())
+  // Resolve through the same dedupe the config UI displays. A raw .find() would return the
+  // FIRST row for a name, which on a config with duplicates can be a stale 'hidden' while
+  // the UI shows the visible one -- so a status looked mapped but behaved as hidden.
+  const m = dedupeMappings(mappings).find((m) => m.jiraStatus.toLowerCase() === jiraStatusName.toLowerCase())
   return m?.groupId
 }
 
@@ -67,13 +70,23 @@ export function groupForJiraStatus(
 // API's 100-issue page cap: fetch everything not Done, PLUS Done issues updated recently
 // (last 30 days). Statuses mapped to the 'hidden' group are always excluded.
 // The tracker mirrors Jira; visibility (e.g. hiding done in Daily) is a display concern.
-export function buildJqlFromMappings(mappings: JiraStatusMapping[] | undefined): string | null {
-  const base = `(statusCategory != Done OR updated >= -30d)`
+export function buildJqlFromMappings(
+  mappings: JiraStatusMapping[] | undefined,
+  doneWindowDays = 30,
+): string | null {
+  // Closed issues are bounded by date so a developer's entire history doesn't blow past the
+  // API page cap. This is a separate filter from the status mappings: a Done issue older
+  // than the window is dropped however its status is mapped, which is its own cause of
+  // "not all issues are visible". 0 means no limit.
+  const base = doneWindowDays > 0
+    ? `(statusCategory != Done OR updated >= -${doneWindowDays}d)`
+    : ''
   const hidden = dedupeMappings(mappings)
     .filter((m) => m.groupId === 'hidden')
     .map((m) => `"${m.jiraStatus}"`)
-  if (!hidden.length) return base
-  return `${base} AND status not in (${hidden.join(', ')})`
+  if (!hidden.length) return base || null
+  const hiddenClause = `status not in (${hidden.join(', ')})`
+  return base ? `${base} AND ${hiddenClause}` : hiddenClause
 }
 
 // Jira's /status endpoint returns one row per workflow, so older saved configs accumulated
@@ -130,6 +143,24 @@ export function repairAutoHiddenMappings(
   })
 
   return { mappings: next, repaired }
+}
+
+// The group an issue belongs to RIGHT NOW, given the current mappings.
+//
+// An issue's groupId is stamped at sync time, so relying on it alone freezes whatever the
+// mappings said when it was fetched -- changing the integration settings then appeared to
+// do nothing until the next sync. Re-resolving from the issue's Jira status name applies a
+// mapping change immediately; the stored value is the fallback for issues synced before
+// jiraStatusName existed.
+export function resolveLiveGroupId(
+  issue: { groupId?: string; jiraStatusName?: string },
+  conn: JiraConfig | undefined,
+): string | undefined {
+  if (issue.jiraStatusName && conn?.statusMappings?.length) {
+    const gid = groupForJiraStatus(issue.jiraStatusName, conn.statusMappings)
+    if (gid) return gid
+  }
+  return issue.groupId
 }
 
 // Legacy Status → groupId for backward compat (issues saved before groupId existed)

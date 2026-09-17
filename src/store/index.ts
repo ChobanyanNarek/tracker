@@ -8,7 +8,7 @@ import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, fetchOrgPRs, normalizeGithubPath, GithubBudget, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
-import { dedupeMappings, isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
+import { dedupeMappings, isClosedGroup, legacyStatusToGroupId, resolveLiveGroupId } from '../utils/status-groups'
 
 function makeId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 6)
@@ -1346,7 +1346,7 @@ export const useStore = create<Store>((set, get) => {
             truncated = perBoard.some((r) => r.truncated)
             devIssues = dedupe(perBoard.map((r) => r.issues))
           } else {
-            const statusFilter = buildJqlStatusFilter(conn.statusMappings)
+            const statusFilter = buildJqlStatusFilter(conn.statusMappings, conn.doneWindowDays)
             // Match every identity by both the full email AND the username (local-part
             // before @) — some Jira instances identify users by username, not email, so
             // `assignee = "email"` alone silently misses those issues.
@@ -2244,11 +2244,13 @@ export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
 // An issue shows on the board unless its status group is 'hidden' or marked isClosed
 // (per the integration settings). Falls back to legacy status for issues with no group.
 export function issueShowsOnBoard(j: JiraIssue, conn: JiraConfig | undefined): boolean {
-  const gid = j.groupId
+  const gid = resolveLiveGroupId(j, conn)
   if (gid === 'hidden') return false
   if (gid ? isClosedGroup(gid, conn) : j.status === 'done') return false
   return true
 }
+
+
 
 // A sprint belongs to the selected project & board. When a board is selected:
 //  - Jira-synced sprints (jiraSprintId set) must match that exact board.
