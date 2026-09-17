@@ -57,10 +57,7 @@ export function groupForJiraStatus(
   mappings: JiraStatusMapping[] | undefined,
 ): string | undefined {
   if (!mappings?.length) return undefined
-  // Resolve through the same dedupe the config UI displays. A raw .find() would return the
-  // FIRST row for a name, which on a config with duplicates can be a stale 'hidden' while
-  // the UI shows the visible one -- so a status looked mapped but behaved as hidden.
-  const m = dedupeMappings(mappings).find((m) => m.jiraStatus.toLowerCase() === jiraStatusName.toLowerCase())
+  const m = mappings.find((m) => m.jiraStatus.toLowerCase() === jiraStatusName.toLowerCase())
   return m?.groupId
 }
 
@@ -71,43 +68,9 @@ export function groupForJiraStatus(
 // The tracker mirrors Jira; visibility (e.g. hiding done in Daily) is a display concern.
 export function buildJqlFromMappings(mappings: JiraStatusMapping[] | undefined): string | null {
   const base = `(statusCategory != Done OR updated >= -30d)`
-  const hidden = dedupeMappings(mappings)
-    .filter((m) => m.groupId === 'hidden')
-    .map((m) => `"${m.jiraStatus}"`)
+  const hidden = (mappings ?? []).filter((m) => m.groupId === 'hidden').map((m) => `"${m.jiraStatus}"`)
   if (!hidden.length) return base
   return `${base} AND status not in (${hidden.join(', ')})`
-}
-
-// Jira's /status endpoint returns one row per workflow, so older saved configs accumulated
-// several mappings for the same status name. Collapse to one per name; a name visible in
-// any row stays visible, so a stale duplicate can't silently hide a status from the JQL.
-export function dedupeMappings(mappings: JiraStatusMapping[] | undefined): JiraStatusMapping[] {
-  const byName = new Map<string, JiraStatusMapping>()
-  for (const m of mappings ?? []) {
-    const key = m.jiraStatus.trim().toLowerCase()
-    if (!key) continue
-    const prev = byName.get(key)
-    if (!prev || (prev.groupId === 'hidden' && m.groupId !== 'hidden')) byName.set(key, m)
-  }
-  return [...byName.values()]
-}
-
-// The group an issue belongs to RIGHT NOW, given the current mappings.
-//
-// An issue's groupId is stamped at sync time, so relying on it alone freezes whatever the
-// mappings said when it was fetched -- changing the integration settings then appeared to
-// do nothing until the next sync. Re-resolving from the issue's Jira status name applies a
-// mapping change immediately; the stored value is the fallback for issues synced before
-// jiraStatusName existed.
-export function resolveLiveGroupId(
-  issue: { groupId?: string; jiraStatusName?: string },
-  conn: JiraConfig | undefined,
-): string | undefined {
-  if (issue.jiraStatusName && conn?.statusMappings?.length) {
-    const gid = groupForJiraStatus(issue.jiraStatusName, conn.statusMappings)
-    if (gid) return gid
-  }
-  return issue.groupId
 }
 
 // Legacy Status → groupId for backward compat (issues saved before groupId existed)

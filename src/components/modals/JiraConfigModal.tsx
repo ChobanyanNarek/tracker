@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store'
 import type { JiraConfig, JiraStatusMapping, StatusGroup, StatusGroupColor } from '../../types'
 import { fetchJiraIssues, fetchJiraStatuses, fetchJiraBoards, type JiraStatusInfo, type JiraBoardInfo } from '../../utils/jira-api'
-import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX, dedupeMappings } from '../../utils/status-groups'
+import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX } from '../../utils/status-groups'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
@@ -98,20 +98,6 @@ function GroupManager({ groups, onChange }: GroupManagerProps) {
       </button>
     </div>
   )
-}
-
-// Jira's /status endpoint returns one entry per workflow, so a name like "Done" can come
-// back six times. Collapse to one entry per name, preferring an entry that carries a real
-// category over a placeholder rebuilt from saved mappings.
-function dedupeStatuses(list: JiraStatusInfo[]): JiraStatusInfo[] {
-  const byName = new Map<string, JiraStatusInfo>()
-  for (const s of list) {
-    const key = s.name.trim().toLowerCase()
-    if (!key) continue
-    const prev = byName.get(key)
-    if (!prev || (prev.categoryKey === 'new' && s.categoryKey !== 'new')) byName.set(key, s)
-  }
-  return [...byName.values()]
 }
 
 // ── Status Mapping Row ─────────────────────────────────────────
@@ -263,15 +249,13 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     try {
       const fetched = await fetchJiraStatuses(conn)
       setStatuses(fetched)
-      // Jira returns one status row per workflow, so the same display name comes back many
-      // times. Map by name so we end up with exactly one mapping per distinct status.
       const existing = conn.statusMappings ?? []
-      const merged: JiraStatusMapping[] = dedupeStatuses(fetched).map((s) => {
+      const merged: JiraStatusMapping[] = fetched.map((s) => {
         const prev = existing.find((m) => m.jiraStatus.toLowerCase() === s.name.toLowerCase())
         if (prev) return prev
         let groupId = 'todo'
         if (s.categoryKey === 'indeterminate') groupId = 'inprogress'
-        if (s.categoryKey === 'done') groupId = 'done'
+        if (s.categoryKey === 'done') groupId = 'hidden'
         return { jiraStatus: s.name, groupId }
       })
       onChange({ ...conn, statusMappings: merged })
@@ -281,28 +265,12 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     setFetchingStatuses(false)
   }
 
-  // Match by status NAME, never by array index: `statuses` (fetched from Jira) and
-  // `statusMappings` (saved) are different arrays with different lengths and order, so an
-  // index written from one into the other lands on an unrelated status.
-  function setMappingFor(statusName: string, m: JiraStatusMapping) {
-    const key = statusName.toLowerCase()
-    const current = conn.statusMappings ?? []
-    let found = false
-    const updated = current.map((x) => {
-      if (x.jiraStatus.toLowerCase() !== key) return x
-      found = true
-      return { ...m, jiraStatus: x.jiraStatus }
-    })
-    onChange({ ...conn, statusMappings: found ? updated : [...current, { ...m, jiraStatus: statusName }] })
+  function updateMapping(idx: number, m: JiraStatusMapping) {
+    const updated = [...(conn.statusMappings ?? [])]; updated[idx] = m
+    onChange({ ...conn, statusMappings: updated })
   }
 
   const mappings = conn.statusMappings ?? []
-  // Display through the same precedence the sync uses, so a stale duplicate can't make a
-  // status look hidden when it isn't (or vice versa).
-  const effectiveMappings = dedupeMappings(mappings)
-  const uniqueStatuses = dedupeStatuses(
-    statuses.length ? statuses : mappings.map((m) => ({ name: m.jiraStatus, categoryKey: 'new' }))
-  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '14px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
@@ -465,11 +433,9 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>Jira status → group</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button onClick={fetchStatuses} disabled={fetchingStatuses || !conn.baseUrl || !conn.token} style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}>
-              {fetchingStatuses ? '…loading' : '⟳ Fetch statuses'}
-            </button>
-          </div>
+          <button onClick={fetchStatuses} disabled={fetchingStatuses || !conn.baseUrl || !conn.token} style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}>
+            {fetchingStatuses ? '…loading' : '⟳ Fetch statuses'}
+          </button>
         </div>
         {statuses.length > 0 ? (
           <>
@@ -479,14 +445,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
               <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text4)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Show as group</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {uniqueStatuses.map((s) => (
-                <MappingRow
-                  key={s.name}
-                  info={s}
-                  mapping={effectiveMappings.find((m) => m.jiraStatus.toLowerCase() === s.name.toLowerCase()) ?? { jiraStatus: s.name, groupId: 'todo' }}
-                  groups={groups}
-                  onChange={(m) => setMappingFor(s.name, m)}
-                />
+              {statuses.map((s, i) => (
+                <MappingRow key={s.name} info={s} mapping={mappings[i] ?? { jiraStatus: s.name, groupId: 'todo' }} groups={groups} onChange={(m) => updateMapping(i, m)} />
               ))}
             </div>
             <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', background: 'var(--surface3)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', marginTop: 8, lineHeight: 1.5 }}>
