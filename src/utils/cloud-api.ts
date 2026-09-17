@@ -1,13 +1,17 @@
-import { authHeaders, clearToken, getToken } from './auth'
+import { authHeaders, clearToken, getToken, refreshAccessToken } from './auth'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 export async function loadCloudState(): Promise<Record<string, unknown> | null> {
   if (!getToken()) return null
   try {
-    const res = await fetch(`${API_URL}/pm-tracker/state`, {
-      headers: authHeaders(),
-    })
+    const get = () => fetch(`${API_URL}/pm-tracker/state`, { headers: authHeaders() })
+    let res = await get()
+    // Reopening the app after the access token expired shouldn't dump the user back
+    // to the login screen while a valid refresh token is sitting in storage.
+    if (res.status === 401 && await refreshAccessToken()) {
+      res = await get()
+    }
     if (res.status === 404) return null
     if (res.status === 401) { clearToken(); return null }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -205,20 +209,34 @@ export async function saveCloudState(data: Record<string, unknown>): Promise<Sav
     const size = body instanceof Blob ? body.size : new Blob([body as string]).size
     const useKeepalive = unloading && size <= KEEPALIVE_MAX_BYTES
 
-    const controller = new AbortController()
-    const timer = useKeepalive ? null : setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS)
-    try {
-      const res = await fetch(`${API_URL}/pm-tracker/state`, {
-        method: 'PUT',
-        headers: { ...authHeaders(), ...headers },
-        body,
-        ...(useKeepalive ? { keepalive: true } : { signal: controller.signal }),
-      })
-      if (res.status === 401) { clearToken(); return { ok: false, reason: 'unauthorized' } }
-      return res.ok ? { ok: true } : { ok: false, reason: 'network' }
-    } finally {
-      if (timer) clearTimeout(timer)
+    const send = async (): Promise<Response> => {
+      const controller = new AbortController()
+      const timer = useKeepalive ? null : setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS)
+      try {
+        return await fetch(`${API_URL}/pm-tracker/state`, {
+          method: 'PUT',
+          headers: { ...authHeaders(), ...headers },
+          body,
+          ...(useKeepalive ? { keepalive: true } : { signal: controller.signal }),
+        })
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
     }
+
+    let res = await send()
+
+    // Access token expired mid-session: renew it silently and replay the save once,
+    // so a routine 24h expiry never surfaces as a failed save to the user.
+    if (res.status === 401 && !unloading) {
+      const renewed = await refreshAccessToken()
+      if (!renewed) { clearToken(); return { ok: false, reason: 'unauthorized' } }
+      res = await send()
+    }
+
+    if (res.status === 401) { clearToken(); return { ok: false, reason: 'unauthorized' } }
+
+    return res.ok ? { ok: true } : { ok: false, reason: 'network' }
   } catch {
     return { ok: false, reason: 'network' }
   }

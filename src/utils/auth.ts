@@ -1,5 +1,6 @@
 const TOKEN_KEY = 'pm_tracker_token'
 const USER_KEY = 'pm_tracker_user'
+const REFRESH_KEY = 'pm_tracker_refresh'
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 export interface StoredUser {
@@ -33,9 +34,60 @@ function setUserInfo(info: StoredUser): void {
   localStorage.setItem(USER_KEY, JSON.stringify(info))
 }
 
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_KEY)
+}
+
+export function setRefreshToken(token: string): void {
+  localStorage.setItem(REFRESH_KEY, token)
+}
+
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
+  localStorage.removeItem(REFRESH_KEY)
+}
+
+/*
+ * Exchange the stored refresh token for a fresh access token. Concurrent callers share
+ * one in-flight request — otherwise a burst of 401s (e.g. several parallel API calls)
+ * would each fire their own refresh, and rotation would invalidate all but one.
+ */
+let refreshInFlight: Promise<boolean> | null = null
+
+export function refreshAccessToken(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight
+
+  refreshInFlight = (async () => {
+    const refreshToken = getRefreshToken()
+    if (!refreshToken) return false
+    try {
+      const res = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      })
+      if (!res.ok) {
+        // The refresh token itself is expired or revoked — the session is genuinely
+        // over, so drop it rather than retrying against a token that can't work.
+        if (res.status === 401) clearToken()
+        return false
+      }
+      const data = await res.json() as {
+        accessToken?: { token?: string }
+        refreshToken?: { token?: string }
+      }
+      if (!data.accessToken?.token) return false
+      setToken(data.accessToken.token)
+      if (data.refreshToken?.token) setRefreshToken(data.refreshToken.token)
+      return true
+    } catch {
+      // Network failure — keep the refresh token so a later attempt can still succeed.
+      return false
+    }
+  })().finally(() => { refreshInFlight = null })
+
+  return refreshInFlight
 }
 
 export function isAuthenticated(): boolean {
@@ -71,7 +123,7 @@ export async function fetchAndStoreUserInfo(): Promise<StoredUser | null> {
 }
 
 interface TokenPayload { token: string; expiresIn?: number }
-interface AuthResponse { accessToken: TokenPayload }
+interface AuthResponse { accessToken: TokenPayload; refreshToken?: TokenPayload }
 
 const ERROR_CODES: Record<string, string> = {
   'error.userNotFound': 'Account not found. Check your email or phone number.',
@@ -93,7 +145,12 @@ function parseErrorMessage(data: unknown): string {
       if (typeof m === 'string') return ERROR_CODES[m] ?? m
       if (m && typeof m === 'object') {
         const c = (m as Record<string, unknown>)['constraints']
-        if (c && typeof c === 'object') return Object.values(c as Record<string, string>).join(', ')
+        if (c && typeof c === 'object') {
+          const vals = Object.values(c as Record<string, unknown>).filter((v) => typeof v === 'string') as string[]
+          if (vals.length) return vals.join(', ')
+        }
+        const property = (m as Record<string, unknown>)['property']
+        return typeof property === 'string' ? `Invalid field: ${property}` : null
       }
       return null
     }).filter(Boolean) as string[]
@@ -108,6 +165,8 @@ async function handleAuthResponse(res: Response): Promise<string> {
     throw new Error(parseErrorMessage(data))
   }
   const data = await res.json() as AuthResponse
+  // Optional so this still works against a backend that predates refresh tokens.
+  if (data.refreshToken?.token) setRefreshToken(data.refreshToken.token)
   return data.accessToken.token
 }
 
