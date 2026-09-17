@@ -6,9 +6,9 @@ import { getJiras, jiraDedupeKey, resolveIdentities } from '../utils/format'
 import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
-import { fetchUserPRs, fetchOrgPRs, normalizeGithubPath, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
+import { fetchUserPRs, fetchOrgPRs, normalizeGithubPath, GithubBudget, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
-import { isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
+import { dedupeMappings, isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
 
 function makeId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 6)
@@ -1218,7 +1218,7 @@ export const useStore = create<Store>((set, get) => {
 
     setTrackerTimezone: (trackerTimezone) => set((s) => withSave({ ...s, trackerTimezone })),
 
-    setJiraConnections: (jiraConnections) => set((s) => withSave({ ...s, jiraConnections })),
+    setJiraConnections: (jiraConnections) => set((s) => withSave({ ...s, jiraConnections: jiraConnections.map(normalizeJiraConn) })),
 
     // Resolve a single scrum project's exact board issue keys from Jira, on demand
     // (e.g. right after selecting a board). Keeps board-scoped views accurate without a sync.
@@ -1845,6 +1845,8 @@ export const useStore = create<Store>((set, get) => {
 
       const prById = new Map<number, Awaited<ReturnType<typeof fetchOrgPRs>>[number]>()
       const syncedConns: GitHubConfig[] = []
+      // One wall-clock budget for the whole sync, so "Sync now" always finishes.
+      const budget = new GithubBudget()
 
       for (const conn of enabledConns) {
         // Every identity a developer has — these only widen which PRs get fetched into
@@ -1855,7 +1857,7 @@ export const useStore = create<Store>((set, get) => {
 
         if (conn.orgOrUser.trim()) {
           try {
-            const orgPRs = await fetchOrgPRs(conn.orgOrUser, conn.token)
+            const orgPRs = await fetchOrgPRs(conn.orgOrUser, conn.token, budget)
             for (const p of orgPRs) prById.set(p.id, p)
           } catch (err) {
             const msg = (err as Error).message
@@ -1866,8 +1868,21 @@ export const useStore = create<Store>((set, get) => {
 
         if (devUsernames.length > 0) {
           const ownerScope = conn.orgOrUser.trim() ? normalizeGithubPath(conn.orgOrUser).owner : ''
-          const userPRs = await Promise.all(devUsernames.map((u) => fetchUserPRs(u, conn.token, ownerScope)))
-          for (const prs of userPRs) for (const p of prs) prById.set(p.id, p)
+          // These go through GitHub's Search API, capped at 30 requests/minute. Running one
+          // identity at a time keeps us under it; in parallel GitHub answered with secondary
+          // rate limits and the sync spun forever.
+          for (const u of devUsernames) {
+            if (budget.expired()) {
+              console.warn('[GitHub sync] budget reached — skipping remaining developer lookups')
+              break
+            }
+            try {
+              for (const p of await fetchUserPRs(u, conn.token, ownerScope, budget)) prById.set(p.id, p)
+            } catch (err) {
+              // One bad username shouldn't sink the whole sync.
+              console.warn(`[GitHub sync] lookup failed for ${u}:`, (err as Error).message)
+            }
+          }
         }
 
         syncedConns.push({ ...conn, lastSync: new Date().toISOString() })
@@ -2065,9 +2080,9 @@ function applyCloudState(cloud: Record<string, unknown> | null) {
           ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
           ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),
           ...(cloud.jiraConnections
-            ? { jiraConnections: cloud.jiraConnections as AppState['jiraConnections'] }
+            ? { jiraConnections: (cloud.jiraConnections as AppState['jiraConnections']).map(normalizeJiraConn) }
             : cloud.jiraConfig
-              ? { jiraConnections: [{ ...(cloud.jiraConfig as JiraConfig), id: 'j_legacy', name: 'Default' }] }
+              ? { jiraConnections: [normalizeJiraConn({ ...(cloud.jiraConfig as JiraConfig), id: 'j_legacy', name: 'Default' })] }
               : {}),
           ...(cloud.gitlabConnections
             ? { gitlabConnections: cloud.gitlabConnections as AppState['gitlabConnections'] }
@@ -2083,6 +2098,14 @@ function applyCloudState(cloud: Record<string, unknown> | null) {
         }
       : {}),
   }))
+}
+
+// Older configs saved one mapping per Jira workflow row, so the same status name appeared
+// many times and a stale duplicate could hide a status that the user had made visible.
+function normalizeJiraConn(conn: JiraConfig): JiraConfig {
+  if (!conn.statusMappings?.length) return conn
+  const deduped = dedupeMappings(conn.statusMappings)
+  return deduped.length === conn.statusMappings.length ? conn : { ...conn, statusMappings: deduped }
 }
 
 export async function syncCloudToStore(): Promise<void> {

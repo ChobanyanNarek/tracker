@@ -69,6 +69,9 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   }
 
   function formatGithubError(msg: string): string {
+    if (msg.includes('TimeoutError') || msg.toLowerCase().includes('timed out') || msg.includes('aborted')) {
+      return 'GitHub did not respond within 20s — it may be slow or your token is being throttled. Try again in a minute.'
+    }
     if (msg.includes('401')) return 'Token expired or invalid — create a new one at github.com/settings/tokens with repo scope.'
     if (msg.includes('403')) return 'Access denied (403) — your token cannot list org repos. Sync will fall back to per-developer fetch if usernames are configured.'
     if (msg.includes('404') || msg.includes('neither a readable')) return 'Not found — check the org / user name.'
@@ -87,14 +90,14 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       }
       if (singleRepo) {
         // Single repo — verify it exists and count open PRs
-        const res = await fetch(`https://api.github.com/repos/${singleRepo}/pulls?state=open&per_page=1`, { headers })
+        const res = await fetch(`https://api.github.com/repos/${singleRepo}/pulls?state=open&per_page=1`, { headers, signal: AbortSignal.timeout(20_000) })
         if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text().catch(() => res.statusText)}`)
         setTestResult({ ok: true, msg: `Connection successful ✓ — repo ${singleRepo} is accessible` })
       } else {
         // Org/user — list repos
         let repos: string[] = []
         for (const scope of ['orgs', 'users'] as const) {
-          const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100`, { headers })
+          const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100`, { headers, signal: AbortSignal.timeout(20_000) })
           if (!res.ok) continue
           const batch = await res.json() as { full_name: string }[]
           repos = batch.map((r) => r.full_name)
@@ -108,8 +111,10 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       }
     } catch (err) {
       setTestResult({ ok: false, msg: formatGithubError((err as Error).message) })
+    } finally {
+      // Always clear the spinner — an unexpected throw used to leave it loading forever.
+      setTesting(false)
     }
-    setTesting(false)
   }
 
   return (
@@ -294,12 +299,14 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
     } catch (err) {
       const msg = (err as Error).message
       let friendly = msg
-      if (msg.includes('401')) friendly = 'Token expired or invalid — create a new one with repo scope.'
+      if (msg.toLowerCase().includes('timed out') || msg.includes('rate limit')) friendly = msg
+      else if (msg.includes('401')) friendly = 'Token expired or invalid — create a new one with repo scope.'
       else if (msg.includes('403')) friendly = 'Access denied (403) — configure developer usernames for per-developer fallback.'
       else if (msg.includes('404') || msg.includes('neither a readable')) friendly = 'Not found — check the org / user name.'
       setSyncResult(`✗ ${friendly}`)
+    } finally {
+      setSyncing(false)
     }
-    setSyncing(false)
   }
 
   const anyEnabled = conns.some((c) => c.enabled && c.token && c.orgOrUser)

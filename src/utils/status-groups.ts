@@ -68,9 +68,25 @@ export function groupForJiraStatus(
 // The tracker mirrors Jira; visibility (e.g. hiding done in Daily) is a display concern.
 export function buildJqlFromMappings(mappings: JiraStatusMapping[] | undefined): string | null {
   const base = `(statusCategory != Done OR updated >= -30d)`
-  const hidden = (mappings ?? []).filter((m) => m.groupId === 'hidden').map((m) => `"${m.jiraStatus}"`)
+  const hidden = dedupeMappings(mappings)
+    .filter((m) => m.groupId === 'hidden')
+    .map((m) => `"${m.jiraStatus}"`)
   if (!hidden.length) return base
   return `${base} AND status not in (${hidden.join(', ')})`
+}
+
+// Jira's /status endpoint returns one row per workflow, so older saved configs accumulated
+// several mappings for the same status name. Collapse to one per name; a name visible in
+// any row stays visible, so a stale duplicate can't silently hide a status from the JQL.
+export function dedupeMappings(mappings: JiraStatusMapping[] | undefined): JiraStatusMapping[] {
+  const byName = new Map<string, JiraStatusMapping>()
+  for (const m of mappings ?? []) {
+    const key = m.jiraStatus.trim().toLowerCase()
+    if (!key) continue
+    const prev = byName.get(key)
+    if (!prev || (prev.groupId === 'hidden' && m.groupId !== 'hidden')) byName.set(key, m)
+  }
+  return [...byName.values()]
 }
 
 // Legacy Status → groupId for backward compat (issues saved before groupId existed)
