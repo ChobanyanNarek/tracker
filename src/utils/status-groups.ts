@@ -68,7 +68,24 @@ export function groupForJiraStatus(
 // The tracker mirrors Jira; visibility (e.g. hiding done in Daily) is a display concern.
 export function buildJqlFromMappings(mappings: JiraStatusMapping[] | undefined): string | null {
   const base = `(statusCategory != Done OR updated >= -30d)`
-  const hidden = (mappings ?? []).filter((m) => m.groupId === 'hidden').map((m) => `"${m.jiraStatus}"`)
+  // Jira returns one status row per workflow, so a name can be saved several times. Decide
+  // once per NAME, matching what the settings list shows (first row wins): filtering the
+  // raw rows meant a single stale 'hidden' duplicate excluded a status from the query even
+  // though the UI displayed it as visible, so those issues were never fetched at all.
+  const groupByName = new Map<string, string>()
+  for (const m of mappings ?? []) {
+    const key = m.jiraStatus.trim().toLowerCase()
+    if (!key || groupByName.has(key)) continue
+    groupByName.set(key, m.groupId)
+  }
+  const nameFor = new Map<string, string>()
+  for (const m of mappings ?? []) {
+    const key = m.jiraStatus.trim().toLowerCase()
+    if (key && !nameFor.has(key)) nameFor.set(key, m.jiraStatus)
+  }
+  const hidden = [...groupByName.entries()]
+    .filter(([, gid]) => gid === 'hidden')
+    .map(([key]) => `"${nameFor.get(key)}"`)
   if (!hidden.length) return base
   return `${base} AND status not in (${hidden.join(', ')})`
 }
