@@ -1577,6 +1577,14 @@ export const useStore = create<Store>((set, get) => {
             // missing from it may simply not have fit the cap, not have been unassigned —
             // pruning here would silently delete issues that are still genuinely assigned.
             if (!fetchedDevs.has(t.devId) || truncatedDevs.has(t.devId) || !t.jiras?.length) return
+            // A fetch that SUCCEEDED but returned nothing is not authority to delete. Jira
+            // answers with zero issues for all sorts of benign reasons -- a JQL that matched
+            // nothing this time, an identity that stopped resolving, a status filter that
+            // excluded everything -- and treating that as "the developer has no issues any
+            // more" wiped every issue they had. Genuine removals still prune on any sync
+            // that returns at least one issue for the developer.
+            const returned = returnedKeysByDev.get(t.devId)
+            if (!returned || returned.size === 0) return
             // Never prune another project's tasks. A developer on two projects has a task per
             // project, and this connection only knows about its own -- in board mode the check
             // below prunes anything the board didn't return, which would wipe the other
