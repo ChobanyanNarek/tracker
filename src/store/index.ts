@@ -306,8 +306,14 @@ let cloudSyncReady = false
 let localRevision = 0
 
 function withSave(state: AppState): AppState {
+  // Only count as local work once saves are live. Before the cloud load lands, App runs
+  // migrations (migrateIssueIds, deduplicateJiras, autoCarryOverdue, mergeSameDayTasks)
+  // against the still-empty startup state; counting those made the staleness check below
+  // fire on every single load, so the real cloud data was discarded and the app kept the
+  // empty state -- which then got saved over the top of it.
+  if (!cloudSyncReady) return state
   localRevision++
-  if (cloudSyncReady) persistState(state)
+  persistState(state)
   return state
 }
 
