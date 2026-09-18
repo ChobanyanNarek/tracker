@@ -964,7 +964,10 @@ export const useStore = create<Store>((set, get) => {
           const dk = jiraDedupeKey(j.url, j.name)
           const identity = (dk && dk !== 'name:') ? dk : j.issueId
           if (!identity) { kept.push(j); return }
-          const k = `${t.devId}:${t.date}:${identity}`
+          // Scope to the project: the same issue key can legitimately appear in two
+          // projects, and deduping across them emptied the second project's task, which is
+          // then deleted below.
+          const k = `${t.projectId ?? ''}:${t.devId}:${t.date}:${identity}`
           if (!seen.has(k)) { seen.add(k); kept.push(j) }
         })
         if (kept.length !== t.jiras.length) {
@@ -990,7 +993,12 @@ export const useStore = create<Store>((set, get) => {
 
       const groups = new Map<string, Task[]>()
       tasks.forEach((t) => {
-        const k = `${t.devId}|${t.date}`
+        // Group WITHIN a project. Keying on devId+date alone merged a developer's tasks
+        // across projects into one task that kept only the first project's projectId, so
+        // the other project's task was deleted and its issues were stranded under the wrong
+        // project. This runs on every mount, which is why a developer on two projects lost
+        // one of them on every page update while single-project developers were fine.
+        const k = `${t.projectId ?? ''}|${t.devId}|${t.date}`
         const g = groups.get(k)
         if (g) g.push(t)
         else groups.set(k, [t])
