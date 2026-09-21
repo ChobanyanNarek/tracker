@@ -2398,6 +2398,16 @@ export async function syncCloudToStore(): Promise<void> {
 // problems can be diagnosed without reaching into React internals. Safe, read-only.
 if (typeof window !== 'undefined') {
   ;(window as any).pmStore = useStore
+  // Why is an issue still on the daily board? Shows the connection, the mapping it
+  // resolved through, and whether its group counts as closed.
+  ;(window as any).pmVisible = (needle?: string) => {
+    const rows = ((window as never as Record<string, unknown[]>).__pmShown ?? []) as Array<Record<string, unknown>>
+    const seen = new Map<string, Record<string, unknown>>()
+    for (const r of rows) seen.set(String(r.key), r)
+    const out = [...seen.values()].filter((r) => !needle || String(r.key).toLowerCase().includes(needle.toLowerCase()))
+    console.table(out)
+    return out
+  }
   // Paste the output of pmLog() to see exactly what the save/load layer did, including
   // across reloads. pmLog(true) clears it.
   ;(window as any).pmLog = (clear?: boolean) => {
@@ -2720,7 +2730,26 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
     return connByProject.get(key)
   }
   const showsOnBoard = (j: JiraIssue, projectId?: string): boolean => {
-    return issueShowsOnBoard(j, connFor(projectId))
+    const conn = connFor(projectId)
+    const shown = issueShowsOnBoard(j, conn)
+    // Record WHY each issue was kept, so a "this should be hidden" report can be answered
+    // from the app instead of guessing. Read it with pmVisible() in the console.
+    if (typeof window !== 'undefined' && shown) {
+      const gid = (j.jiraStatusName && conn?.statusMappings?.length)
+        ? groupForJiraStatus(j.jiraStatusName, conn.statusMappings)
+        : undefined
+      ;((window as never as Record<string, unknown[]>).__pmShown ??= []).push({
+        key: j.issueId ?? j.name,
+        jiraStatusName: j.jiraStatusName ?? '(none)',
+        stampedGroupId: j.groupId ?? '(none)',
+        resolvedGroupId: gid ?? '(unresolved)',
+        connUsed: conn?.name ?? '(no connection)',
+        connProjectId: conn?.projectId ?? '(none)',
+        taskProjectId: projectId ?? '(none)',
+        groupIsClosed: isClosedGroup(gid ?? j.groupId, conn),
+      })
+    }
+    return shown
   }
 
   // Optional diagnostics: set window.__debugSync = true in the console, then re-render.
