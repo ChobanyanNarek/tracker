@@ -1779,7 +1779,7 @@ export const useStore = create<Store>((set, get) => {
       // calls, and autosync runs on a timer alongside manual syncs.
       if (gitlabSyncInFlight) return gitlabSyncInFlight
       const run = (async () => {
-      const { gitlabConnections, jiraConnections, tasks, developers } = get()
+      const { gitlabConnections, jiraConnections, tasks, developers, projects } = get()
       const enabledConns = gitlabConnections.filter((c) => c.enabled && c.token && c.groupPath)
       if (!enabledConns.length) throw new Error('No GitLab connections configured')
 
@@ -1798,11 +1798,19 @@ export const useStore = create<Store>((set, get) => {
       // belonging to one project recognised another project's keys in PR/MR titles and
       // linked across the boundary. Each project sees only its own Jira keys and its own
       // tasks' keys.
+      // Every Jira key prefix that belongs to THIS project, from three sources so the user
+      // never has to maintain the list by hand: a Jira instance can hold many projects and
+      // boards with unrelated keys, and a forgotten one would silently stop linking PRs.
+      //   1. keys typed into the connection (if any)
+      //   2. prefixes discovered from the linked board, straight from Jira
+      //   3. prefixes of issues already synced into this project
       const projectKeysFor = (projectId: string): string[] => {
         const own = jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
+        const proj = projects.find((p) => p.id === projectId)
         return [
           ...new Set([
             ...own.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
+            ...(proj?.boardProjectKeys ?? []).map((k) => k.trim().toUpperCase()).filter(Boolean),
             ...tasks
               .filter((t) => (t.projectId ?? '') === projectId)
               .flatMap((t) => t.jiras ?? [])
@@ -1981,7 +1989,7 @@ export const useStore = create<Store>((set, get) => {
       // Same overlap hazard as syncJira.
       if (githubSyncInFlight) return githubSyncInFlight
       const run = (async () => {
-      const { githubConnections, jiraConnections, tasks, developers } = get()
+      const { githubConnections, jiraConnections, tasks, developers, projects } = get()
       const enabledConns = githubConnections.filter((c) => c.enabled && c.token)
       if (!enabledConns.length) throw new Error('No GitHub connections configured')
 
@@ -2000,11 +2008,19 @@ export const useStore = create<Store>((set, get) => {
       // belonging to one project recognised another project's keys in PR/MR titles and
       // linked across the boundary. Each project sees only its own Jira keys and its own
       // tasks' keys.
+      // Every Jira key prefix that belongs to THIS project, from three sources so the user
+      // never has to maintain the list by hand: a Jira instance can hold many projects and
+      // boards with unrelated keys, and a forgotten one would silently stop linking PRs.
+      //   1. keys typed into the connection (if any)
+      //   2. prefixes discovered from the linked board, straight from Jira
+      //   3. prefixes of issues already synced into this project
       const projectKeysFor = (projectId: string): string[] => {
         const own = jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
+        const proj = projects.find((p) => p.id === projectId)
         return [
           ...new Set([
             ...own.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
+            ...(proj?.boardProjectKeys ?? []).map((k) => k.trim().toUpperCase()).filter(Boolean),
             ...tasks
               .filter((t) => (t.projectId ?? '') === projectId)
               .flatMap((t) => t.jiras ?? [])
