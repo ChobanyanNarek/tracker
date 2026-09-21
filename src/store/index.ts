@@ -3,7 +3,7 @@ import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraC
 import { loadCloudState, saveCloudState, markUnloading } from '../utils/cloud-api'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, identityList, jiraDedupeKey } from '../utils/format'
-import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
+import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, fetchConnectionProjectKeys, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
 import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, fetchOrgPRs, normalizeGithubPath, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
@@ -1804,6 +1804,19 @@ export const useStore = create<Store>((set, get) => {
       //   1. keys typed into the connection (if any)
       //   2. prefixes discovered from the linked board, straight from Jira
       //   3. prefixes of issues already synced into this project
+      // Discovered from Jira, per project, at most once per sync. Covers the case the
+      // three static sources miss: a new project with no board resolved and no issues yet.
+      const discoveredKeys = new Map<string, string[]>()
+      const discoverKeysFor = async (projectId: string): Promise<string[]> => {
+        if (discoveredKeys.has(projectId)) return discoveredKeys.get(projectId)!
+        const conn = jiraConnections.find(
+          (c) => (c.projectId ?? '') === projectId && c.enabled && c.baseUrl && c.token,
+        )
+        const keys = conn ? await fetchConnectionProjectKeys(conn) : []
+        discoveredKeys.set(projectId, keys)
+        return keys
+      }
+
       const projectKeysFor = (projectId: string): string[] => {
         const own = jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
         const proj = projects.find((p) => p.id === projectId)
@@ -1816,6 +1829,7 @@ export const useStore = create<Store>((set, get) => {
               .flatMap((t) => t.jiras ?? [])
               .map((j) => jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase() ?? '')
               .filter(Boolean),
+            ...(discoveredKeys.get(projectId) ?? []),
           ]),
         ]
       }
@@ -1864,6 +1878,8 @@ export const useStore = create<Store>((set, get) => {
       for (const mr of mrs) {
         // Only this MR's own project's issue keys — never another project's.
         const mrProj = mrProjectId.get(mr.id) ?? ''
+        // Nothing known yet for this project (new, no board, no issues): ask Jira once.
+        if (mrProj && !projectKeysFor(mrProj).length) await discoverKeysFor(mrProj)
         const keys = extractJiraKeys(mr, projectKeysFor(mrProj))
         if (!keys.length) {
           skippedNoKey.push(`!${mr.iid} "${mr.title}" [${mr.source_branch}]`)
@@ -2014,6 +2030,19 @@ export const useStore = create<Store>((set, get) => {
       //   1. keys typed into the connection (if any)
       //   2. prefixes discovered from the linked board, straight from Jira
       //   3. prefixes of issues already synced into this project
+      // Discovered from Jira, per project, at most once per sync. Covers the case the
+      // three static sources miss: a new project with no board resolved and no issues yet.
+      const discoveredKeys = new Map<string, string[]>()
+      const discoverKeysFor = async (projectId: string): Promise<string[]> => {
+        if (discoveredKeys.has(projectId)) return discoveredKeys.get(projectId)!
+        const conn = jiraConnections.find(
+          (c) => (c.projectId ?? '') === projectId && c.enabled && c.baseUrl && c.token,
+        )
+        const keys = conn ? await fetchConnectionProjectKeys(conn) : []
+        discoveredKeys.set(projectId, keys)
+        return keys
+      }
+
       const projectKeysFor = (projectId: string): string[] => {
         const own = jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
         const proj = projects.find((p) => p.id === projectId)
@@ -2026,6 +2055,7 @@ export const useStore = create<Store>((set, get) => {
               .flatMap((t) => t.jiras ?? [])
               .map((j) => jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase() ?? '')
               .filter(Boolean),
+            ...(discoveredKeys.get(projectId) ?? []),
           ]),
         ]
       }
@@ -2076,6 +2106,8 @@ export const useStore = create<Store>((set, get) => {
       for (const pr of allPRs) {
         // Only this PR's own project's issue keys — never another project's.
         const prProj = prProjectId.get(pr.id) ?? ''
+        // Nothing known yet for this project (new, no board, no issues): ask Jira once.
+        if (prProj && !projectKeysFor(prProj).length) await discoverKeysFor(prProj)
         const keys = extractGithubJiraKeys(pr, projectKeysFor(prProj))
         console.info('[GitHub sync] PR:', pr.html_url, 'title:', pr.title, 'branch:', pr.head?.ref, 'keys:', keys)
         prUrlToKeys.set(pr.html_url, new Set(keys.map((k) => k.toUpperCase())))

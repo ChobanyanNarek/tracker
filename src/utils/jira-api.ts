@@ -282,6 +282,28 @@ export async function fetchJiraStatuses(config: JiraConfig): Promise<JiraStatusI
     .map((s) => ({ name: s.name, categoryKey: s.statusCategory?.key ?? 'new' }))
 }
 
+// The Jira project key prefixes this connection can actually see.
+//
+// A connection's projectKeys may be empty or incomplete -- a Jira instance holds many
+// projects and boards with unrelated keys -- and a brand-new project has no board resolved
+// and no synced issues to learn from, so its first PRs would have nothing to match against.
+// Asking Jira for a page of recently-updated issues and taking their key prefixes gives the
+// real set without a new backend endpoint and without the user maintaining a list.
+export async function fetchConnectionProjectKeys(config: JiraConfig): Promise<string[]> {
+  try {
+    const { issues } = await fetchJiraIssues(config, 'ORDER BY updated DESC')
+    const keys = new Set<string>()
+    for (const i of issues) {
+      const m = i.key?.match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)
+      if (m) keys.add(m[1]!.toUpperCase())
+    }
+    return [...keys]
+  } catch {
+    // Never let discovery break a sync — the other key sources still apply.
+    return []
+  }
+}
+
 export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<JiraFetchResult> {
   const res = await fetch(`${API_URL}/pm-tracker/jira-search`, {
     method: 'POST',
