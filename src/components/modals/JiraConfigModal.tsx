@@ -462,6 +462,11 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       {/* ── STATUS GROUPS ── */}
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
         <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 8 }}>Display groups</div>
+        {/* Persist the full list the user is looking at, not just their edits. `groups`
+            falls back to DEFAULT_STATUS_GROUPS when nothing is saved yet, so editing one
+            group used to store only that partial set -- every group the user never touched
+            then resolved against the defaults, where isClosed is unset, and their issues
+            stayed on the daily board however the checkboxes looked. */}
         <GroupManager groups={groups} onChange={(g) => onChange({ ...conn, statusGroups: g })} />
       </div>
 

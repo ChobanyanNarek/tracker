@@ -33,7 +33,16 @@ export const DEFAULT_STATUS_GROUPS: StatusGroup[] = [
 ]
 
 export function resolveGroups(conn: JiraConfig | undefined): StatusGroup[] {
-  return conn?.statusGroups?.length ? conn.statusGroups : DEFAULT_STATUS_GROUPS
+  const own = conn?.statusGroups ?? []
+  if (!own.length) return DEFAULT_STATUS_GROUPS
+  // A saved set can be missing a default group that mappings still point at -- groups are
+  // edited independently of mappings, so a status can map to 'todo' while the saved groups
+  // no longer contain it. Those ids then resolved to nothing and, because an unknown group
+  // cannot be closed, their issues stayed on the daily board however the settings looked.
+  // Fill the gaps from the defaults rather than dropping the id on the floor.
+  const have = new Set(own.map((g) => g.id))
+
+  return [...own, ...DEFAULT_STATUS_GROUPS.filter((g) => !have.has(g.id))]
 }
 
 export function resolveGroupForIssue(
