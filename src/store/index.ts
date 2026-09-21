@@ -253,6 +253,7 @@ interface StoreActions {
   carryOver: (id: string) => string | null
   autoCarryOverdue: () => boolean
   migrateIssueIds: () => void
+  backfillJiraStatusNames: () => void
   deduplicateJiras: () => void
   mergeSameDayTasks: () => void
   pruneOldTaskData: () => void
@@ -914,6 +915,47 @@ export const useStore = create<Store>((set, get) => {
         set((s) => withSave({ ...s, tasks }))
       }
       return anyAdded
+    },
+
+    // Issues synced before jiraStatusName was stored carry only the groupId stamped at the
+    // time. Visibility is re-derived from the status NAME, so those issues could never be
+    // hidden: marking their status hidden in the integration settings did nothing and they
+    // stayed on the board. Where a group has exactly one status mapped to it the name is
+    // unambiguous, so fill it in; anything ambiguous is left alone rather than guessed.
+    backfillJiraStatusNames: () => {
+      const { tasks, jiraConnections } = get()
+      if (!tasks.some((t) => t.jiras?.some((j) => !j.jiraStatusName && j.groupId))) return
+
+      // One name per group, per project's connection — only when that group has exactly
+      // one status mapped to it.
+      const soleStatusByProject = new Map<string, Map<string, string>>()
+      for (const c of jiraConnections) {
+        const byGroup = new Map<string, string[]>()
+        for (const m of c.statusMappings ?? []) {
+          const arr = byGroup.get(m.groupId) ?? []
+          arr.push(m.jiraStatus)
+          byGroup.set(m.groupId, arr)
+        }
+        const sole = new Map<string, string>()
+        byGroup.forEach((names, gid) => { if (names.length === 1) sole.set(gid, names[0]!) })
+        soleStatusByProject.set(c.projectId ?? '', sole)
+      }
+
+      let changed = false
+      const next = tasks.map((t) => {
+        if (!t.jiras?.some((j) => !j.jiraStatusName && j.groupId)) return t
+        const sole = soleStatusByProject.get(t.projectId ?? '')
+        if (!sole?.size) return t
+        const jiras = t.jiras.map((j) => {
+          if (j.jiraStatusName || !j.groupId) return j
+          const name = sole.get(j.groupId)
+          if (!name) return j
+          changed = true
+          return { ...j, jiraStatusName: name }
+        })
+        return { ...t, jiras }
+      })
+      if (changed) set((s) => withSave({ ...s, tasks: next }))
     },
 
     migrateIssueIds: () => {

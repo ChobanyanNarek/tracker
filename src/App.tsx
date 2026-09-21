@@ -211,7 +211,7 @@ function AuthApp() {
 }
 
 function AuthedApp() {
-  const { view, setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, pruneOldTaskData, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
+  const { view, setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, pruneOldTaskData, backfillJiraStatusNames, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
 
   // When a scrum board is selected, resolve its exact issue set from Jira so board-scoped
   // views fill in immediately (no hard refresh needed after switching boards).
@@ -252,6 +252,7 @@ function AuthedApp() {
     if (isSyncingRef.current && !cloudSyncing) {
       showToast('✓ Data loaded from cloud')
       migrateIssueIds()
+      backfillJiraStatusNames()
       deduplicateJiras()
       autoCarryOverdue()
       mergeSameDayTasks()
@@ -265,6 +266,7 @@ function AuthedApp() {
       setNotifsEnabled(true)
     }
     migrateIssueIds()
+    backfillJiraStatusNames()
     deduplicateJiras()
     autoCarryOverdue()
     mergeSameDayTasks()
