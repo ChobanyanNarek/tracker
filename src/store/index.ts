@@ -2755,6 +2755,8 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
         connProjectId: conn?.projectId ?? '(none)',
         taskProjectId: projectId ?? '(none)',
         groupIsClosed: isClosedGroup(gid ?? j.groupId, conn),
+        savedGroupIds: (conn?.statusGroups ?? []).map((g) => `${g.id}=${g.label}${g.isClosed ? '(CLOSED)' : ''}`).join(' | ') || '(none)',
+        mappingFor: (conn?.statusMappings ?? []).find((m) => m.jiraStatus === j.jiraStatusName)?.groupId ?? '(no mapping)',
       })
     }
     return shown
