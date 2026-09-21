@@ -253,7 +253,6 @@ interface StoreActions {
   carryOver: (id: string) => string | null
   autoCarryOverdue: () => boolean
   migrateIssueIds: () => void
-  backfillJiraStatusNames: () => void
   deduplicateJiras: () => void
   mergeSameDayTasks: () => void
   pruneOldTaskData: () => void
@@ -917,47 +916,6 @@ export const useStore = create<Store>((set, get) => {
       return anyAdded
     },
 
-    // Issues synced before jiraStatusName was stored carry only the groupId stamped at the
-    // time. Visibility is re-derived from the status NAME, so those issues could never be
-    // hidden: marking their status hidden in the integration settings did nothing and they
-    // stayed on the board. Where a group has exactly one status mapped to it the name is
-    // unambiguous, so fill it in; anything ambiguous is left alone rather than guessed.
-    backfillJiraStatusNames: () => {
-      const { tasks, jiraConnections } = get()
-      if (!tasks.some((t) => t.jiras?.some((j) => !j.jiraStatusName && j.groupId))) return
-
-      // One name per group, per project's connection — only when that group has exactly
-      // one status mapped to it.
-      const soleStatusByProject = new Map<string, Map<string, string>>()
-      for (const c of jiraConnections) {
-        const byGroup = new Map<string, string[]>()
-        for (const m of c.statusMappings ?? []) {
-          const arr = byGroup.get(m.groupId) ?? []
-          arr.push(m.jiraStatus)
-          byGroup.set(m.groupId, arr)
-        }
-        const sole = new Map<string, string>()
-        byGroup.forEach((names, gid) => { if (names.length === 1) sole.set(gid, names[0]!) })
-        soleStatusByProject.set(c.projectId ?? '', sole)
-      }
-
-      let changed = false
-      const next = tasks.map((t) => {
-        if (!t.jiras?.some((j) => !j.jiraStatusName && j.groupId)) return t
-        const sole = soleStatusByProject.get(t.projectId ?? '')
-        if (!sole?.size) return t
-        const jiras = t.jiras.map((j) => {
-          if (j.jiraStatusName || !j.groupId) return j
-          const name = sole.get(j.groupId)
-          if (!name) return j
-          changed = true
-          return { ...j, jiraStatusName: name }
-        })
-        return { ...t, jiras }
-      })
-      if (changed) set((s) => withSave({ ...s, tasks: next }))
-    },
-
     migrateIssueIds: () => {
       const { tasks } = get()
       if (!tasks.some((t) => t.jiras?.some((j) => !j.issueId))) return
@@ -1567,7 +1525,7 @@ export const useStore = create<Store>((set, get) => {
                 // Jira is the source of truth on sync: take the fresh Jira status and
                 // clear any manual override (manualStatus is only an optimistic hint
                 // between syncs — it must never permanently mask the real Jira status).
-                syncTask.jiras[existIdx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent, jiraCreatedAt: nj.jiraCreatedAt ?? ex.jiraCreatedAt, issueTypeName: nj.issueTypeName ?? ex.issueTypeName, issueTypeIconUrl: nj.issueTypeIconUrl ?? ex.issueTypeIconUrl, parentKey: nj.parentKey ?? ex.parentKey }
+                syncTask.jiras[existIdx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent, jiraCreatedAt: nj.jiraCreatedAt ?? ex.jiraCreatedAt, issueTypeName: nj.issueTypeName ?? ex.issueTypeName, issueTypeIconUrl: nj.issueTypeIconUrl ?? ex.issueTypeIconUrl, parentKey: nj.parentKey ?? ex.parentKey, jiraStatusName: nj.jiraStatusName }
                 connUpdated++
                 return
               }
@@ -1577,7 +1535,7 @@ export const useStore = create<Store>((set, get) => {
               const { task, idx } = keyToTask.get(njKey)!
               const ex = task.jiras[idx]
               // Jira is the source of truth on sync — take fresh status, clear manual override.
-              task.jiras[idx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent, issueTypeName: nj.issueTypeName ?? ex.issueTypeName, issueTypeIconUrl: nj.issueTypeIconUrl ?? ex.issueTypeIconUrl, parentKey: nj.parentKey ?? ex.parentKey }
+              task.jiras[idx] = { ...ex, boardId: nj.boardId ?? ex.boardId, status: nj.status, groupId: nj.groupId, manualStatus: undefined, priority: nj.priority, deadline: nj.deadline || ex.deadline, statusHistory: mergeStatusHistory(ex.statusHistory, nj.statusHistory), storyPoints: nj.storyPoints ?? ex.storyPoints, timeOriginalEstimate: nj.timeOriginalEstimate ?? ex.timeOriginalEstimate, timeSpent: nj.timeSpent ?? ex.timeSpent, issueTypeName: nj.issueTypeName ?? ex.issueTypeName, issueTypeIconUrl: nj.issueTypeIconUrl ?? ex.issueTypeIconUrl, parentKey: nj.parentKey ?? ex.parentKey, jiraStatusName: nj.jiraStatusName }
               connUpdated++
               return
             }
