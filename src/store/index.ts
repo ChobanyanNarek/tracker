@@ -2529,7 +2529,11 @@ export function taskMatchesBoard(t: Task, boardId: number): boolean {
 
 // The Jira connection that owns the status-group mappings used for display.
 export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
-  const usable = (c: JiraConfig) => c.enabled && !!c.statusMappings?.length
+  // A connection is usable for display if it defines EITHER mappings or groups. Requiring
+  // mappings meant a connection that only had groups configured was never found, so
+  // issueShowsOnBoard received no connection at all and nothing could be hidden or closed
+  // however the integration settings looked.
+  const usable = (c: JiraConfig) => c.enabled && (!!c.statusMappings?.length || !!c.statusGroups?.length)
   // Scope to the selected project. Connections are per-project, so taking the first usable
   // one meant every project was rendered with whichever connection happened to sit first in
   // the array: its own project looked right, while the others had their issues resolved
@@ -2728,7 +2732,7 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
     const key = projectId ?? ''
     if (!connByProject.has(key)) {
       connByProject.set(key, state.jiraConnections.find(
-        (c) => c.enabled && !!c.statusMappings?.length && (c.projectId ?? '') === key,
+        (c) => c.enabled && (!!c.statusMappings?.length || !!c.statusGroups?.length) && (c.projectId ?? '') === key,
       ) ?? getActiveJiraConn(state))
     }
     return connByProject.get(key)

@@ -22,7 +22,7 @@ export default function TaskCard({ task, onToast }: Props) {
   // The connection for THIS task's project — a card can be rendered in a view that spans
   // projects, so resolving status groups against the first connection would label a task
   // with another project's mappings.
-  const conn = jiraConnections.find((c) => c.enabled && c.projectId === task.projectId && c.statusMappings?.length)
+  const conn = jiraConnections.find((c) => c.enabled && c.projectId === task.projectId && (c.statusMappings?.length || c.statusGroups?.length))
   const [deletingIssue, setDeletingIssue] = useState<{ issueId: string | undefined; url: string; name: string } | null>(null)
   const [editingIssueKey, setEditingIssueKey] = useState<string | null>(null)
 
