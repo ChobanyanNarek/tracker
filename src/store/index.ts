@@ -1877,9 +1877,10 @@ export const useStore = create<Store>((set, get) => {
         // Only link into the project this MR's connection belongs to. Every connection
         // belongs to exactly one project, so an issue key that happens to match in another
         // project must never pull this MR across.
+        // As above: an unscoped connection links anywhere instead of matching nothing.
         const mrProj = mrProjectId.get(mr.id) ?? ''
         for (const task of tasks) {
-          if ((task.projectId ?? '') !== mrProj) continue
+          if (mrProj && (task.projectId ?? '') !== mrProj) continue
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
@@ -2068,9 +2069,12 @@ export const useStore = create<Store>((set, get) => {
         let addedSomewhere = false
 
         // Only link into this PR's own project. Every connection belongs to one project.
+        // A connection saved before projectId became mandatory has none. Treat that as
+        // "not scoped" and let it link anywhere, rather than comparing against '' and
+        // matching no task at all -- which made those connections' PRs vanish completely.
         const prProj = prProjectId.get(pr.id) ?? ''
         for (const task of tasks) {
-          if ((task.projectId ?? '') !== prProj) continue
+          if (prProj && (task.projectId ?? '') !== prProj) continue
           for (const jira of (task.jiras ?? [])) {
             if (!matchesIssue(jira)) continue
             matched = true
@@ -2579,9 +2583,24 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
 
   // Integration settings are the source of truth for board visibility (shared by Daily
   // and Deadlines): hide any issue whose status group is 'hidden' OR marked isClosed.
-  const jiraConn = getActiveJiraConn(state)
-  const showsOnBoard = (j: JiraIssue): boolean => {
-    return issueShowsOnBoard(j, jiraConn)
+  //
+  // The connection must be resolved per TASK's project, not once for the whole view. Daily
+  // can show tasks from several projects at once (All projects, or a developer working on
+  // more than one), and judging every issue against a single connection meant a status
+  // hidden in its own project was not hidden here -- the other project's mappings simply
+  // don't contain that status name, so nothing matched and the issue stayed visible.
+  const connByProject = new Map<string, JiraConfig | undefined>()
+  const connFor = (projectId: string | undefined): JiraConfig | undefined => {
+    const key = projectId ?? ''
+    if (!connByProject.has(key)) {
+      connByProject.set(key, state.jiraConnections.find(
+        (c) => c.enabled && !!c.statusMappings?.length && (c.projectId ?? '') === key,
+      ) ?? getActiveJiraConn(state))
+    }
+    return connByProject.get(key)
+  }
+  const showsOnBoard = (j: JiraIssue, projectId?: string): boolean => {
+    return issueShowsOnBoard(j, connFor(projectId))
   }
 
   // Optional diagnostics: set window.__debugSync = true in the console, then re-render.
@@ -2594,17 +2613,20 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
         dbgCount.raw += t.jiras.length
         t.jiras.forEach((j) => {
           if (!jiraBelongsToBoard(j)) dbgCount.droppedBoard.push(jiraFullKey(j) ?? j.issueId ?? j.name ?? '?')
-          else if (!showsOnBoard(j)) dbgCount.droppedShows.push(`${jiraFullKey(j) ?? j.name}[grp=${j.groupId ?? j.status}]`)
+          else if (!showsOnBoard(j, t.projectId)) dbgCount.droppedShows.push(`${jiraFullKey(j) ?? j.name}[grp=${j.groupId ?? j.status}]`)
         })
       }
       const freshJiras = t.jiras
         .filter(jiraBelongsToBoard)
-        .filter(showsOnBoard)
+        .filter((j) => showsOnBoard(j, t.projectId))
         .filter((j) => {
           const dk = jiraDedupeKey(j.url, j.name)
           const identity = dk && dk !== 'name:' ? dk : j.issueId
           if (!identity) return true
-          const k = `${t.devId}:${identity}`
+          // Key on project AND date as well. Without them the first task to carry an
+          // issue won, and the same issue on a later date -- or in the other project --
+          // was silently dropped from the board entirely.
+          const k = `${t.projectId ?? ''}:${t.devId}:${t.date}:${identity}`
           if (seenJira.has(k)) return false
           seenJira.add(k)
           return true
