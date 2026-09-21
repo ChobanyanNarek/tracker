@@ -57,8 +57,20 @@ export function resolveGroupForIssue(
 export function isClosedGroup(groupId: string | undefined, conn: JiraConfig | undefined): boolean {
   if (!groupId) return false
   if (groupId === 'hidden') return false
-  const group = resolveGroupForIssue(groupId, conn)
-  return group?.isClosed === true
+
+  const saved = conn?.statusGroups ?? []
+  const own = saved.find((g) => g.id === groupId)
+  if (own) return own.isClosed === true
+
+  // The id is not in the user's saved groups -- mappings and groups are edited
+  // independently, so a status can point at a group the saved set never got. Falling back
+  // to the stock default would answer with ITS isClosed, which is unset for everything but
+  // 'done', so a user who marked every one of their groups closed still saw those issues.
+  // When the saved set is unanimous, apply that intent to the missing id; otherwise defer
+  // to the default definition.
+  if (saved.length && saved.every((g) => g.isClosed === true)) return true
+
+  return resolveGroupForIssue(groupId, conn)?.isClosed === true
 }
 
 export function groupForJiraStatus(

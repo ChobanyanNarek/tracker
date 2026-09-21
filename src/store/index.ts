@@ -2557,14 +2557,10 @@ export function issueShowsOnBoard(j: JiraIssue, conn: JiraConfig | undefined): b
     ? (groupForJiraStatus(j.jiraStatusName, conn.statusMappings) ?? j.groupId)
     : j.groupId
   if (gid === 'hidden') return false
-  // A group id that no longer exists in the connection's groups cannot be checked for
-  // isClosed, and silently fell through as "visible" -- so an issue stamped with a group
-  // that was since renamed, replaced or re-created kept showing on the board however the
-  // settings were configured. Fall back to the status the issue carries instead of
-  // treating an unresolvable group as open.
-  if (gid && conn?.statusGroups?.length && !conn.statusGroups.some((g) => g.id === gid)) {
-    return j.status !== 'done'
-  }
+  // isClosedGroup resolves the id against the saved groups COMPLETED WITH THE DEFAULTS, so
+  // an id the saved set happens not to contain still finds a real group. An earlier guard
+  // here returned early for exactly that case and short-circuited the closed check, which
+  // meant a group the user had marked closed kept showing its issues.
   if (gid ? isClosedGroup(gid, conn) : j.status === 'done') return false
   return true
 }
