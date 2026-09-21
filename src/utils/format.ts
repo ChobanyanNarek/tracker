@@ -189,3 +189,49 @@ export function resolveIdentities(
   const o = identityList(override)
   return o.length ? o : identityList(fallback)
 }
+
+// ── Parent / subtask nesting ───────────────────────────────────
+// Arrange a flat issue list so each subtask sits directly under its parent, at depth 1.
+// Ordering within the list is otherwise preserved, so the caller's own sort (active, then
+// done, then hidden) still governs the top level.
+//
+// A subtask whose parent is NOT in this list is treated as a root: it must stay visible
+// rather than disappear because the parent sits on another day, another developer's task,
+// or was never synced.
+export interface NestedIssue<T> { issue: T; depth: number; childCount: number }
+
+export function nestByParent<T extends { issueId?: string; parentKey?: string }>(
+  issues: T[],
+): NestedIssue<T>[] {
+  const byKey = new Map<string, T>()
+  for (const i of issues) if (i.issueId) byKey.set(i.issueId.toUpperCase(), i)
+
+  const childrenOf = new Map<string, T[]>()
+  const roots: T[] = []
+  for (const i of issues) {
+    const pk = i.parentKey?.trim().toUpperCase()
+    // Guard against an issue claiming itself as parent, which would recurse forever.
+    if (pk && pk !== i.issueId?.toUpperCase() && byKey.has(pk)) {
+      const arr = childrenOf.get(pk) ?? []
+      arr.push(i)
+      childrenOf.set(pk, arr)
+    } else {
+      roots.push(i)
+    }
+  }
+
+  const out: NestedIssue<T>[] = []
+  const emitted = new Set<T>()
+  const walk = (node: T, depth: number): void => {
+    // A cycle (A parents B, B parents A) would otherwise loop forever.
+    if (emitted.has(node)) return
+    emitted.add(node)
+    const kids = node.issueId ? (childrenOf.get(node.issueId.toUpperCase()) ?? []) : []
+    out.push({ issue: node, depth, childCount: kids.length })
+    for (const k of kids) walk(k, depth + 1)
+  }
+  for (const r of roots) walk(r, 0)
+  // Anything unreachable (part of a cycle) still gets rendered, flat.
+  for (const i of issues) if (!emitted.has(i)) out.push({ issue: i, depth: 0, childCount: 0 })
+  return out
+}

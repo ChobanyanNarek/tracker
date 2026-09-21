@@ -4,7 +4,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useStore } from '../../store'
 import type { Task, JiraIssue } from '../../types'
-import { getJiras, jiraLabel } from '../../utils/format'
+import { getJiras, jiraLabel, nestByParent } from '../../utils/format'
 import JiraIssueCard from './JiraIssueCard'
 import IssueEditForm from './IssueEditForm'
 import ConfirmDialog from '../ui/ConfirmDialog'
@@ -29,11 +29,48 @@ export default function TaskCard({ task, onToast }: Props) {
   const jiras = getJiras(task)
   const issueKey = (j: JiraIssue) => j.issueId ?? j.url ?? ''
 
+  // Subtasks render underneath their parent. Collapsed parents are remembered per issue
+  // in localStorage: it is a per-viewer display preference, so it must not travel into the
+  // synced state where it would follow the user onto other devices and other people.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('pm_collapsed_issues')
+      return new Set<string>(raw ? JSON.parse(raw) as string[] : [])
+    } catch { return new Set<string>() }
+  })
+  const toggleCollapsed = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      try { localStorage.setItem('pm_collapsed_issues', JSON.stringify([...next])) } catch { /* private mode */ }
+      return next
+    })
+  }
+
+  const nested = nestByParent(jiras)
+  // Hide any row whose parent — or any ancestor — is collapsed.
+  const visibleRows = (() => {
+    const out: typeof nested = []
+    let hideBelowDepth: number | null = null
+    for (const row of nested) {
+      if (hideBelowDepth !== null && row.depth > hideBelowDepth) continue
+      hideBelowDepth = null
+      out.push(row)
+      const k = row.issue.issueId ?? row.issue.url ?? ''
+      if (row.childCount > 0 && collapsed.has(k)) hideBelowDepth = row.depth
+    }
+    return out
+  })()
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const handleDragEnd = (e: DragEndEvent) => {
     const { active, over } = e
     if (!over || active.id === over.id) return
+    // Reordering is disabled while anything is nested: dragging a parent would have to
+    // carry its subtasks, and dropping a subtask between two unrelated issues has no
+    // meaning. Jira owns the hierarchy, so manual order applies to flat lists only.
+    if (nested.some((r) => r.depth > 0)) return
     const ids = jiras.map((_, i) => `${task.id}-${i}`)
     const fromIdx = ids.indexOf(String(active.id))
     const toIdx = ids.indexOf(String(over.id))
@@ -51,8 +88,45 @@ export default function TaskCard({ task, onToast }: Props) {
         <div style={{ padding: '6px 14px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={jiras.map((_, i) => `${task.id}-${i}`)} strategy={verticalListSortingStrategy}>
-              {jiras.map((j, i) =>
-                editingIssueKey && editingIssueKey === issueKey(j) ? (
+              {visibleRows.map(({ issue: j, depth, childCount }) => {
+                const i = jiras.indexOf(j)
+                const k = issueKey(j)
+                const isCollapsed = collapsed.has(k)
+                return (
+                <div key={`${task.id}-${i}-row`} style={{ display: 'flex', alignItems: 'stretch', gap: 0, width: '100%', minWidth: 0 }}>
+                  {/* indent rail + connector, one per level of depth */}
+                  {depth > 0 && (
+                    <div style={{ display: 'flex', flexShrink: 0 }} aria-hidden>
+                      {/* one rail per ancestor level, then the elbow into this row */}
+                      {Array.from({ length: depth - 1 }, (_, d) => (
+                        <div key={d} style={{ width: 28, display: 'flex', justifyContent: 'center' }}>
+                          <div style={{ width: 0, borderLeft: '2px solid var(--border2)' }} />
+                        </div>
+                      ))}
+                      <div style={{ width: 28, position: 'relative' }}>
+                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: '50%', borderLeft: '2px solid var(--border2)' }} />
+                        <div style={{ position: 'absolute', left: '50%', top: '50%', width: 14, borderTop: '2px solid var(--border2)' }} />
+                      </div>
+                    </div>
+                  )}
+                  {/* collapse toggle, only on rows that actually have children */}
+                  {childCount > 0 ? (
+                    <button
+                      onClick={() => toggleCollapsed(k)}
+                      title={isCollapsed ? `Show ${childCount} subtask${childCount !== 1 ? 's' : ''}` : 'Hide subtasks'}
+                      aria-expanded={!isCollapsed}
+                      style={{ alignSelf: 'center', flexShrink: 0, width: 16, height: 16, marginRight: 4, padding: 0,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                        background: 'var(--surface3)', border: '1px solid var(--border2)', borderRadius: 4,
+                        color: 'var(--text3)', fontSize: 9, fontFamily: 'var(--mono)', lineHeight: 1 }}
+                    >
+                      {isCollapsed ? '+' : '−'}
+                    </button>
+                  ) : (
+                    <span style={{ width: depth > 0 ? 0 : 20, flexShrink: 0 }} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0, ...(depth > 0 ? { opacity: 0.94 } : {}) }}>
+                {editingIssueKey && editingIssueKey === issueKey(j) ? (
                   <IssueEditForm
                     key={`${task.id}-${i}-edit`}
                     issue={j}
@@ -79,8 +153,11 @@ export default function TaskCard({ task, onToast }: Props) {
                     }}
                     onHide={(iid, url) => toggleJiraHidden(task.id, iid, url)}
                   />
-                ),
-              )}
+                )}
+                  </div>
+                </div>
+                )
+              })}
             </SortableContext>
           </DndContext>
         </div>

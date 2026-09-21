@@ -15,6 +15,9 @@ export interface JiraIssueRaw {
     customfield_10016?: number | null   // story points (most common)
     customfield_10028?: number | null   // story points (alt field)
     issuetype?: { name: string; iconUrl?: string } | null   // Task/Bug/Epic/etc — types vary per Jira project, not a fixed set
+    // Present only once the backend proxy requests the 'parent' field (see
+    // docs/BACKEND-parent-field.md). Absent on older responses, which is handled.
+    parent?: { key: string; fields?: { summary?: string } } | null
   }
   changelog?: {
     histories: Array<{
@@ -357,5 +360,6 @@ export function rawToJiraItem(issue: JiraIssueRaw, baseUrl: string, mappings?: J
     jiraCreatedAt: issue.fields.created ? issue.fields.created.slice(0, 10) : undefined,
     issueTypeName: issue.fields.issuetype?.name ?? undefined,
     issueTypeIconUrl: issue.fields.issuetype?.iconUrl ?? undefined,
+    parentKey: issue.fields.parent?.key ?? undefined,
   }
 }

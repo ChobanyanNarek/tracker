@@ -111,6 +111,7 @@ export interface JiraIssue {
   hidden?: boolean
   groupId?: string        // display group id from status mapping (drives label + color on card)
   jiraStatusName?: string // raw Jira status name (e.g. "In Review"); used to re-derive groupId when mappings change
+  parentKey?: string      // Jira key of this issue's parent, when it is a subtask — drives nesting in the UI
   manualStatus?: Status  // set when user manually changes status; overrides Jira sync
   statusHistory?: StatusHistoryEntry[]
   storyPoints?: number              // from Jira customfield_10016 or customfield_10028
