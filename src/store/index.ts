@@ -2562,6 +2562,14 @@ export function issueShowsOnBoard(j: JiraIssue, conn: JiraConfig | undefined): b
   // here returned early for exactly that case and short-circuited the closed check, which
   // meant a group the user had marked closed kept showing its issues.
   if (gid ? isClosedGroup(gid, conn) : j.status === 'done') return false
+  // No group at all: an issue synced before groups existed carries only the legacy status.
+  // Map that to the group it corresponds to so the closed setting still applies -- without
+  // this these issues could never be removed from the board by any configuration.
+  if (!gid && conn?.statusGroups?.length) {
+    const legacy = legacyStatusToGroupId(j.status)
+
+    if (isClosedGroup(legacy, conn)) return false
+  }
   return true
 }
 
