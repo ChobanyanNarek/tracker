@@ -309,7 +309,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
   useEffect(() => {
     if (editMode !== 'scrum') return
     // Only this project's own connection; another project's credentials must never be used.
-    const conn = jiraConnections.find(c => c.id === editJiraConnectionId && c.enabled)
+    const conn = jiraConnections.find(c => c.id === editJiraConnectionId && c.enabled && c.projectId === editingProjId)
       ?? jiraConnections.find(c => c.enabled && c.projectId === editingProjId)
     if (!conn) return
     setLoadingBoards(true)
@@ -361,7 +361,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
     // (a board holds a specific subset of issues; prefix alone is too coarse).
     if (boardId) {
       const editingProjNow = projects.find(p => p.id === projId)
-      const conn = jiraConnections.find(c => c.id === connId && c.enabled)
+      const conn = jiraConnections.find(c => c.id === connId && c.enabled && c.projectId === projId)
         ?? jiraConnections.find(c => c.enabled && c.projectId === projId)
       if (conn) {
         setResolvingBoard(true)

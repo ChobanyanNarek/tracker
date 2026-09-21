@@ -12,8 +12,12 @@ export function keysFromText(text: string, projectKeys: string[]): string[] {
   if (configured.length) {
     const esc = configured.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     for (const m of text.matchAll(new RegExp(`(?:${esc.join('|')})-\\d+`, 'ig'))) found.add(m[0].toUpperCase())
+    // Stop here. The generic pattern below used to run as well, so a branch or title
+    // mentioning ANY key matched -- which let a PR from one project link to another
+    // project's issue even though that key was never configured here.
+    return [...found]
   }
-  // Generic uppercase-only pattern as fallback.
+  // No keys configured for this project: fall back to the generic uppercase pattern.
   for (const m of text.matchAll(/[A-Z][A-Z0-9]+-\d+/g)) found.add(m[0])
   return [...found]
 }

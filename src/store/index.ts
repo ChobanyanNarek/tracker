@@ -1298,7 +1298,11 @@ export const useStore = create<Store>((set, get) => {
       const proj = projects.find((p) => p.id === projectId)
       if (!proj || proj.mode !== 'scrum' || !proj.jiraBoardId) return
       // Only this project's own connection -- never borrow another project's credentials.
-      const conn = (proj.jiraConnectionId ? jiraConnections.find((c) => c.id === proj.jiraConnectionId && c.enabled) : undefined)
+      // Both lookups require the connection to belong to THIS project: a stale
+      // jiraConnectionId could otherwise point at another project's connection.
+      const conn = (proj.jiraConnectionId
+        ? jiraConnections.find((c) => c.id === proj.jiraConnectionId && c.enabled && c.projectId === proj.id)
+        : undefined)
         ?? jiraConnections.find((c) => c.projectId === proj.id && c.enabled)
       if (!conn) return
       const members = proj.members ?? []
@@ -1790,15 +1794,23 @@ export const useStore = create<Store>((set, get) => {
         return { date: `${g('year')}-${g('month')}-${g('day')}`, time: `${g('hour')}:${g('minute')}` }
       }
 
-      const projectKeys = [
-        ...new Set([
-          ...jiraConnections.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
-          ...tasks
-            .flatMap((t) => t.jiras ?? [])
-            .map((j) => jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase() ?? '')
-            .filter(Boolean),
-        ]),
-      ]
+      // Issue-key prefixes PER PROJECT. Pooling every project's keys meant a connection
+      // belonging to one project recognised another project's keys in PR/MR titles and
+      // linked across the boundary. Each project sees only its own Jira keys and its own
+      // tasks' keys.
+      const projectKeysFor = (projectId: string): string[] => {
+        const own = jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
+        return [
+          ...new Set([
+            ...own.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
+            ...tasks
+              .filter((t) => (t.projectId ?? '') === projectId)
+              .flatMap((t) => t.jiras ?? [])
+              .map((j) => jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase() ?? '')
+              .filter(Boolean),
+          ]),
+        ]
+      }
 
       const mrById = new Map<number, Awaited<ReturnType<typeof fetchGroupMRs>>[number]>()
       // Which project each MR's connection belongs to. MRs are pooled across connections
@@ -1842,7 +1854,9 @@ export const useStore = create<Store>((set, get) => {
       const mrUrlToStatus = new Map<string, JiraIssue['status']>()
 
       for (const mr of mrs) {
-        const keys = extractJiraKeys(mr, projectKeys)
+        // Only this MR's own project's issue keys — never another project's.
+        const mrProj = mrProjectId.get(mr.id) ?? ''
+        const keys = extractJiraKeys(mr, projectKeysFor(mrProj))
         if (!keys.length) {
           skippedNoKey.push(`!${mr.iid} "${mr.title}" [${mr.source_branch}]`)
           continue
@@ -1877,8 +1891,7 @@ export const useStore = create<Store>((set, get) => {
         // Only link into the project this MR's connection belongs to. Every connection
         // belongs to exactly one project, so an issue key that happens to match in another
         // project must never pull this MR across.
-        // As above: an unscoped connection links anywhere instead of matching nothing.
-        const mrProj = mrProjectId.get(mr.id) ?? ''
+        // An unscoped connection links anywhere instead of matching nothing.
         for (const task of tasks) {
           if (mrProj && (task.projectId ?? '') !== mrProj) continue
           for (const jira of (task.jiras ?? [])) {
@@ -1983,15 +1996,23 @@ export const useStore = create<Store>((set, get) => {
         return { date: `${g('year')}-${g('month')}-${g('day')}`, time: `${g('hour')}:${g('minute')}` }
       }
 
-      const projectKeys = [
-        ...new Set([
-          ...jiraConnections.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
-          ...tasks
-            .flatMap((t) => t.jiras ?? [])
-            .map((j) => jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase() ?? '')
-            .filter(Boolean),
-        ]),
-      ]
+      // Issue-key prefixes PER PROJECT. Pooling every project's keys meant a connection
+      // belonging to one project recognised another project's keys in PR/MR titles and
+      // linked across the boundary. Each project sees only its own Jira keys and its own
+      // tasks' keys.
+      const projectKeysFor = (projectId: string): string[] => {
+        const own = jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
+        return [
+          ...new Set([
+            ...own.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
+            ...tasks
+              .filter((t) => (t.projectId ?? '') === projectId)
+              .flatMap((t) => t.jiras ?? [])
+              .map((j) => jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase() ?? '')
+              .filter(Boolean),
+          ]),
+        ]
+      }
 
       const prById = new Map<number, Awaited<ReturnType<typeof fetchOrgPRs>>[number]>()
       // Which project each PR's connection belongs to — PRs are pooled across connections
@@ -2037,7 +2058,9 @@ export const useStore = create<Store>((set, get) => {
       let updated = 0
 
       for (const pr of allPRs) {
-        const keys = extractGithubJiraKeys(pr, projectKeys)
+        // Only this PR's own project's issue keys — never another project's.
+        const prProj = prProjectId.get(pr.id) ?? ''
+        const keys = extractGithubJiraKeys(pr, projectKeysFor(prProj))
         console.info('[GitHub sync] PR:', pr.html_url, 'title:', pr.title, 'branch:', pr.head?.ref, 'keys:', keys)
         prUrlToKeys.set(pr.html_url, new Set(keys.map((k) => k.toUpperCase())))
         if (!keys.length) continue
@@ -2072,7 +2095,6 @@ export const useStore = create<Store>((set, get) => {
         // A connection saved before projectId became mandatory has none. Treat that as
         // "not scoped" and let it link anywhere, rather than comparing against '' and
         // matching no task at all -- which made those connections' PRs vanish completely.
-        const prProj = prProjectId.get(pr.id) ?? ''
         for (const task of tasks) {
           if (prProj && (task.projectId ?? '') !== prProj) continue
           for (const jira of (task.jiras ?? [])) {
