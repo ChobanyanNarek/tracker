@@ -58,10 +58,19 @@ export function isClosedGroup(groupId: string | undefined, conn: JiraConfig | un
   const own = saved.find((g) => g.id === groupId)
   if (own) return own.isClosed === true
 
-  // The id is not in the user's saved groups. Their set is authoritative -- inferring a
-  // value from the other groups guessed wrong (a mixed set, where most groups are open,
-  // had its open groups hidden), and the stock defaults describe a different set entirely.
-  // An unknown group is not closed.
+  // The id is not in the saved set. Groups carry generated ids, so a mapping can point at
+  // a stock id like 'review' while the user's own group for the same thing is
+  // 'group_abc123' -- the two never match by id and the group's closed setting was
+  // silently ignored. Fall back to matching the DEFAULT group's label against the saved
+  // groups' labels, which is what the user actually sees and sets.
+  const byDefaultLabel = DEFAULT_STATUS_GROUPS.find((g) => g.id === groupId)?.label
+  if (byDefaultLabel) {
+    const sameLabel = saved.find(
+      (g) => g.label.trim().toLowerCase() === byDefaultLabel.trim().toLowerCase(),
+    )
+    if (sameLabel) return sameLabel.isClosed === true
+  }
+
   return false
 }
 
