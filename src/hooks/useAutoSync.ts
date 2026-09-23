@@ -30,7 +30,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
       })
       if (stale) {
         await delay(2000)
-        useStore.getState().syncGitlab()
+        useStore.getState().syncGitlab({ background: true })
           .then(({ linked }) => { if (linked) onToast(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked`) })
           .catch(() => {})
       }
@@ -45,7 +45,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
       })
       if (stale) {
         await delay(3000)
-        useStore.getState().syncGithub()
+        useStore.getState().syncGithub({ background: true })
           .then(({ linked }) => { if (linked) onToast(`GitHub synced — ${linked} PR${linked !== 1 ? 's' : ''} linked`) })
           .catch(() => {})
       }
@@ -60,7 +60,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
       })
       if (stale) {
         await delay(1500)
-        useStore.getState().syncJira()
+        useStore.getState().syncJira({ background: true })
           .then(({ added, updated, removed }) => {
             onToast(`Jira synced — ${added} added, ${updated} updated${removed ? `, ${removed} removed` : ''}`)
           })
@@ -76,7 +76,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
       try {
-        const { added, updated, removed } = await useStore.getState().syncJira()
+        const { added, updated, removed } = await useStore.getState().syncJira({ background: true })
         // Always surface a toast so the user can see auto-sync is alive, even with no changes.
         if (added || updated || removed) {
           onToast(`Jira synced — ${added} added, ${updated} updated${removed ? `, ${removed} closed removed` : ''}`)
@@ -98,7 +98,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
       try {
-        const { linked } = await useStore.getState().syncGitlab()
+        const { linked } = await useStore.getState().syncGitlab({ background: true })
         if (linked) onToast(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked`)
       } catch {}
     }, ms)
@@ -112,7 +112,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
       try {
-        const { linked } = await useStore.getState().syncGithub()
+        const { linked } = await useStore.getState().syncGithub({ background: true })
         if (linked) onToast(`GitHub synced — ${linked} PR${linked !== 1 ? 's' : ''} linked`)
       } catch {}
     }, ms)
@@ -129,7 +129,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
         return Date.now() - lastSyncMs >= 5 * 60 * 1000
       })
       if (!stale) return
-      useStore.getState().syncGitlab()
+      useStore.getState().syncGitlab({ background: true })
         .then(({ linked }) => { if (linked) onToast(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked`) })
         .catch(() => {})
     }
@@ -147,7 +147,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
         return Date.now() - lastSyncMs >= 5 * 60 * 1000
       })
       if (!stale) return
-      useStore.getState().syncGithub()
+      useStore.getState().syncGithub({ background: true })
         .then(({ linked }) => { if (linked) onToast(`GitHub synced — ${linked} PR${linked !== 1 ? 's' : ''} linked`) })
         .catch(() => {})
     }

@@ -109,6 +109,27 @@ function buildPersistPayload(state: AppState): Record<string, unknown> {
 // state instead of one request per keystroke — cutting network + backend memory pressure.
 let pendingPayload: Record<string, unknown> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+// background: an automatic sync (startup or interval) rather than one the user asked for.
+// Background syncs skip when another tab is already syncing and may be incremental;
+// manual ones wait their turn and are always full.
+export interface SyncOptions { background?: boolean }
+
+// A full Jira sync -- the only kind allowed to prune issues -- runs at least this often.
+const FULL_SYNC_EVERY_MS = 6 * 60 * 60 * 1000
+
+/*
+ * One sync at a time across ALL open tabs, not just within one. Each tab ran its own
+ * autosync, so two tabs meant every sync twice: double the Jira traffic and two competing
+ * saves. Uses the Web Locks API; background syncs skip if another tab holds the lock,
+ * manual ones wait for it. Browsers without Web Locks just run.
+ */
+async function withTabLock<T>(name: string, background: boolean, run: () => Promise<T>, skipped: T): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  if (!locks) return run()
+  if (background) return locks.request(name, { ifAvailable: true }, (lock) => (lock ? run() : skipped))
+  return locks.request(name, run)
+}
+
 // The Jira sync currently running, if any — see syncJira for why overlap is destructive.
 let jiraSyncInFlight: Promise<{ added: number; updated: number; removed: number }> | null = null
 let gitlabSyncInFlight: Promise<{ linked: number; updated: number; noKey: number; noIssue: number; noKeyList: string[]; noIssueList: string[] }> | null = null
@@ -283,12 +304,12 @@ interface StoreActions {
   setNotifsEnabled: (v: boolean) => void
   setTrackerTimezone: (tz: string | undefined) => void
   setJiraConnections: (connections: JiraConfig[]) => void
-  syncJira: () => Promise<{ added: number; updated: number; removed: number }>
+  syncJira: (opts?: SyncOptions) => Promise<{ added: number; updated: number; removed: number }>
   refreshBoardIssueKeys: (projectId: string) => Promise<void>
   setGitlabConnections: (connections: GitLabConfig[]) => void
-  syncGitlab: () => Promise<{ linked: number; updated: number; noKey: number; noIssue: number; noKeyList: string[]; noIssueList: string[] }>
+  syncGitlab: (opts?: SyncOptions) => Promise<{ linked: number; updated: number; noKey: number; noIssue: number; noKeyList: string[]; noIssueList: string[] }>
   setGithubConnections: (connections: GitHubConfig[]) => void
-  syncGithub: () => Promise<{ linked: number; updated: number }>
+  syncGithub: (opts?: SyncOptions) => Promise<{ linked: number; updated: number }>
   exportJSON: () => void
   importJSON: (json: string) => Promise<boolean>
   setHighlightedTaskId: (id: string | null) => void
@@ -1368,7 +1389,7 @@ export const useStore = create<Store>((set, get) => {
       } catch { /* keep existing on failure */ }
     },
 
-    syncJira: async () => {
+    syncJira: async (opts) => {
       // Only one Jira sync at a time. Autosync runs on a timer (startup + interval) with no
       // coordination with manual syncs, and a sync reads tasks up front but writes them
       // minutes later, after its network calls. Two overlapping runs therefore had the
@@ -1376,7 +1397,7 @@ export const useStore = create<Store>((set, get) => {
       // appeared, then vanished on the next sync or reload. Concurrent callers now await
       // the run already in progress instead of starting a competing one.
       if (jiraSyncInFlight) return jiraSyncInFlight
-      const run = (async () => {
+      const run = withTabLock('pm-sync-jira', !!opts?.background, async () => {
       const { jiraConnections, developers, tasks, projects } = get()
       const enabledConns = jiraConnections.filter((c) => c.enabled && c.baseUrl && hasCredential(c))
       if (!enabledConns.length) throw new Error('No Jira connections configured')
@@ -1440,6 +1461,21 @@ export const useStore = create<Store>((set, get) => {
         const linkedProj = conn.projectId ? projects.find((p) => p.id === conn.projectId) : null
         const effectiveBoardId = linkedProj?.jiraBoardId ?? conn.boardId
 
+        /*
+         * Incremental sync: a background sync fetches only issues updated since the last
+         * one (the window is relative, so Jira evaluates it in its own timezone, with a
+         * margin for clock skew). An incremental fetch cannot prove an issue is gone, so it
+         * never prunes; a full sync -- every manual sync, and a background one at least
+         * every FULL_SYNC_EVERY_MS -- is the only kind allowed to delete. Board mode stays
+         * full every time: its pruning depends on complete board membership.
+         */
+        const boardMode = !!effectiveBoardId || !!conn.allowedBoardIds?.length
+        const lastSyncAt = conn.lastSync ? Date.parse(conn.lastSync) : 0
+        const lastFullAt = conn.lastFullSync ? Date.parse(conn.lastFullSync) : 0
+        const incremental = !!opts?.background && !boardMode && lastSyncAt > 0 && lastFullAt > 0
+          && Date.now() - lastFullAt < FULL_SYNC_EVERY_MS
+        const sinceClause = incremental ? `updated >= -${Math.ceil((Date.now() - lastSyncAt) / 60_000) + 10}m` : ''
+
         const byDev = new Map<string, JiraIssueRaw[]>()
         // Track devs whose fetch succeeded, and the full set of issue keys Jira returned
         // for each. Used to prune issues that were deleted/reassigned away in Jira.
@@ -1496,7 +1532,7 @@ export const useStore = create<Store>((set, get) => {
             const assigneeClause = `assignee in (${assigneeVals})`
             const projClause = projList ? `project in (${projList})` : ''
             const buildJql = (withStatus: boolean) =>
-              [projClause, assigneeClause, withStatus ? statusFilter : '']
+              [projClause, assigneeClause, sinceClause, withStatus ? statusFilter : '']
                 .filter(Boolean)
                 .join(' AND ') + ' ORDER BY updated DESC'
             let r: { issues: JiraIssueRaw[]; truncated: boolean }
@@ -1636,7 +1672,7 @@ export const useStore = create<Store>((set, get) => {
           const dk = jiraDedupeKey(j.url, j.name)
           return /^[A-Z][A-Z0-9]+-\d+$/.test(dk) ? dk : undefined
         }
-        if (fetchedDevs.size) {
+        if (!incremental && fetchedDevs.size) {
           dedupedTasks.forEach((t) => {
             // A truncated fetch didn't see this dev's full assigned-issue set, so an issue
             // missing from it may simply not have fit the cap, not have been unassigned —
@@ -1694,6 +1730,7 @@ export const useStore = create<Store>((set, get) => {
           ...conn,
           hoursPerDay,
           lastSync: new Date().toISOString(),
+          ...(incremental ? {} : { lastFullSync: new Date().toISOString() }),
           lastSyncResult: `+${connAdded} added, ${connUpdated} updated${connRemoved ? `, ${connRemoved} closed removed` : ''}`,
         })
       }
@@ -1814,18 +1851,18 @@ export const useStore = create<Store>((set, get) => {
       syncLog('sync:done', { tasks: get().tasks.length, jiras: countJiras(get().tasks), note: `+${added} ~${updated} -${removed}` })
       persistNow(get())
       return { added, updated, removed }
-      })()
+      }, { added: 0, updated: 0, removed: 0 })
       jiraSyncInFlight = run
       try { return await run } finally { jiraSyncInFlight = null }
     },
 
     setGitlabConnections: (gitlabConnections) => set((s) => withSave({ ...s, gitlabConnections })),
 
-    syncGitlab: async () => {
+    syncGitlab: async (opts) => {
       // Same overlap hazard as syncJira: reads tasks up front, writes them after its network
       // calls, and autosync runs on a timer alongside manual syncs.
       if (gitlabSyncInFlight) return gitlabSyncInFlight
-      const run = (async () => {
+      const run = withTabLock('pm-sync-gitlab', !!opts?.background, async () => {
       const { gitlabConnections, jiraConnections, tasks, developers, projects } = get()
       const enabledConns = gitlabConnections.filter((c) => c.enabled && hasCredential(c) && c.groupPath)
       if (!enabledConns.length) throw new Error('No GitLab connections configured')
@@ -2041,17 +2078,17 @@ export const useStore = create<Store>((set, get) => {
       }))
 
       return { linked, updated, noKey: skippedNoKey.length, noIssue: skippedNoIssue.length, noKeyList: skippedNoKey, noIssueList: skippedNoIssue }
-      })()
+      }, { linked: 0, updated: 0, noKey: 0, noIssue: 0, noKeyList: [], noIssueList: [] })
       gitlabSyncInFlight = run
       try { return await run } finally { gitlabSyncInFlight = null }
     },
 
     setGithubConnections: (githubConnections) => set((s) => withSave({ ...s, githubConnections })),
 
-    syncGithub: async () => {
+    syncGithub: async (opts) => {
       // Same overlap hazard as syncJira.
       if (githubSyncInFlight) return githubSyncInFlight
-      const run = (async () => {
+      const run = withTabLock('pm-sync-github', !!opts?.background, async () => {
       const { githubConnections, jiraConnections, tasks, developers, projects } = get()
       const enabledConns = githubConnections.filter((c) => c.enabled && hasCredential(c))
       if (!enabledConns.length) throw new Error('No GitHub connections configured')
@@ -2276,7 +2313,7 @@ export const useStore = create<Store>((set, get) => {
       }))
 
       return { linked, updated }
-      })()
+      }, { linked: 0, updated: 0 })
       githubSyncInFlight = run
       try { return await run } finally { githubSyncInFlight = null }
     },

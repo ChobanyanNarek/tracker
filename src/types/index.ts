@@ -76,6 +76,7 @@ export interface JiraConfig {
   allowedBoardIds?: number[]               // project mode: show only issues from these boards (empty = all)
   hoursPerDay?: number                       // Jira working hours per day (default 8); used to format time estimates
   lastSync?: string
+  lastFullSync?: string    // last sync that fetched everything and was allowed to prune
   lastSyncResult?: string
   projectId?: string                        // if set, this connection belongs to a specific project; empty = global
 }
