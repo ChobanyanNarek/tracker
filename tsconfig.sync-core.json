@@ -1,0 +1,15 @@
+{
+  // The shared sync core also compiles inside progressor-backend, whose settings are
+  // stricter than the app's. Checking it here with those settings keeps the copy building.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "lib": ["ESNext"],
+    "types": []
+  },
+  "include": ["src/sync-core/**/*.ts", "src/types/index.ts", "types/sync-core-env.d.ts"],
+  "exclude": ["src/sync-core/**/*.test.ts"]
+}

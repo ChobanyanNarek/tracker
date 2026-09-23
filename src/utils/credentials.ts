@@ -1,58 +1,19 @@
+import { authFor, hasCredential, type Credentialed, type ProviderAuth } from '../sync-core/credentials'
+import { providerGet as coreProviderGet, type ProxyResponse } from '../sync-core/providers'
 import { authHeaders } from './auth'
+import { browserTransport } from './browser-transport'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
-/*
- * Integration tokens move from the browser into an encrypted server-side vault. While a
- * connection's token is still local (typed in but not yet uploaded, or the vault is not
- * configured) it is sent as before; once vaulted, the connection id is sent instead and
- * the server supplies the token.
- */
-export interface Credentialed {
-  id: string
-  token: string
-  tokenInVault?: boolean
-}
-
-export type ProviderAuth = { token: string } | { connectionId: string }
-
-export function hasCredential(c: Credentialed): boolean {
-  return !!c.token?.trim() || !!c.tokenInVault
-}
-
-// A local token wins: it is either newer than the vaulted one or the vault is off.
-export function authFor(c: Credentialed): ProviderAuth {
-  const token = c.token?.trim()
-  return token ? { token } : { connectionId: c.id }
-}
-
-export interface ProxyResponse {
-  ok: boolean
-  status: number
-  json: () => Promise<unknown>
-}
+export { authFor, hasCredential }
+export type { Credentialed, ProviderAuth, ProxyResponse }
 
 /*
  * GitHub and GitLab reads go through the backend so their tokens can stay in the vault.
- * Returns a minimal Response-like object so callers keep their existing `ok`/`status`/`json`
- * handling. `path` is relative to the provider's API host, e.g. /repos/acme/web/pulls.
+ * `path` is relative to the provider's API host, e.g. /repos/acme/web/pulls.
  */
-export async function providerGet(provider: 'github' | 'gitlab', auth: ProviderAuth, path: string): Promise<ProxyResponse> {
-  const res = await fetch(`${API_URL}/pm-tracker/${provider}`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({ path, ...auth }),
-  })
-  if (!res.ok) {
-    // The proxy itself refused (bad path, missing credential, vault off): surface its status.
-    return { ok: false, status: res.status, json: () => res.json().catch(() => null) }
-  }
-  const body = (await res.json()) as { status: number; data: unknown }
-  return {
-    ok: body.status >= 200 && body.status < 300,
-    status: body.status,
-    json: () => Promise.resolve(body.data),
-  }
+export function providerGet(provider: 'github' | 'gitlab', auth: ProviderAuth, path: string): Promise<ProxyResponse> {
+  return coreProviderGet(browserTransport, provider, auth, path)
 }
 
 // ── Vault management ────────────────────────────────────────────────────────

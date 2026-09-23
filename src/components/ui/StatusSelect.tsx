@@ -1,5 +1,5 @@
 import type { Status, JiraConfig } from '../../types'
-import { resolveGroups, GROUP_COLOR_TOKENS, legacyStatusToGroupId } from '../../utils/status-groups'
+import { resolveGroups, GROUP_COLOR_TOKENS, legacyStatusToGroupId } from '../../sync-core/status-groups'
 
 interface Props {
   value: Status

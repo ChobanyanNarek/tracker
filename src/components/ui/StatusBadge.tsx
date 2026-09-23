@@ -1,5 +1,5 @@
 import type { JiraIssue, JiraConfig, Status } from '../../types'
-import { resolveGroupForIssue, GROUP_COLOR_TOKENS, DEFAULT_STATUS_GROUPS, legacyStatusToGroupId, groupForJiraStatus } from '../../utils/status-groups'
+import { resolveGroupForIssue, GROUP_COLOR_TOKENS, DEFAULT_STATUS_GROUPS, legacyStatusToGroupId, groupForJiraStatus } from '../../sync-core/status-groups'
 import { STATUS_LABEL } from '../../constants'
 
 // The group an issue belongs to now, not the one stamped when it synced.

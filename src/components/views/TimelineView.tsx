@@ -4,7 +4,7 @@ import { jiraDedupeKey, initials, hexRgb } from '../../utils/format'
 import { todayStr, formatDate } from '../../utils/dates'
 import type { Developer, Project, JiraIssue } from '../../types'
 import DatePicker from '../ui/DatePicker'
-import { resolveGroups } from '../../utils/status-groups'
+import { resolveGroups } from '../../sync-core/status-groups'
 import Icon from '../ui/Icon'
 
 // ── helpers ────────────────────────────────────────────────────────────────────

@@ -46,24 +46,4 @@ export const PRIORITY_CONF: Record<Priority, { color: string; label: string }> =
   low:      { color: '#8892b8', label: 'Low' },
 }
 
-export const AM_HOLIDAYS: Record<string, string> = {
-  '01-01': "New Year's Day",
-  '01-02': 'New Year Holiday',
-  '01-03': 'New Year Holiday',
-  '01-04': 'New Year Holiday',
-  '01-05': 'New Year Holiday',
-  '01-06': 'Christmas Day',
-  '01-07': 'Christmas Holiday',
-  '01-13': 'Army Day',
-  '02-21': 'Mother Language Day',
-  '04-07': 'Motherhood & Beauty Day',
-  '04-24': 'Genocide Remembrance Day',
-  '05-01': 'Labour Day',
-  '05-08': 'Yerkrapah Day',
-  '05-09': 'Victory & Peace Day',
-  '05-28': 'Republic Day',
-  '07-05': 'Constitution Day',
-  '09-21': 'Independence Day',
-  '12-07': 'Earthquake Remembrance Day',
-  '12-31': "New Year's Eve",
-}
+export { AM_HOLIDAYS } from '../sync-core/dates'

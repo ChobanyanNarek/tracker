@@ -6,7 +6,7 @@ import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../util
 import { STATUS_COLOR } from '../../constants'
 import type { DeadlineItem, Developer, Project, JiraConfig, JiraIssue } from '../../types'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
-import { legacyStatusToGroupId } from '../../utils/status-groups'
+import { legacyStatusToGroupId } from '../../sync-core/status-groups'
 import EmptyState from '../ui/EmptyState'
 
 type SortKey = 'urgency' | 'date-asc' | 'date-desc' | 'assignee' | 'project' | 'status'

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { AppState, JiraIssue, Task } from '../types'
-import type { CommitBody, CommitResponse, RecordsResponse } from '../utils/cloud-api'
-import { cloudToState, DOC_KEYS, RecordTracker, recordsToCloud, type PersistedState } from './records-sync'
+import type { CommitBody, CommitResponse, RecordsResponse } from './records-types'
+import { cloudToState, DOC_KEYS, RecordTracker, recordsToCloud, type PersistedState } from './records'
 
 /*
  * An in-memory server with the backend's rules (progressor-backend ADR-0018): each write

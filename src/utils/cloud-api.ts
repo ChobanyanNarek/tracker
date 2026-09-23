@@ -7,26 +7,8 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 // a revision. Saves send only changed records, each naming the revision it started from;
 // the server refuses stale ones and returns its current copy as a conflict.
 
-export interface DocRecord { key: string; data: unknown; revision: number }
-export interface TaskRecord { id: string; data: Record<string, unknown>; revision: number }
-export interface RecordsResponse {
-  full: boolean
-  cursor: number
-  docs: DocRecord[]
-  tasks: TaskRecord[]
-  deleted: Array<{ id: string; revision: number }>
-}
-
-export interface CommitBody {
-  docs: Array<{ key: string; data: unknown; baseRevision: number | null }>
-  tasks: Array<{ id: string; data: unknown; baseRevision: number | null }>
-  deletes: Array<{ id: string; baseRevision: number }>
-}
-export interface CommitResponse {
-  applied: Array<{ kind: 'doc' | 'task' | 'delete'; id: string; revision: number }>
-  conflicts: Array<{ kind: 'doc' | 'task' | 'delete'; id: string; data?: unknown; revision?: number }>
-  rejected: Array<{ kind: 'doc' | 'task'; id: string; reason: string }>
-}
+import type { CommitBody, CommitResponse, RecordsResponse } from '../sync-core/records-types'
+export type { CommitBody, CommitResponse, DocRecord, RecordsResponse, TaskRecord } from '../sync-core/records-types'
 
 /*
  * Everything (since omitted), or only records changed after a cursor. Null when signed

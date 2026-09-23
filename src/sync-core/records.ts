@@ -1,7 +1,7 @@
 import type { AppState, JiraConfig, GitLabConfig, ReleaseNoteColumn, ReleaseNoteIssueData, Task } from '../types'
-import type { CommitBody, CommitResponse, RecordsResponse } from '../utils/cloud-api'
-import { deepEqual, merge3 } from '../utils/merge'
-import { repointOrphanMappings } from '../utils/status-groups'
+import type { CommitBody, CommitResponse, RecordsResponse } from './records-types'
+import { deepEqual, merge3 } from './merge'
+import { repointOrphanMappings } from './status-groups'
 
 /*
  * Client side of per-record storage (backend ADR-0018).
