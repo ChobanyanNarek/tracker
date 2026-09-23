@@ -31,6 +31,55 @@ export async function loadRecords(since?: number): Promise<RecordsResponse | nul
   return await res.json() as RecordsResponse
 }
 
+// ── Server-side sync (backend ADR-0019) ─────────────────────────────────────
+export type SyncKind = 'jira' | 'gitlab' | 'github'
+
+export interface ServerSyncStatus {
+  serverSync: boolean
+  running: boolean
+  // Relative to the API, e.g. /pm-tracker/hooks/<token>.
+  hookPath: string
+}
+
+export interface ServerSyncOutcome {
+  results: Partial<Record<SyncKind, Record<string, unknown>>>
+  errors: Array<{ kind: string; message: string }>
+}
+
+// Null when the server can't be reached or doesn't run syncs -- the app then syncs itself.
+export async function getServerSyncStatus(): Promise<ServerSyncStatus | null> {
+  if (!getToken()) return null
+  try {
+    const res = await fetch(`${API_URL}/pm-tracker/sync`, { headers: authHeaders() })
+    return res.ok ? await res.json() as ServerSyncStatus : null
+  } catch {
+    return null
+  }
+}
+
+/*
+ * Run syncs on the server now. Null when the request itself failed (unreachable, server
+ * error): the caller then syncs in the browser instead. A provider's own failure (a bad
+ * token, say) comes back inside the outcome.
+ */
+export async function runServerSync(kinds: SyncKind[], timezone: string): Promise<ServerSyncOutcome | null> {
+  if (!getToken()) return null
+  try {
+    const res = await fetch(`${API_URL}/pm-tracker/sync`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ kinds, timezone }),
+    })
+    return res.ok ? await res.json() as ServerSyncOutcome : null
+  } catch {
+    return null
+  }
+}
+
+export function apiUrl(path: string): string {
+  return `${API_URL}${path}`
+}
+
 export interface AdminUser {
   id: string
   firstName: string

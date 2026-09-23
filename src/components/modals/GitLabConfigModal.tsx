@@ -7,6 +7,7 @@ import { hasCredential } from '../../utils/credentials'
 import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
+import WebhookHint from '../ui/WebhookHint'
 
 // projectId is required: a connection always belongs to exactly one project.
 interface Props { onClose: () => void; projectId: string }
@@ -371,6 +372,8 @@ export default function GitLabConfigModal({ onClose, projectId }: Props) {
         >
           + Add connection
         </button>
+
+        <WebhookHint provider="gitlab" />
 
         {syncResult && (
           <div style={{ fontSize: 11, padding: '7px 11px', borderRadius: 'var(--r)', background: syncResult.startsWith('✓') ? 'var(--green-dim)' : 'var(--red-dim)', color: syncResult.startsWith('✓') ? 'var(--green)' : 'var(--red)', border: `1px solid ${syncResult.startsWith('✓') ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)', whiteSpace: 'pre-wrap' }}>

@@ -21,16 +21,17 @@ export const DOC_KEYS = [
   'developers', 'projects', 'sprints', 'notes', 'schedule', 'scheduleHours', 'notifsEnabled',
   'jiraConnections', 'gitlabConnections', 'githubConnections', 'trackerTimezone',
   'selectedProject', 'selectedDev', 'selectedDate', 'releaseNoteColumns', 'releaseNoteData',
+  'browserTimezone',
 ] as const
 export type DocKey = typeof DOC_KEYS[number]
 const DOC_KEY_SET = new Set<string>(DOC_KEYS)
 
 /*
- * Per-screen and per-browser settings: what this tab is looking at, and whether this
- * browser shows notifications. Saved as before, but another tab changing them must not
- * move this tab's screen, so incoming changes to these are noted and not applied.
+ * Per-screen and per-browser settings: what this tab is looking at, whether this browser
+ * shows notifications, and its timezone. Saved as before, but another tab or device
+ * changing them must not change this one, so incoming changes are noted and not applied.
  */
-const VIEW_KEYS = new Set<string>(['selectedProject', 'selectedDev', 'selectedDate', 'notifsEnabled'])
+const VIEW_KEYS = new Set<string>(['selectedProject', 'selectedDev', 'selectedDate', 'notifsEnabled', 'browserTimezone'])
 
 export type PersistedState = Pick<AppState, DocKey | 'tasks'>
 

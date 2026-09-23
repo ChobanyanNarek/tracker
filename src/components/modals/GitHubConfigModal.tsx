@@ -7,6 +7,7 @@ import { identityList } from '../../utils/format'
 import { authFor, hasCredential, providerGet } from '../../utils/credentials'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
+import WebhookHint from '../ui/WebhookHint'
 
 // projectId is required: a connection always belongs to exactly one project.
 interface Props { onClose: () => void; projectId: string }
@@ -372,6 +373,8 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
         >
           + Add connection
         </button>
+
+        <WebhookHint provider="github" />
 
         {syncResult && (
           <div style={{ fontSize: 11, padding: '7px 11px', borderRadius: 'var(--r)', background: syncResult.startsWith('✓') ? 'var(--green-dim)' : 'var(--red-dim)', color: syncResult.startsWith('✓') ? 'var(--green)' : 'var(--red)', border: `1px solid ${syncResult.startsWith('✓') ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)', whiteSpace: 'pre-wrap' }}>

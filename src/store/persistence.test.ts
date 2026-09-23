@@ -25,6 +25,7 @@ const snapshot: RecordsResponse = {
     { key: 'projects', data: [{ id: 'p1', name: 'Mabrook', desc: '', color: '#000', members: ['d1'], nonWorkingDays: [0, 6] }], revision: 2 },
     { key: 'selectedProject', data: 'p1', revision: 3 },
     { key: 'selectedDev', data: 'ALL', revision: 4 },
+    { key: 'browserTimezone', data: Intl.DateTimeFormat().resolvedOptions().timeZone, revision: 7 },
   ],
   tasks: [
     { id: 't1', data: task('t1') as unknown as Record<string, unknown>, revision: 5 },
@@ -47,9 +48,14 @@ async function bodyOf(init: RequestInit): Promise<CommitBody> {
 }
 
 type Route = (url: string, init?: RequestInit) => Response | Promise<Response>
-function serve(routes: { load?: Route; changes?: Route; commit?: Route }) {
+function serve(routes: { load?: Route; changes?: Route; commit?: Route; sync?: Route; syncStatus?: Route; jiraSearch?: Route }) {
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
     if (url.endsWith('/pm-tracker/records/commit')) return Promise.resolve(routes.commit!(url, init))
+    if (url.endsWith('/pm-tracker/sync')) {
+      const route = init?.method === 'POST' ? routes.sync : routes.syncStatus
+      return Promise.resolve(route ? route(url, init) : new Response('{}', { status: 404 }))
+    }
+    if (url.endsWith('/pm-tracker/jira-search')) return Promise.resolve(routes.jiraSearch ? routes.jiraSearch(url, init) : json({ issues: [], truncated: false }))
     if (url.includes('/pm-tracker/records?since=')) return Promise.resolve(routes.changes!(url, init))
     if (url.endsWith('/pm-tracker/records')) return Promise.resolve(routes.load!(url, init))
     return Promise.resolve(new Response('{}', { status: 200 }))
@@ -203,3 +209,52 @@ describe('pulling', () => {
     expect(commits()).toHaveLength(0)
   })
 })
+
+describe('syncing on the server', () => {
+  const connection = {
+    id: 'j1', name: 'Mabrook', enabled: true, baseUrl: 'https://mab.atlassian.net', email: 'a@b.c', token: '', tokenInVault: true,
+    projectKeys: ['COM'], syncInterval: 5, projectId: 'p1', developerEmails: { d1: ['dev@mab.com'] },
+  }
+  const syncs = () => fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/pm-tracker/sync') && (c[1] as RequestInit | undefined)?.method === 'POST')
+  const jiraCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/pm-tracker/jira-search'))
+
+  beforeEach(() => {
+    useStore.setState({ jiraConnections: [connection as never], serverSync: { serverSync: true, running: false, hookPath: '/pm-tracker/hooks/x' } })
+  })
+
+  it("runs an asked-for sync on the server with this browser's timezone, then shows its result", async () => {
+    serve({
+      commit: acceptAll(),
+      sync: () => json({ results: { jira: { added: 1, updated: 0, removed: 0 } }, errors: [] }),
+      changes: () => json({ full: false, cursor: 20, docs: [], tasks: [{ id: 't9', data: task('t9'), revision: 20 }], deleted: [] }),
+    })
+
+    const result = await useStore.getState().syncJira()
+
+    expect(result).toEqual({ added: 1, updated: 0, removed: 0 })
+    const body = JSON.parse((syncs()[0]![1] as RequestInit).body as string)
+    expect(body).toEqual({ kinds: ['jira'], timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+    expect(jiraCalls()).toHaveLength(0) // no provider traffic from the browser
+    expect(useStore.getState().tasks.some((t) => t.id === 't9')).toBe(true)
+  })
+
+  it("shows the provider's error when the server's sync of it failed", async () => {
+    serve({ commit: acceptAll(), sync: () => json({ results: {}, errors: [{ kind: 'jira', message: 'Jira 401: bad token' }] }), changes: () => json({ ...snapshot, full: false, docs: [], tasks: [] }) })
+    await expect(useStore.getState().syncJira()).rejects.toThrow('Jira 401: bad token')
+  })
+
+  it('falls back to syncing in the browser when the server cannot be reached', async () => {
+    serve({ commit: acceptAll(), sync: () => new Response('down', { status: 503 }), changes: () => json({ ...snapshot, full: false, docs: [], tasks: [] }) })
+    await useStore.getState().syncJira()
+    expect(syncs()).toHaveLength(1)
+    expect(jiraCalls().length).toBeGreaterThan(0)
+  })
+
+  it('leaves background syncs to the server', async () => {
+    serve({ commit: acceptAll() })
+    await expect(useStore.getState().syncJira({ background: true })).resolves.toEqual({ added: 0, updated: 0, removed: 0 })
+    expect(syncs()).toHaveLength(0)
+    expect(jiraCalls()).toHaveLength(0)
+  })
+})
+

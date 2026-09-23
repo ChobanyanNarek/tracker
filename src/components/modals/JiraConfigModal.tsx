@@ -8,6 +8,7 @@ import Icon, { BrandIcon } from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
 import { identityList } from '../../utils/format'
 import { hasCredential } from '../../utils/credentials'
+import WebhookHint from '../ui/WebhookHint'
 
 // projectId is required: a connection always belongs to exactly one project.
 interface Props { onClose: () => void; projectId: string }
@@ -629,6 +630,8 @@ export default function JiraConfigModal({ onClose, projectId }: Props) {
         <button onClick={() => setConns((prev) => [...prev, makeEmptyConn(projectId)])} style={{ alignSelf: 'flex-start', background: 'var(--surface2)', border: '1px dashed var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '6px 14px', borderRadius: 6, cursor: 'pointer' }}>
           + Add connection
         </button>
+        <WebhookHint provider="jira" />
+
         {syncResult && (
           <div style={{ fontSize: 11, padding: '7px 11px', borderRadius: 'var(--r)', background: syncResult.startsWith('✓') ? 'var(--green-dim)' : 'var(--red-dim)', color: syncResult.startsWith('✓') ? 'var(--green)' : 'var(--red)', border: `1px solid ${syncResult.startsWith('✓') ? 'var(--green-border)' : 'var(--red-border)'}`, fontFamily: 'var(--mono)', whiteSpace: 'pre-wrap' }}>
             {syncResult}

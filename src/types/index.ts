@@ -266,6 +266,7 @@ export interface AppState {
   highlightedTaskId: string | null
   highlightedNoteId?: string | null
   trackerTimezone?: string  // single IANA zone for Performance calc; falls back to browser zone
+  browserTimezone?: string  // this browser's IANA zone, saved so the server-side sync knows the user's "today"
   releaseNoteColumns?: ReleaseNoteColumn[]
   releaseNoteData?: Record<string, ReleaseNoteIssueData>  // key = jiraDedupeKey or issueId
 }

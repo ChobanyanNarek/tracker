@@ -1,6 +1,9 @@
 import { hasCredential } from '../utils/credentials'
 import { useEffect, useRef } from 'react'
-import { useStore } from '../store'
+import { serverSyncKnown, useStore } from '../store'
+
+// The server runs background syncs itself when it can (backend ADR-0019); the app then only pulls.
+const serverRuns = () => !!useStore.getState().serverSync?.serverSync
 
 /** Background Jira / GitLab / GitHub syncing:
  *  - Startup sync when data is stale (> 30 min since last sync)
@@ -20,9 +23,13 @@ export function useAutoSync(onToast: (msg: string) => void) {
     startupDone.current = true
 
     const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+    // Wait (briefly) to learn whether the server runs syncs before starting any here.
+    const ready = Promise.race([serverSyncKnown, delay(5000)])
 
     // GitLab startup
     ;(async () => {
+      await ready
+      if (serverRuns()) return
       const conns = useStore.getState().gitlabConnections
       const stale = conns.find((c) => {
         if (!c.enabled || !hasCredential(c) || !c.groupPath) return false
@@ -38,6 +45,8 @@ export function useAutoSync(onToast: (msg: string) => void) {
 
     // GitHub startup
     ;(async () => {
+      await ready
+      if (serverRuns()) return
       const conns = useStore.getState().githubConnections
       const stale = conns.find((c) => {
         if (!c.enabled || !hasCredential(c) || !c.orgOrUser) return false
@@ -53,6 +62,8 @@ export function useAutoSync(onToast: (msg: string) => void) {
 
     // Jira startup
     ;(async () => {
+      await ready
+      if (serverRuns()) return
       const conns = useStore.getState().jiraConnections
       const stale = conns.find((c) => {
         if (!c.enabled || !hasCredential(c)) return false
@@ -75,6 +86,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     if (!active.length) return
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
+      if (serverRuns()) return
       try {
         const { added, updated, removed } = await useStore.getState().syncJira({ background: true })
         // Always surface a toast so the user can see auto-sync is alive, even with no changes.
@@ -97,6 +109,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     if (!active.length) return
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
+      if (serverRuns()) return
       try {
         const { linked } = await useStore.getState().syncGitlab({ background: true })
         if (linked) onToast(`GitLab synced — ${linked} MR${linked !== 1 ? 's' : ''} linked`)
@@ -111,6 +124,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     if (!active.length) return
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
+      if (serverRuns()) return
       try {
         const { linked } = await useStore.getState().syncGithub({ background: true })
         if (linked) onToast(`GitHub synced — ${linked} PR${linked !== 1 ? 's' : ''} linked`)
@@ -122,6 +136,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
   // GitLab sync on window focus — throttled to once every 5 minutes
   useEffect(() => {
     const onFocus = () => {
+      if (serverRuns()) return
       const conns = useStore.getState().gitlabConnections
       const stale = conns.some((c) => {
         if (!c.enabled || !hasCredential(c) || !c.groupPath) return false
@@ -140,6 +155,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
   // GitHub sync on window focus — throttled to once every 5 minutes
   useEffect(() => {
     const onFocus = () => {
+      if (serverRuns()) return
       const conns = useStore.getState().githubConnections
       const stale = conns.some((c) => {
         if (!c.enabled || !hasCredential(c) || !c.orgOrUser) return false

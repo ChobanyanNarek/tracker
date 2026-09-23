@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
-import { commitRecords, loadRecords, markUnloading, type RecordsResponse } from '../utils/cloud-api'
+import { commitRecords, getServerSyncStatus, loadRecords, markUnloading, runServerSync, type RecordsResponse, type ServerSyncStatus, type SyncKind } from '../utils/cloud-api'
 import { cloudToState, DOC_KEYS, normalizeTask, RecordTracker, recordsToCloud, type PersistedState } from '../sync-core/records'
 import { listVault, removeFromVault, storeInVault, type Credentialed } from '../utils/credentials'
 import { reportError } from '../utils/error-reporter'
@@ -329,6 +329,8 @@ interface StoreActions {
   cloudSyncing: boolean
   // The initial load failed and is being retried.
   cloudLoadFailed: boolean
+  // Set once the server reports it runs syncs itself (backend ADR-0019); null otherwise.
+  serverSync: ServerSyncStatus | null
   saveStatus: 'saved' | 'saving' | 'error'
   // Distinguishes a transient network failure (genuinely retrying) from an expired session
   // (retrying is futile — the user must sign in again or their edits are never saved).
@@ -370,6 +372,7 @@ export const useStore = create<Store>((set, get) => {
     ...base,
     cloudSyncing: true,
     cloudLoadFailed: false,
+    serverSync: null,
     saveStatus: 'saved',
     saveError: null,
     searchQuery: '',
@@ -1411,6 +1414,12 @@ export const useStore = create<Store>((set, get) => {
       // the run already in progress instead of starting a competing one.
       if (jiraSyncInFlight) return jiraSyncInFlight
       const run = withTabLock('pm-sync-jira', !!opts?.background, async () => {
+      // The server runs background syncs itself; asked-for ones run there when it can.
+      if (opts?.background && get().serverSync?.serverSync) return { added: 0, updated: 0, removed: 0 }
+      if (!opts?.background) {
+        const onServer = await syncOnServer('jira', 'Jira')
+        if (onServer) return { ...{ added: 0, updated: 0, removed: 0 }, ...onServer }
+      }
       // Start from what other tabs have saved, so this sync builds on current data.
       await pullRemoteChanges()
       const plan = await computeJiraSync(get(), browserTransport, { background: !!opts?.background, today: latestWorkday(), tz: resolveTrackerTz() })
@@ -1434,6 +1443,12 @@ export const useStore = create<Store>((set, get) => {
       // calls, and autosync runs on a timer alongside manual syncs.
       if (gitlabSyncInFlight) return gitlabSyncInFlight
       const run = withTabLock('pm-sync-gitlab', !!opts?.background, async () => {
+      // The server runs background syncs itself; asked-for ones run there when it can.
+      if (opts?.background && get().serverSync?.serverSync) return { linked: 0, updated: 0, noKey: 0, noIssue: 0, noKeyList: [], noIssueList: [] }
+      if (!opts?.background) {
+        const onServer = await syncOnServer('gitlab', 'GitLab')
+        if (onServer) return { ...{ linked: 0, updated: 0, noKey: 0, noIssue: 0, noKeyList: [], noIssueList: [] }, ...onServer }
+      }
       // Start from what other tabs have saved, so this sync builds on current data.
       await pullRemoteChanges()
       const plan = await computeGitlabSync(get(), browserTransport, { background: !!opts?.background, today: latestWorkday(), tz: resolveTrackerTz() })
@@ -1451,6 +1466,12 @@ export const useStore = create<Store>((set, get) => {
       // Same overlap hazard as syncJira.
       if (githubSyncInFlight) return githubSyncInFlight
       const run = withTabLock('pm-sync-github', !!opts?.background, async () => {
+      // The server runs background syncs itself; asked-for ones run there when it can.
+      if (opts?.background && get().serverSync?.serverSync) return { linked: 0, updated: 0 }
+      if (!opts?.background) {
+        const onServer = await syncOnServer('github', 'GitHub')
+        if (onServer) return { ...{ linked: 0, updated: 0 }, ...onServer }
+      }
       // Start from what other tabs have saved, so this sync builds on current data.
       await pullRemoteChanges()
       const plan = await computeGithubSync(get(), browserTransport, { background: !!opts?.background, today: latestWorkday(), tz: resolveTrackerTz() })
@@ -1520,19 +1541,69 @@ function applyRecords(res: RecordsResponse | null, startedAtRevision?: number) {
     persistState(true)
     return
   }
-  useStore.setState({ ...next, cloudSyncing: false, cloudLoadFailed: false })
+  // The timezone this browser saved last: kept as the baseline so an unchanged zone is not re-saved.
+  const savedZone = res.docs.find((d) => d.key === 'browserTimezone')?.data
+  useStore.setState({ ...next, browserTimezone: typeof savedZone === 'string' ? savedZone : undefined, cloudSyncing: false, cloudLoadFailed: false })
   records.adoptView(persistedSlice(useStore.getState()))
+  // The server-side sync needs the user's zone to know what "today" is (ADR-0019).
+  if (savedZone !== browserZone()) {
+    useStore.setState({ browserTimezone: browserZone() })
+    persistState()
+  }
+  void getServerSyncStatus().then((serverSync) => {
+    useStore.setState({ serverSync })
+    markServerSyncKnown()
+  })
+}
+
+let markServerSyncKnown: () => void = () => {}
+// Resolves once the app knows whether the server runs syncs, so background syncs can wait for it.
+export const serverSyncKnown = new Promise<void>((resolve) => { markServerSyncKnown = resolve })
+
+function browserZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
+/*
+ * A sync the user asked for runs on the server when the server runs syncs (ADR-0019), so
+ * every device sees one result and the browser does no provider traffic. Returns null
+ * when it could not run there -- the caller then syncs in the browser as before.
+ */
+async function syncOnServer(kind: SyncKind, label: string): Promise<Record<string, unknown> | null> {
+  if (!useStore.getState().serverSync?.serverSync) return null
+  // The server syncs from saved records: a connection added or edited a moment ago must
+  // reach it first.
+  if (!(await saveEverythingNow())) return null
+  const outcome = await runServerSync([kind], browserZone())
+  if (!outcome) return null
+  await pullWhenIdle()
+  syncLog('sync:server', { note: `${kind} ${JSON.stringify(outcome.results[kind] ?? outcome.errors)}` })
+  const failure = outcome.errors.find((e) => e.kind === kind)
+  if (failure) throw new Error(failure.message)
+  const result = outcome.results[kind]
+  if (!result) throw new Error(`No ${label} connections configured`)
+  return result
+}
+
+// Pull as soon as no save or pull is running, so a server result shows at once.
+async function pullWhenIdle(): Promise<void> {
+  for (let i = 0; i < 100 && (saveInFlight || pullInFlight); i++) {
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  await pullRemoteChanges()
 }
 
 // Resolves once every change has reached the server (true), or a save failed (false).
 async function saveEverythingNow(): Promise<boolean> {
   persistState(true)
-  for (;;) {
+  // Up to a minute: a large import can take several requests.
+  for (let i = 0; i < 600; i++) {
     await new Promise((r) => setTimeout(r, 100))
     const { saveStatus } = useStore.getState()
     if (saveStatus === 'error') return false
     if (!dirty && !saveInFlight && !saveTimer && saveStatus === 'saved') return true
   }
+  return false
 }
 
 /*
