@@ -187,7 +187,7 @@ async function gzipJson(data: Record<string, unknown>): Promise<{ body: BodyInit
   }
 }
 
-export type SaveFailReason = 'unauthorized' | 'network'
+export type SaveFailReason = 'unauthorized' | 'network' | 'tooLarge' | 'server'
 export interface SaveResult { ok: boolean; reason?: SaveFailReason }
 
 // Set on pagehide so the final save switches to a keepalive request, which the browser
@@ -235,8 +235,13 @@ export async function saveCloudState(data: Record<string, unknown>): Promise<Sav
     }
 
     if (res.status === 401) { clearToken(); return { ok: false, reason: 'unauthorized' } }
-
-    return res.ok ? { ok: true } : { ok: false, reason: 'network' }
+    if (res.ok) return { ok: true }
+    // Say what actually went wrong. Everything used to collapse into 'network', so a body
+    // the server rejects as too large looked like a flaky connection and was retried
+    // forever with the same payload, which can never succeed.
+    if (res.status === 413) return { ok: false, reason: 'tooLarge' }
+    if (res.status >= 500) return { ok: false, reason: 'server' }
+    return { ok: false, reason: 'network' }
   } catch {
     return { ok: false, reason: 'network' }
   }

@@ -22,7 +22,11 @@ export default function ConnectivityBanner() {
     ? "You're offline — changes are saved locally and will sync once you're back online."
     : expired
       ? 'Your session expired, so changes are not being saved. Sign in again to save them.'
-      : "Couldn't save your changes to the cloud — retrying automatically."
+      : saveError === 'tooLarge'
+        ? 'Your data is too large to save in one piece. Your changes are kept in this tab — contact support.'
+        : saveError === 'server'
+          ? 'The server had a problem saving your changes — retrying automatically.'
+          : "Couldn't reach the server to save your changes — retrying automatically."
 
   const color = expired ? 'var(--red)' : 'var(--amber)'
   const bg = expired ? 'var(--red-dim)' : 'var(--amber-dim)'

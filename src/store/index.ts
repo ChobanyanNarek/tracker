@@ -163,7 +163,12 @@ function flushPersist(): void {
       return
     }
     syncLog('save:FAIL', { note: 'network' })
-    useStore.setState({ saveStatus: 'error', saveError: 'network' })
+    // Report the actual reason so the banner can say something useful. A payload the
+    // server rejects as too large will fail identically on every retry, so back off to the
+    // maximum interval instead of hammering the backend with the same multi-MB upload.
+    const reason = res.reason === 'tooLarge' || res.reason === 'server' ? res.reason : 'network'
+    useStore.setState({ saveStatus: 'error', saveError: reason })
+    if (reason === 'tooLarge') retryAttempt = Math.max(retryAttempt, 10)
     // Keep the failed payload unless a newer one already superseded it — never drop edits.
     if (!pendingPayload) pendingPayload = payload
     scheduleFlush(retryDelay(retryAttempt++))
@@ -286,7 +291,7 @@ interface StoreActions {
   saveStatus: 'saved' | 'saving' | 'error'
   // Distinguishes a transient network failure (genuinely retrying) from an expired session
   // (retrying is futile — the user must sign in again or their edits are never saved).
-  saveError: 'unauthorized' | 'network' | null
+  saveError: 'unauthorized' | 'network' | 'tooLarge' | 'server' | null
 
   setReleaseNoteColumns: (cols: ReleaseNoteColumn[]) => void
   setReleaseNoteData: (data: Record<string, ReleaseNoteIssueData>) => void
