@@ -4,7 +4,7 @@ import { getSubscriptionStatus, confirmPayment } from './utils/payment-api'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
 import PaywallScreen from './components/subscription/PaywallScreen'
-import { useStore, countUrgentDeadlines, syncCloudToStore, sprintMatchesBoard, getBoardScope } from './store'
+import { useStore, countUrgentDeadlines, syncCloudToStore, pullRemoteChanges, sprintMatchesBoard, getBoardScope } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useNoteReminders } from './hooks/useNoteReminders'
 import { useAutoSync } from './hooks/useAutoSync'
@@ -211,7 +211,7 @@ function AuthApp() {
 }
 
 function AuthedApp() {
-  const { view, setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, pruneOldTaskData, setNotifsEnabled, cloudSyncing, refreshBoardIssueKeys } = useStore()
+  const { view, setView, setSelectedDate, setHighlightedTaskId, setHighlightedNoteId, selectedProject, projects, sprints, tasks, developers, autoCarryOverdue, migrateIssueIds, deduplicateJiras, mergeSameDayTasks, pruneOldTaskData, setNotifsEnabled, cloudSyncing, cloudLoadFailed, refreshBoardIssueKeys } = useStore()
 
   // When a scrum board is selected, resolve its exact issue set from Jira so board-scoped
   // views fill in immediately (no hard refresh needed after switching boards).
@@ -294,7 +294,9 @@ function AuthedApp() {
   }, [])
 
   useEffect(() => {
-    const id = setInterval(() => {
+    const id = setInterval(async () => {
+      // Catch up with other tabs first, so two tabs don't each carry the same day forward.
+      await pullRemoteChanges()
       deduplicateJiras()
       autoCarryOverdue()
       mergeSameDayTasks()
@@ -323,6 +325,7 @@ function AuthedApp() {
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 12, background: 'var(--bg)', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
         <LoadingSpinner size={28} color="var(--text3)" ringColor="var(--bg)" />
         <span>Loading your data…</span>
+        {cloudLoadFailed && <span>Couldn't reach the server. Retrying…</span>}
       </div>
     )
   }

@@ -2,24 +2,51 @@ import { authHeaders, clearToken, getToken, refreshAccessToken } from './auth'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
-export async function loadCloudState(): Promise<Record<string, unknown> | null> {
+// ── Per-record storage (backend ADR-0018) ──────────────────────────────────
+// A user's data is a set of records -- one per task, one per settings section -- each with
+// a revision. Saves send only changed records, each naming the revision it started from;
+// the server refuses stale ones and returns its current copy as a conflict.
+
+export interface DocRecord { key: string; data: unknown; revision: number }
+export interface TaskRecord { id: string; data: Record<string, unknown>; revision: number }
+export interface RecordsResponse {
+  full: boolean
+  cursor: number
+  docs: DocRecord[]
+  tasks: TaskRecord[]
+  deleted: Array<{ id: string; revision: number }>
+}
+
+export interface CommitBody {
+  docs: Array<{ key: string; data: unknown; baseRevision: number | null }>
+  tasks: Array<{ id: string; data: unknown; baseRevision: number | null }>
+  deletes: Array<{ id: string; baseRevision: number }>
+}
+export interface CommitResponse {
+  applied: Array<{ kind: 'doc' | 'task' | 'delete'; id: string; revision: number }>
+  conflicts: Array<{ kind: 'doc' | 'task' | 'delete'; id: string; data?: unknown; revision?: number }>
+  rejected: Array<{ kind: 'doc' | 'task'; id: string; reason: string }>
+}
+
+/*
+ * Everything (since omitted), or only records changed after a cursor. Null when signed
+ * out. Throws when the server can't be reached or fails -- never an empty result that
+ * could be mistaken for the user having no data. The first call for a user also moves
+ * their old saved state into records, server-side.
+ */
+export async function loadRecords(since?: number): Promise<RecordsResponse | null> {
   if (!getToken()) return null
-  try {
-    const get = () => fetch(`${API_URL}/pm-tracker/state`, { headers: authHeaders() })
-    let res = await get()
-    // Reopening the app after the access token expired shouldn't dump the user back
-    // to the login screen while a valid refresh token is sitting in storage.
-    if (res.status === 401 && await refreshAccessToken()) {
-      res = await get()
-    }
-    if (res.status === 404) return null
-    if (res.status === 401) { clearToken(); return null }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const json = await res.json() as { data: Record<string, unknown> }
-    return json.data
-  } catch {
-    return null
+  const url = `${API_URL}/pm-tracker/records${since === undefined ? '' : `?since=${since}`}`
+  const get = () => fetch(url, { headers: authHeaders() })
+  let res = await get()
+  // Reopening the app after the access token expired shouldn't dump the user back
+  // to the login screen while a valid refresh token is sitting in storage.
+  if (res.status === 401 && await refreshAccessToken()) {
+    res = await get()
   }
+  if (res.status === 401) { clearToken(); return null }
+  if (!res.ok) throw new Error(`Loading records failed: HTTP ${res.status}`)
+  return await res.json() as RecordsResponse
 }
 
 export interface AdminUser {
@@ -171,10 +198,9 @@ export async function adminRefundPayment(paymentId: string): Promise<{ ok: boole
 }
 
 // Gzip the JSON body before sending when the browser supports it (all current browsers do).
-// The full state blob can run several MB — compressing it typically cuts that to ~15% of the
-// original size, which meaningfully reduces how long the upload is exposed to being aborted
-// mid-transfer on a slow or unstable connection. express.json() on the backend already
-// auto-decompresses a gzip Content-Encoding body, so no server-side change is needed.
+// A large save (a full sync touches many tasks) compresses to ~15% of its size, which
+// shortens how long the upload is exposed to being aborted on a slow connection.
+// express.json() on the backend decompresses a gzip Content-Encoding body.
 async function gzipJson(data: Record<string, unknown>): Promise<{ body: BodyInit; headers: Record<string, string> }> {
   const json = JSON.stringify(data)
   if (typeof CompressionStream === 'undefined') return { body: json, headers: {} }
@@ -188,35 +214,36 @@ async function gzipJson(data: Record<string, unknown>): Promise<{ body: BodyInit
 }
 
 export type SaveFailReason = 'unauthorized' | 'network' | 'tooLarge' | 'server'
-export interface SaveResult { ok: boolean; reason?: SaveFailReason }
 
 // Set on pagehide so the final save switches to a keepalive request, which the browser
 // allows to outlive the document instead of killing it mid-flight.
 let unloading = false
 export function markUnloading(): void { unloading = true }
 
-// A state PUT that never settles would block the save queue forever (nothing else can
+// A save that never settles would block the save queue forever (nothing else can
 // flush while one is in flight), so give it a hard ceiling and let the retry take over.
 const SAVE_TIMEOUT_MS = 45_000
 // keepalive requests are capped at 64KB by the fetch spec — only usable for a payload
 // that actually fits, which gzip usually achieves for all but the largest states.
 const KEEPALIVE_MAX_BYTES = 60_000
 
-export async function saveCloudState(data: Record<string, unknown>): Promise<SaveResult> {
+export type CommitResult = { ok: true; result: CommitResponse } | { ok: false; reason: SaveFailReason }
+
+export async function commitRecords(body: CommitBody): Promise<CommitResult> {
   if (!getToken()) return { ok: false, reason: 'unauthorized' }
   try {
-    const { body, headers } = await gzipJson(data)
-    const size = body instanceof Blob ? body.size : new Blob([body as string]).size
+    const { body: payload, headers } = await gzipJson(body as unknown as Record<string, unknown>)
+    const size = payload instanceof Blob ? payload.size : new Blob([payload as string]).size
     const useKeepalive = unloading && size <= KEEPALIVE_MAX_BYTES
 
     const send = async (): Promise<Response> => {
       const controller = new AbortController()
       const timer = useKeepalive ? null : setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS)
       try {
-        return await fetch(`${API_URL}/pm-tracker/state`, {
-          method: 'PUT',
+        return await fetch(`${API_URL}/pm-tracker/records/commit`, {
+          method: 'POST',
           headers: { ...authHeaders(), ...headers },
-          body,
+          body: payload,
           ...(useKeepalive ? { keepalive: true } : { signal: controller.signal }),
         })
       } finally {
@@ -235,10 +262,9 @@ export async function saveCloudState(data: Record<string, unknown>): Promise<Sav
     }
 
     if (res.status === 401) { clearToken(); return { ok: false, reason: 'unauthorized' } }
-    if (res.ok) return { ok: true }
-    // Say what actually went wrong. Everything used to collapse into 'network', so a body
-    // the server rejects as too large looked like a flaky connection and was retried
-    // forever with the same payload, which can never succeed.
+    if (res.ok) return { ok: true, result: await res.json() as CommitResponse }
+    // Say what actually went wrong, so the banner is accurate and a request that can
+    // never succeed is not hammered at the normal retry rate.
     if (res.status === 413) return { ok: false, reason: 'tooLarge' }
     if (res.status >= 500) return { ok: false, reason: 'server' }
     return { ok: false, reason: 'network' }

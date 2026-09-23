@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
-import { loadCloudState, saveCloudState, markUnloading } from '../utils/cloud-api'
+import { commitRecords, loadRecords, markUnloading, type RecordsResponse } from '../utils/cloud-api'
+import { cloudToState, DOC_KEYS, normalizeTask, RecordTracker, recordsToCloud, type PersistedState } from './records-sync'
 import { authFor, hasCredential, listVault, removeFromVault, storeInVault, type Credentialed } from '../utils/credentials'
 import { reportError } from '../utils/error-reporter'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
@@ -29,14 +30,6 @@ function sortJiraIssues(jiras: JiraIssue[]): JiraIssue[] {
   const done = jiras.filter((j) => !j.hidden && isIssueDone(j))
   const hidden = jiras.filter((j) => j.hidden)
   return [...active, ...done, ...hidden]
-}
-
-function normalizeTask(t: Task): Task {
-  return {
-    ...t,
-    jiras: (t.jiras ?? []).map((j) => ({ ...j, prs: j.prs ?? [] })),
-    prs: t.prs ?? [],
-  }
 }
 
 function freshState(): AppState {
@@ -82,32 +75,25 @@ function countJiras(tasks: AppState['tasks']): number {
   return n
 }
 
-function buildPersistPayload(state: AppState): Record<string, unknown> {
-  return {
-    _v: 2,
-    developers: state.developers,
-    projects: state.projects,
-    sprints: state.sprints,
-    tasks: state.tasks,
-    notes: state.notes,
-    schedule: state.schedule,
-    scheduleHours: state.scheduleHours,
-    notifsEnabled: state.notifsEnabled,
-    jiraConnections: state.jiraConnections,
-    gitlabConnections: state.gitlabConnections,
-    githubConnections: state.githubConnections,
-    trackerTimezone: state.trackerTimezone,
-    selectedProject: state.selectedProject,
-    selectedDev: state.selectedDev,
-    selectedDate: state.selectedDate,
-    releaseNoteColumns: state.releaseNoteColumns,
-    releaseNoteData: state.releaseNoteData,
-  }
+function persistedSlice(state: AppState): PersistedState {
+  const slice: Record<string, unknown> = { tasks: state.tasks }
+  for (const key of DOC_KEYS) slice[key] = state[key]
+  return slice as PersistedState
 }
 
-// Debounced cloud save: rapid mutations (e.g. typing) collapse into one PUT of the latest
-// state instead of one request per keystroke — cutting network + backend memory pressure.
-let pendingPayload: Record<string, unknown> | null = null
+/*
+ * Cloud saves (backend ADR-0018). The server stores each task and each settings section as
+ * its own record with a revision; `records` remembers the revision and value this tab last
+ * confirmed for each. A save sends only what differs, and the server refuses any write
+ * made from an out-of-date revision, handing back its copy to merge. So a stale tab or a
+ * second device can no longer overwrite newer data -- the cause of issues vanishing after
+ * reloads -- and a save is the size of the change, not of everything.
+ *
+ * Rapid mutations (typing) still collapse into one save via the debounce.
+ */
+const records = new RecordTracker()
+// Something changed since the last save was assembled.
+let dirty = false
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 // background: an automatic sync (startup or interval) rather than one the user asked for.
 // Background syncs skip when another tab is already syncing and may be incremental;
@@ -134,18 +120,16 @@ async function withTabLock<T>(name: string, background: boolean, run: () => Prom
 let jiraSyncInFlight: Promise<{ added: number; updated: number; removed: number }> | null = null
 let gitlabSyncInFlight: Promise<{ linked: number; updated: number; noKey: number; noIssue: number; noKeyList: string[]; noIssueList: string[] }> | null = null
 let githubSyncInFlight: Promise<{ linked: number; updated: number }> | null = null
-// Only ever ONE state PUT in flight at a time. The payload is the entire state blob
-// (multiple MB), so a save can take seconds; without this guard an edit made mid-upload
-// would start a second concurrent full-blob PUT, and the two would race to overwrite each
-// other while competing for the same connection and backend memory.
+// One save request at a time: each is computed against the bases the previous one moved
+// forward, and edits made meanwhile are picked up by the next.
 let saveInFlight = false
+let pullInFlight = false
 let retryAttempt = 0
 const SAVE_DEBOUNCE_MS = 800
 const SAVE_RETRY_BASE_MS = 2000
 const SAVE_RETRY_MAX_MS = 60_000
 
-// Exponential backoff with jitter — a fixed 5s retry against a struggling backend just
-// keeps hammering it with multi-MB uploads, which is what turns a blip into an outage.
+// Exponential backoff with jitter, so a struggling backend is not hammered.
 function retryDelay(attempt: number): number {
   const exp = Math.min(SAVE_RETRY_BASE_MS * 2 ** attempt, SAVE_RETRY_MAX_MS)
   return exp / 2 + Math.random() * (exp / 2)
@@ -157,94 +141,134 @@ function scheduleFlush(ms: number): void {
 }
 
 function flushPersist(): void {
-  if (!pendingPayload) return
-  // A save is already uploading — leave the payload queued. Whatever is pending when that
-  // one finishes gets flushed then, so the newest state still reaches the server.
-  if (saveInFlight) return
-  const payload = pendingPayload
-  pendingPayload = null
+  if (!dirty || !records.ready) return
+  // Leave it marked dirty: whatever is pending when the current request ends goes next.
+  if (saveInFlight || pullInFlight) return
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  dirty = false
+  const batch = records.collect(persistedSlice(useStore.getState()))
+  if (!batch) {
+    useStore.setState({ saveStatus: 'saved', saveError: null })
+    return
+  }
   saveInFlight = true
-  syncLog('save:start', { tasks: (payload.tasks as AppState['tasks'])?.length, jiras: countJiras((payload.tasks as AppState['tasks']) ?? []) })
+  syncLog('save:start', { tasks: batch.body.tasks.length, note: `docs ${batch.body.docs.length}, deletes ${batch.body.deletes.length}` })
   useStore.setState({ saveStatus: 'saving' })
-  void saveCloudState(payload).then((res) => {
+  void commitRecords(batch.body).then((res) => {
     saveInFlight = false
     if (res.ok) {
+      const out = records.apply(batch, res.result, persistedSlice(useStore.getState()))
+      // A reply that answered for none of the records would have this loop resend them
+      // forever at full speed. Treat it as a failed save and back off instead.
+      if (out.answered === 0) {
+        dirty = true
+        syncLog('save:FAIL', { note: 'empty reply' })
+        useStore.setState({ saveStatus: 'error', saveError: 'server' })
+        reportError({ kind: 'save', message: 'Cloud save answered for none of the records sent' })
+        scheduleFlush(retryDelay(retryAttempt++))
+        return
+      }
       retryAttempt = 0
-      syncLog('save:ok')
-      useStore.setState({ saveStatus: pendingPayload ? 'saving' : 'saved', saveError: null })
-      // A newer edit arrived while this was uploading — send it now.
-      if (pendingPayload) scheduleFlush(0)
+      if (out.patch) useStore.setState(out.patch)
+      syncLog('save:ok', out.conflicts ? { note: `${out.conflicts} merged with newer saves` } : {})
+      // The server refused these as unstorable; retrying cannot help, so record why.
+      if (out.rejected.length) {
+        reportError({ kind: 'save', message: `Records refused by the server: ${out.rejected.slice(0, 5).join(', ')}` })
+      }
+      // Another round: more records than one request holds, merges to send, or edits
+      // made while this one was uploading. It ends with 'saved' once nothing differs.
+      dirty = true
+      scheduleFlush(0)
       return
     }
-    // Session expired: retrying is pointless (every attempt fails instantly with no token)
-    // and silently pretending to "retry automatically" is how edits get lost. Surface it.
+    dirty = true
+    // Session expired: retrying is pointless and pretending to retry is how edits get lost.
     if (res.reason === 'unauthorized') {
-      pendingPayload = payload
       syncLog('save:FAIL', { note: 'unauthorized' })
       useStore.setState({ saveStatus: 'error', saveError: 'unauthorized' })
       return
     }
-    syncLog('save:FAIL', { note: 'network' })
-    // Report the actual reason so the banner can say something useful. A payload the
-    // server rejects as too large will fail identically on every retry, so back off to the
-    // maximum interval instead of hammering the backend with the same multi-MB upload.
-    const reason = res.reason === 'tooLarge' || res.reason === 'server' ? res.reason : 'network'
-    useStore.setState({ saveStatus: 'error', saveError: reason })
-    if (reason === 'tooLarge') retryAttempt = Math.max(retryAttempt, 10)
-    // The server answered but refused the save: record it. A plain network failure is not
+    syncLog('save:FAIL', { note: res.reason })
+    useStore.setState({ saveStatus: 'error', saveError: res.reason })
+    // A request refused as too large fails the same way every time: back off to the maximum.
+    if (res.reason === 'tooLarge') retryAttempt = Math.max(retryAttempt, 10)
+    // The server answered but refused the save: record it. A network failure is not
     // reported -- if the server is unreachable, the report could not arrive either.
-    if (reason !== 'network') {
-      reportError({ kind: 'save', message: `Cloud save rejected: ${reason}` })
-    }
-    // Keep the failed payload unless a newer one already superseded it — never drop edits.
-    if (!pendingPayload) pendingPayload = payload
+    if (res.reason !== 'network') reportError({ kind: 'save', message: `Cloud save rejected: ${res.reason}` })
     scheduleFlush(retryDelay(retryAttempt++))
   })
 }
 
-// Last chance to persist as the document goes away. Ignores saveInFlight -- that request
-// is about to be killed anyway -- and sends the queued payload with keepalive so the
-// browser delivers it after the page is gone.
-function forceFlushOnUnload(): void {
-  syncLog('unload', { note: pendingPayload ? 'pending payload -> sending' : 'nothing pending' })
-  if (!pendingPayload) return
-  const payload = pendingPayload
-  pendingPayload = null
-  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-  void saveCloudState(payload)
+/*
+ * Bring in what other tabs and devices have saved since this tab last looked. Records this
+ * tab has not touched are replaced; ones it has edited are merged and the result saved.
+ * Runs when the tab regains focus, every minute while visible, and before each sync.
+ */
+export async function pullRemoteChanges(): Promise<void> {
+  if (!cloudSyncReady || !records.ready || saveInFlight || pullInFlight) return
+  pullInFlight = true
+  let merged = false
+  try {
+    const res = await loadRecords(records.cursor)
+    if (!res) return
+    const patch = records.pull(res, persistedSlice(useStore.getState()))
+    if (patch) {
+      useStore.setState(patch)
+      merged = true
+      syncLog('pull', { tasks: res.tasks.length, note: `docs ${res.docs.length}, deleted ${res.deleted.length}` })
+    }
+  } catch {
+    // Offline or a server hiccup: the next focus or minute tries again.
+  } finally {
+    pullInFlight = false
+    // A merge may need saving, and a save held back while this ran must go now.
+    if (merged || dirty) { dirty = true; scheduleFlush(0) }
+  }
 }
 
-function persistState(state: AppState, immediate = false): void {
-  pendingPayload = buildPersistPayload(state)
+// Last chance to save as the document goes away: send whatever differs, as a keepalive
+// request the browser delivers after the page is gone. The in-flight one dies anyway.
+function forceFlushOnUnload(): void {
+  const batch = records.ready ? records.collect(persistedSlice(useStore.getState())) : null
+  syncLog('unload', { note: batch ? `sending ${batch.size} records` : 'nothing pending' })
+  if (!batch) return
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  void commitRecords(batch.body)
+}
+
+function persistState(immediate = false): void {
+  dirty = true
   // Don't let a fresh edit reset an in-progress backoff timer into a tight loop; the
-  // post-flight flush above already picks up whatever is pending.
+  // post-flight flush already picks up whatever is pending.
   if (saveInFlight) return
   scheduleFlush(immediate ? 0 : SAVE_DEBOUNCE_MS)
 }
 
 // A sync's result is expensive to reproduce -- it costs a full round of Jira calls -- and
-// waiting out the debounce means a reload in the next 800ms loses all of it. Flush at once.
-export function persistNow(state: AppState): void {
-  if (cloudSyncReady) persistState(state, true)
+// waiting out the debounce means a reload in the next 800ms loses all of it. Save at once.
+export function persistNow(_state?: AppState): void {
+  if (cloudSyncReady) persistState(true)
 }
 
-// Don't lose a pending debounced save when the tab is hidden or closed.
+const PULL_EVERY_MS = 60_000
+
 if (typeof window !== 'undefined') {
-  const flushIfHidden = () => { if (document.visibilityState === 'hidden') flushPersist() }
-  window.addEventListener('visibilitychange', flushIfHidden)
-  // On pagehide the document is going away, so a normal fetch is killed mid-flight —
-  // saveCloudState uses keepalive for this case so the request still completes.
-  //
-  // flushPersist() alone was not enough here. A sync writes state repeatedly, so a save is
-  // usually still uploading when the page is closed; flushPersist() then returns early and
-  // the queued payload -- containing everything the sync just produced -- was never sent.
-  // The in-flight request dies with the document, so nothing reached the server and the
-  // issues were gone on the next load. Force the pending payload out instead of deferring.
+  document.addEventListener('visibilitychange', () => {
+    // Hidden: save now. Visible again: catch up with what other tabs saved meanwhile.
+    if (document.visibilityState === 'hidden') flushPersist()
+    else void pullRemoteChanges()
+  })
+  window.addEventListener('focus', () => { void pullRemoteChanges() })
+  setInterval(() => {
+    if (document.visibilityState === 'visible') void pullRemoteChanges()
+  }, PULL_EVERY_MS)
+  // On pagehide the document is going away, so a normal fetch is killed mid-flight.
+  // A sync writes state repeatedly, so a save is usually still uploading when the page
+  // closes; waiting for it would lose everything queued behind it. Send it now instead.
   window.addEventListener('pagehide', () => { markUnloading(); forceFlushOnUnload() })
   // Retry immediately once connectivity returns, instead of waiting out the backoff.
   window.addEventListener('online', () => {
-    if (pendingPayload) { retryAttempt = 0; scheduleFlush(0) }
+    if (dirty) { retryAttempt = 0; scheduleFlush(0) }
   })
 }
 
@@ -317,6 +341,8 @@ interface StoreActions {
   searchQuery: string
   setSearchQuery: (q: string) => void
   cloudSyncing: boolean
+  // The initial load failed and is being retried.
+  cloudLoadFailed: boolean
   saveStatus: 'saved' | 'saving' | 'error'
   // Distinguishes a transient network failure (genuinely retrying) from an expired session
   // (retrying is futile — the user must sign in again or their edits are never saved).
@@ -347,7 +373,7 @@ function withSave(state: AppState): AppState {
   // empty state -- which then got saved over the top of it.
   if (!cloudSyncReady) return state
   localRevision++
-  persistState(state)
+  persistState()
   return state
 }
 
@@ -357,6 +383,7 @@ export const useStore = create<Store>((set, get) => {
   return {
     ...base,
     cloudSyncing: true,
+    cloudLoadFailed: false,
     saveStatus: 'saved',
     saveError: null,
     searchQuery: '',
@@ -1398,6 +1425,8 @@ export const useStore = create<Store>((set, get) => {
       // the run already in progress instead of starting a competing one.
       if (jiraSyncInFlight) return jiraSyncInFlight
       const run = withTabLock('pm-sync-jira', !!opts?.background, async () => {
+      // Start from what other tabs have saved, so this sync builds on current data.
+      await pullRemoteChanges()
       const { jiraConnections, developers, tasks, projects } = get()
       const enabledConns = jiraConnections.filter((c) => c.enabled && c.baseUrl && hasCredential(c))
       if (!enabledConns.length) throw new Error('No Jira connections configured')
@@ -1863,6 +1892,8 @@ export const useStore = create<Store>((set, get) => {
       // calls, and autosync runs on a timer alongside manual syncs.
       if (gitlabSyncInFlight) return gitlabSyncInFlight
       const run = withTabLock('pm-sync-gitlab', !!opts?.background, async () => {
+      // Start from what other tabs have saved, so this sync builds on current data.
+      await pullRemoteChanges()
       const { gitlabConnections, jiraConnections, tasks, developers, projects } = get()
       const enabledConns = gitlabConnections.filter((c) => c.enabled && hasCredential(c) && c.groupPath)
       if (!enabledConns.length) throw new Error('No GitLab connections configured')
@@ -2089,6 +2120,8 @@ export const useStore = create<Store>((set, get) => {
       // Same overlap hazard as syncJira.
       if (githubSyncInFlight) return githubSyncInFlight
       const run = withTabLock('pm-sync-github', !!opts?.background, async () => {
+      // Start from what other tabs have saved, so this sync builds on current data.
+      await pullRemoteChanges()
       const { githubConnections, jiraConnections, tasks, developers, projects } = get()
       const enabledConns = githubConnections.filter((c) => c.enabled && hasCredential(c))
       if (!enabledConns.length) throw new Error('No GitHub connections configured')
@@ -2345,74 +2378,50 @@ export const useStore = create<Store>((set, get) => {
         selectedProject: 'ALL',
       }
       set(next)
-      const res = await saveCloudState({
-        _v: 2,
-        developers: next.developers,
-        projects: next.projects,
-        tasks: next.tasks,
-        schedule: next.schedule,
-        scheduleHours: next.scheduleHours,
-        notifsEnabled: next.notifsEnabled,
-        jiraConnections: next.jiraConnections,
-        gitlabConnections: next.gitlabConnections,
-        githubConnections: next.githubConnections,
-        trackerTimezone: next.trackerTimezone,
-      })
-      return res.ok
+      // The import replaces everything: the next saves write each record and delete what
+      // the backup does not contain. Wait until they have all gone through.
+      return saveEverythingNow()
     },
   }
 })
 
-function applyCloudState(cloud: Record<string, unknown> | null, startedAtRevision?: number) {
-  const incoming = (cloud?.tasks as AppState['tasks'] | undefined)
+function applyRecords(res: RecordsResponse | null, startedAtRevision?: number) {
   syncLog('load', {
-    tasks: incoming?.length,
-    jiras: incoming ? countJiras(incoming) : undefined,
-    note: cloud === null ? 'null (unauthenticated / no data)' : undefined,
+    tasks: res?.tasks.length,
+    jiras: res ? countJiras(res.tasks.map((t) => t.data as unknown as Task)) : undefined,
+    note: res === null ? 'null (unauthenticated / unreachable)' : undefined,
   })
-  // Local work happened while this load was in flight (typically the startup Jira sync).
-  // The response is already stale, so applying it would silently revert that work.
-  if (startedAtRevision !== undefined && localRevision !== startedAtRevision) {
-    if (cloud !== null) cloudSyncReady = true
-    useStore.setState({ cloudSyncing: false })
-    console.warn('[cloud] discarding a stale load — local changes happened while it was in flight')
+  // Only mark ready when we actually received data. A null response means signed out or
+  // unreachable -- saving then would treat the empty startup state as the user's data.
+  if (res === null) {
+    useStore.setState({ cloudSyncing: false, cloudLoadFailed: false })
     return
   }
-  // Only mark ready when we actually received data. A null response means the user is
-  // unauthenticated — setting cloudSyncReady here would allow withSave to overwrite real
-  // cloud data with an empty freshState() after a token-clear + reload.
-  if (cloud !== null) cloudSyncReady = true
-  useStore.setState((s) => ({
-    ...s,
-    cloudSyncing: false,
-    ...(cloud
-      ? {
-          ...(cloud.developers ? { developers: (cloud.developers as AppState['developers']).map((d) => ({ periods: [], ...d })) } : {}),
-          ...(cloud.projects ? { projects: (cloud.projects as AppState['projects']).map((p) => ({ nonWorkingDays: [0, 6] as number[], ...p, members: (p as { members?: string[] }).members ?? [] })) } : {}),
-          ...(cloud.sprints ? { sprints: cloud.sprints as AppState['sprints'] } : {}),
-          ...(cloud.tasks ? { tasks: (cloud.tasks as AppState['tasks']).map(normalizeTask) } : {}),
-          ...(cloud.notes ? { notes: cloud.notes as AppState['notes'] } : {}),
-          ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
-          ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),
-          ...(cloud.jiraConnections
-            ? { jiraConnections: (cloud.jiraConnections as AppState['jiraConnections']).map(repointOrphanMappings) }
-            : cloud.jiraConfig
-              ? { jiraConnections: [{ ...(cloud.jiraConfig as JiraConfig), id: 'j_legacy', name: 'Default' }] }
-              : {}),
-          ...(cloud.gitlabConnections
-            ? { gitlabConnections: cloud.gitlabConnections as AppState['gitlabConnections'] }
-            : cloud.gitlabConfig
-              ? { gitlabConnections: [{ ...(cloud.gitlabConfig as GitLabConfig), id: 'gl_legacy', name: 'Default' }] }
-              : {}),
-          ...(cloud.githubConnections ? { githubConnections: cloud.githubConnections as AppState['githubConnections'] } : {}),
-          ...(cloud.trackerTimezone !== undefined ? { trackerTimezone: cloud.trackerTimezone as string | undefined } : {}),
-          ...(cloud.selectedProject ? { selectedProject: cloud.selectedProject as string } : {}),
-          ...(cloud.selectedDev ? { selectedDev: cloud.selectedDev as string } : {}),
-          ...(cloud.releaseNoteColumns ? { releaseNoteColumns: cloud.releaseNoteColumns as ReleaseNoteColumn[] } : {}),
-          ...(cloud.releaseNoteData ? { releaseNoteData: cloud.releaseNoteData as Record<string, ReleaseNoteIssueData> } : {}),
-        }
-      : {}),
-  }))
+  const next = cloudToState(recordsToCloud(res))
+  records.reset(res, next)
+  cloudSyncReady = true
+  // Local work happened while this load was in flight. Applying the load as-is would
+  // revert it, so merge instead: nothing from either side is lost or deleted.
+  if (startedAtRevision !== undefined && localRevision !== startedAtRevision) {
+    const patch = records.adoptStale(next, persistedSlice(useStore.getState()))
+    useStore.setState({ ...(patch ?? {}), cloudSyncing: false, cloudLoadFailed: false })
+    console.warn('[cloud] a load finished after local changes; merged rather than replaced')
+    persistState(true)
+    return
+  }
+  useStore.setState({ ...next, cloudSyncing: false, cloudLoadFailed: false })
+  records.adoptView(persistedSlice(useStore.getState()))
+}
+
+// Resolves once every change has reached the server (true), or a save failed (false).
+async function saveEverythingNow(): Promise<boolean> {
+  persistState(true)
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 100))
+    const { saveStatus } = useStore.getState()
+    if (saveStatus === 'error') return false
+    if (!dirty && !saveInFlight && !saveTimer && saveStatus === 'saved') return true
+  }
 }
 
 /*
@@ -2428,26 +2437,27 @@ export function reconcileVault(previous: Credentialed[], next: Credentialed[]): 
   void useStore.getState().moveTokensToVault()
 }
 
-export async function syncCloudToStore(): Promise<void> {
-  useStore.setState({ cloudSyncing: true })
+/*
+ * Load everything. If the server can't be reached or fails, keep showing the loading
+ * screen and try again -- showing an empty board instead would look like lost data.
+ */
+async function loadFromCloud(attempt = 0): Promise<void> {
+  const startedAt = localRevision
   try {
-    const startedAt = localRevision
-    const cloud = await loadCloudState()
-    // After login the user is authenticated — safe to enable saves even if cloud is empty.
-    cloudSyncReady = true
-    applyCloudState(cloud, startedAt)
+    applyRecords(await loadRecords(), startedAt)
   } catch {
-    cloudSyncReady = true
-    useStore.setState({ cloudSyncing: false })
+    syncLog('load:FAIL', { note: `attempt ${attempt + 1}` })
+    useStore.setState({ cloudSyncing: true, cloudLoadFailed: true })
+    setTimeout(() => { void loadFromCloud(attempt + 1) }, Math.min(2000 * 2 ** attempt, 30_000))
   }
 }
 
-{
-  const startedAt = localRevision
-  loadCloudState().then((cloud) => applyCloudState(cloud, startedAt)).catch(() => {
-    useStore.setState({ cloudSyncing: false })
-  })
+export async function syncCloudToStore(): Promise<void> {
+  useStore.setState({ cloudSyncing: true })
+  await loadFromCloud()
 }
+
+void loadFromCloud()
 
 // Debug helper: expose the store + a one-shot issue tracer on window so issue-visibility
 // problems can be diagnosed without reaching into React internals. Safe, read-only.
