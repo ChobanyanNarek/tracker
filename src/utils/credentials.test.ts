@@ -132,7 +132,7 @@ describe('moveTokensToVault', () => {
   })
 
   it('keeps a token that was edited while the upload was in flight', async () => {
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
       if (!init?.method) return Promise.resolve(new Response(JSON.stringify({ available: true, items: [] }), { status: 200 }))
       useStore.setState({ jiraConnections: [jira({ token: 'typed-meanwhile' })] })
       return Promise.resolve(new Response(null, { status: 204 }))
