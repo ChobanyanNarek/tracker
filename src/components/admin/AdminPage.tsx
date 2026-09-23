@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import ClientErrorsPanel from './ClientErrorsPanel'
 import { adminGetUsers, adminDeleteUser, adminDeleteUserData, adminChangePassword, adminEditUser, adminGetPayments, adminGrantSubscription, adminRevokeSubscription, adminRefundPayment, type AdminUser, type AdminPayment } from '../../utils/cloud-api'
 import { clearToken, getUserInfo } from '../../utils/auth'
 import ProfileModal from '../modals/ProfileModal'
@@ -529,6 +530,9 @@ export default function AdminPage({ onBack: _onBack }: Props) {
             </div>
           </div>
         )}
+
+        {/* ── Browser errors (built-in error tracking) ── */}
+        {!loading && <ClientErrorsPanel users={users} />}
       </div>
 
       {/* ── Modals ── */}

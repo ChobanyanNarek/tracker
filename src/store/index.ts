@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
 import { loadCloudState, saveCloudState, markUnloading } from '../utils/cloud-api'
+import { reportError } from '../utils/error-reporter'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, identityList, jiraDedupeKey } from '../utils/format'
 import { fetchJiraIssues, fetchJiraBoardIssues, fetchBoardIssueKeys, fetchJiraTimeTracking, fetchConnectionProjectKeys, rawToJiraItem, mergeStatusHistory, buildJqlStatusFilter } from '../utils/jira-api'
@@ -169,6 +170,11 @@ function flushPersist(): void {
     const reason = res.reason === 'tooLarge' || res.reason === 'server' ? res.reason : 'network'
     useStore.setState({ saveStatus: 'error', saveError: reason })
     if (reason === 'tooLarge') retryAttempt = Math.max(retryAttempt, 10)
+    // The server answered but refused the save: record it. A plain network failure is not
+    // reported -- if the server is unreachable, the report could not arrive either.
+    if (reason !== 'network') {
+      reportError({ kind: 'save', message: `Cloud save rejected: ${reason}` })
+    }
     // Keep the failed payload unless a newer one already superseded it — never drop edits.
     if (!pendingPayload) pendingPayload = payload
     scheduleFlush(retryDelay(retryAttempt++))

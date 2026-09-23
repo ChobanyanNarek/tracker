@@ -338,3 +338,23 @@ export async function getAllReleaseNoteTasks(params: {
   }
   return all
 }
+
+// ── Browser errors (built-in error tracking) ────────────────────────────────
+export interface ClientErrorEntry {
+  id: string
+  timestamp: string
+  message: string
+  context?: {
+    userId?: string
+    kind?: string
+    url?: string | null
+    release?: string | null
+    stack?: string | null
+    userAgent?: string | null
+  }
+}
+
+// Newest browser errors first. Admin-only on the server (SUPER_ADMIN passes every role check).
+export async function adminGetClientErrors(page = 1): Promise<PagedResult<ClientErrorEntry> | null> {
+  return fetchPaged<ClientErrorEntry>('/admin/logs', { source: 'web', order: 'DESC', take: 50, page })
+}
