@@ -1,5 +1,6 @@
 import type { JiraConfig, JiraIssue, JiraStatusMapping, Priority, Status, StatusHistoryEntry } from '../types'
 import { groupForJiraStatus, buildJqlFromMappings } from './status-groups'
+import { authFor } from './credentials'
 
 export interface JiraIssueRaw {
   key: string
@@ -144,7 +145,7 @@ export async function fetchJiraBoardIssues(config: JiraConfig, boardId: number, 
     body: JSON.stringify({
       baseUrl: config.baseUrl.trim(),
       email: config.email.trim(),
-      token: config.token.trim(),
+      ...authFor(config),
       boardId,
       assigneeEmail,
     }),
@@ -188,7 +189,7 @@ export async function fetchBoardIssueKeys(config: JiraConfig, boardId: number, _
     body: JSON.stringify({
       baseUrl: config.baseUrl.trim(),
       email: config.email.trim(),
-      token: config.token.trim(),
+      ...authFor(config),
       boardId,
     }),
   })
@@ -207,7 +208,7 @@ export async function fetchJiraBoards(config: JiraConfig): Promise<JiraBoardInfo
     body: JSON.stringify({
       baseUrl: config.baseUrl.trim(),
       email: config.email.trim(),
-      token: config.token.trim(),
+      ...authFor(config),
     }),
   })
   if (!res.ok) {
@@ -233,7 +234,7 @@ export async function fetchJiraSprints(config: JiraConfig, boardId: number): Pro
     body: JSON.stringify({
       baseUrl: config.baseUrl.trim(),
       email: config.email.trim(),
-      token: config.token.trim(),
+      ...authFor(config),
       boardId,
     }),
   })
@@ -253,7 +254,7 @@ export async function fetchJiraTimeTracking(config: JiraConfig): Promise<number>
       body: JSON.stringify({
         baseUrl: config.baseUrl.trim(),
         email: config.email.trim(),
-        token: config.token.trim(),
+        ...authFor(config),
       }),
     })
     if (!res.ok) return 8
@@ -271,7 +272,7 @@ export async function fetchJiraStatuses(config: JiraConfig): Promise<JiraStatusI
     body: JSON.stringify({
       baseUrl: config.baseUrl.trim(),
       email: config.email.trim(),
-      token: config.token.trim(),
+      ...authFor(config),
     }),
   })
   if (!res.ok) {
@@ -314,7 +315,7 @@ export async function fetchJiraIssues(config: JiraConfig, jql: string): Promise<
     body: JSON.stringify({
       baseUrl: config.baseUrl.trim(),
       email: config.email.trim(),
-      token: config.token.trim(),
+      ...authFor(config),
       jql,
     }),
   })

@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { useStore } from '../../store'
+import { useStore, reconcileVault } from '../../store'
 import type { GitLabConfig } from '../../types'
 import { fetchGroupMRs, normalizeGroupPath } from '../../utils/gitlab-api'
 import { jiraDedupeKey, identityList } from '../../utils/format'
+import { hasCredential } from '../../utils/credentials'
 import { formatDateTime } from '../../utils/dates'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
@@ -134,7 +135,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
           <input
             style={{ ...inputStyle, paddingRight: 32 }}
             type={showToken ? 'text' : 'password'}
-            placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+            placeholder={conn.tokenInVault ? 'Stored securely on the server — paste a new token to replace' : 'glpat-xxxxxxxxxxxxxxxxxxxx'}
             value={conn.token}
             onChange={(e) => patch('token', e.target.value)}
           />
@@ -166,8 +167,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       )}
       <button
         onClick={testConnection}
-        disabled={testing || !conn.token || !conn.groupPath}
-        style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.token || !conn.groupPath ? 0.5 : 1 }}
+        disabled={testing || !hasCredential(conn) || !conn.groupPath}
+        style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !hasCredential(conn) || !conn.groupPath ? 0.5 : 1 }}
       >
         {testing ? '…testing' : 'Test connection'}
       </button>
@@ -273,6 +274,7 @@ export default function GitLabConfigModal({ onClose, projectId }: Props) {
     // alongside their adopted copy.
     const others = gitlabConnections.filter((c) => c.projectId && c.projectId !== projectId)
     setGitlabConnections([...others, ...conns])
+    reconcileVault(gitlabConnections.filter((c) => !c.projectId || c.projectId === projectId), conns)
     onClose()
   }
 
@@ -282,6 +284,7 @@ export default function GitLabConfigModal({ onClose, projectId }: Props) {
     // alongside their adopted copy.
     const others = gitlabConnections.filter((c) => c.projectId && c.projectId !== projectId)
     setGitlabConnections([...others, ...conns])
+    reconcileVault(gitlabConnections.filter((c) => !c.projectId || c.projectId === projectId), conns)
     setSyncing(true)
     setSyncResult(null)
     try {
@@ -325,7 +328,7 @@ export default function GitLabConfigModal({ onClose, projectId }: Props) {
     setSyncing(false)
   }
 
-  const anyEnabled = conns.some((c) => c.enabled && c.token && c.groupPath)
+  const anyEnabled = conns.some((c) => c.enabled && hasCredential(c) && c.groupPath)
 
   return (
     <Modal

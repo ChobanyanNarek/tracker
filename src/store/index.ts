@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
 import { loadCloudState, saveCloudState, markUnloading } from '../utils/cloud-api'
+import { authFor, hasCredential, listVault, removeFromVault, storeInVault, type Credentialed } from '../utils/credentials'
 import { reportError } from '../utils/error-reporter'
 import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
 import { getJiras, identityList, jiraDedupeKey } from '../utils/format'
@@ -264,6 +265,7 @@ interface StoreActions {
   carryOver: (id: string) => string | null
   autoCarryOverdue: () => boolean
   migrateIssueIds: () => void
+  moveTokensToVault: () => Promise<number>
   deduplicateJiras: () => void
   mergeSameDayTasks: () => void
   pruneOldTaskData: () => void
@@ -927,6 +929,43 @@ export const useStore = create<Store>((set, get) => {
       return anyAdded
     },
 
+    /*
+     * Move any integration token still held in the browser into the server's encrypted
+     * vault. A token is cleared locally only after the server confirms it stored it, so a
+     * failed upload never loses a credential; with the vault off (no key configured on the
+     * server) nothing changes and this is retried on the next load. Returns how many moved.
+     */
+    moveTokensToVault: async () => {
+      const listing = await listVault()
+      if (!listing?.available) return 0
+
+      const moved = new Map<string, string>() // connection id -> the token uploaded
+      const upload = async (conns: Credentialed[], provider: 'jira' | 'github' | 'gitlab') => {
+        for (const c of conns) {
+          const token = c.token?.trim()
+          if (!token) continue
+          if (await storeInVault(c.id, provider, token)) moved.set(c.id, token)
+        }
+      }
+      const { jiraConnections, githubConnections, gitlabConnections } = get()
+      await upload(jiraConnections, 'jira')
+      await upload(githubConnections, 'github')
+      await upload(gitlabConnections, 'gitlab')
+      if (!moved.size) return 0
+
+      // Clear only what was uploaded, and only if it hasn't been edited meanwhile: a token
+      // typed while the upload was in flight must survive to be uploaded next time.
+      const clear = <T extends Credentialed>(conns: T[]): T[] =>
+        conns.map((c) => (moved.get(c.id) === c.token?.trim() ? { ...c, token: '', tokenInVault: true } : c))
+      set((s) => withSave({
+        ...s,
+        jiraConnections: clear(s.jiraConnections),
+        githubConnections: clear(s.githubConnections),
+        gitlabConnections: clear(s.gitlabConnections),
+      }))
+      return moved.size
+    },
+
     migrateIssueIds: () => {
       const { tasks } = get()
       if (!tasks.some((t) => t.jiras?.some((j) => !j.issueId))) return
@@ -1339,7 +1378,7 @@ export const useStore = create<Store>((set, get) => {
       if (jiraSyncInFlight) return jiraSyncInFlight
       const run = (async () => {
       const { jiraConnections, developers, tasks, projects } = get()
-      const enabledConns = jiraConnections.filter((c) => c.enabled && c.baseUrl && c.token)
+      const enabledConns = jiraConnections.filter((c) => c.enabled && c.baseUrl && hasCredential(c))
       if (!enabledConns.length) throw new Error('No Jira connections configured')
 
       const today = latestWorkday()
@@ -1788,7 +1827,7 @@ export const useStore = create<Store>((set, get) => {
       if (gitlabSyncInFlight) return gitlabSyncInFlight
       const run = (async () => {
       const { gitlabConnections, jiraConnections, tasks, developers, projects } = get()
-      const enabledConns = gitlabConnections.filter((c) => c.enabled && c.token && c.groupPath)
+      const enabledConns = gitlabConnections.filter((c) => c.enabled && hasCredential(c) && c.groupPath)
       if (!enabledConns.length) throw new Error('No GitLab connections configured')
 
       // All external timestamps are recorded in the user's local timezone.
@@ -1818,7 +1857,7 @@ export const useStore = create<Store>((set, get) => {
       const discoverKeysFor = async (projectId: string): Promise<string[]> => {
         if (discoveredKeys.has(projectId)) return discoveredKeys.get(projectId)!
         const conn = jiraConnections.find(
-          (c) => (c.projectId ?? '') === projectId && c.enabled && c.baseUrl && c.token,
+          (c) => (c.projectId ?? '') === projectId && c.enabled && c.baseUrl && hasCredential(c),
         )
         const keys = conn ? await fetchConnectionProjectKeys(conn) : []
         discoveredKeys.set(projectId, keys)
@@ -1866,7 +1905,7 @@ export const useStore = create<Store>((set, get) => {
         }
 
         if (devUsernames.length > 0) {
-          const userMrs = await fetchUserMRs(devUsernames, conn.token)
+          const userMrs = await fetchUserMRs(devUsernames, authFor(conn))
           for (const m of userMrs) { mrById.set(m.id, m); mrProjectId.set(m.id, conn.projectId ?? '') }
         }
 
@@ -2014,7 +2053,7 @@ export const useStore = create<Store>((set, get) => {
       if (githubSyncInFlight) return githubSyncInFlight
       const run = (async () => {
       const { githubConnections, jiraConnections, tasks, developers, projects } = get()
-      const enabledConns = githubConnections.filter((c) => c.enabled && c.token)
+      const enabledConns = githubConnections.filter((c) => c.enabled && hasCredential(c))
       if (!enabledConns.length) throw new Error('No GitHub connections configured')
 
       // All external timestamps are recorded in the user's local timezone.
@@ -2044,7 +2083,7 @@ export const useStore = create<Store>((set, get) => {
       const discoverKeysFor = async (projectId: string): Promise<string[]> => {
         if (discoveredKeys.has(projectId)) return discoveredKeys.get(projectId)!
         const conn = jiraConnections.find(
-          (c) => (c.projectId ?? '') === projectId && c.enabled && c.baseUrl && c.token,
+          (c) => (c.projectId ?? '') === projectId && c.enabled && c.baseUrl && hasCredential(c),
         )
         const keys = conn ? await fetchConnectionProjectKeys(conn) : []
         discoveredKeys.set(projectId, keys)
@@ -2083,7 +2122,7 @@ export const useStore = create<Store>((set, get) => {
 
         if (conn.orgOrUser.trim()) {
           try {
-            const orgPRs = await fetchOrgPRs(conn.orgOrUser, conn.token)
+            const orgPRs = await fetchOrgPRs(conn.orgOrUser, authFor(conn))
             for (const p of orgPRs) { prById.set(p.id, p); prProjectId.set(p.id, conn.projectId ?? '') }
           } catch (err) {
             const msg = (err as Error).message
@@ -2094,7 +2133,7 @@ export const useStore = create<Store>((set, get) => {
 
         if (devUsernames.length > 0) {
           const ownerScope = conn.orgOrUser.trim() ? normalizeGithubPath(conn.orgOrUser).owner : ''
-          const userPRs = await Promise.all(devUsernames.map((u) => fetchUserPRs(u, conn.token, ownerScope)))
+          const userPRs = await Promise.all(devUsernames.map((u) => fetchUserPRs(u, authFor(conn), ownerScope)))
           for (const prs of userPRs) for (const p of prs) { prById.set(p.id, p); prProjectId.set(p.id, conn.projectId ?? '') }
         }
 
@@ -2337,6 +2376,19 @@ function applyCloudState(cloud: Record<string, unknown> | null, startedAtRevisio
         }
       : {}),
   }))
+}
+
+/*
+ * After a connections modal saves: delete the vaulted token of any connection that was
+ * removed, then move newly typed tokens into the vault. Best-effort and non-blocking --
+ * an orphaned encrypted row is harmless, and a token that fails to move stays local.
+ */
+export function reconcileVault(previous: Credentialed[], next: Credentialed[]): void {
+  const kept = new Set(next.map((c) => c.id))
+  for (const c of previous) {
+    if (c.tokenInVault && !kept.has(c.id)) void removeFromVault(c.id)
+  }
+  void useStore.getState().moveTokensToVault()
 }
 
 export async function syncCloudToStore(): Promise<void> {

@@ -1,3 +1,4 @@
+import { hasCredential } from '../../utils/credentials'
 import { useState, useEffect } from 'react'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
@@ -715,7 +716,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
               const jiraConns = jiraConnections.filter(c => c.projectId === editingProjId)
               const gitlabConns = gitlabConnections.filter(c => c.projectId === editingProjId)
               const githubConns = githubConnections.filter(c => c.projectId === editingProjId)
-              const jiraEnabled = jiraConns.some(c => c.enabled && c.token)
+              const jiraEnabled = jiraConns.some(c => c.enabled && hasCredential(c))
               const gitlabEnabled = gitlabConns.some(c => c.enabled)
               const githubEnabled = githubConns.some(c => c.enabled)
               const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px', borderBottom: '1px solid var(--border)' }

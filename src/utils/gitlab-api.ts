@@ -1,3 +1,4 @@
+import { authFor, hasCredential, providerGet, type ProviderAuth } from './credentials'
 import type { GitLabConfig } from '../types'
 import { keysFromText } from './format'
 
@@ -44,11 +45,10 @@ const MAX_PAGES = 15 // 15 × 100 per state = up to 1500 MRs per state
 export async function fetchGroupMRs(config: GitLabConfig): Promise<GitLabMR[]> {
   const path = normalizeGroupPath(config.groupPath)
   if (!path) throw new Error('Path is empty — enter a group (e.g. mycompany) or a project (e.g. mycompany/sub/repo)')
-  const token = config.token.trim()
-  if (!token) throw new Error('Personal Access Token is empty — paste your token in GitLab settings')
+  if (!hasCredential(config)) throw new Error('Personal Access Token is empty — paste your token in GitLab settings')
+  const auth = authFor(config)
   // GitLab requires the full path to be percent-encoded (slashes become %2F)
   const encoded = encodeURIComponent(path)
-  const headers = { 'PRIVATE-TOKEN': token, Accept: 'application/json' }
 
   const byId = new Map<number, GitLabMR>()
   let anyOk = false
@@ -60,12 +60,11 @@ export async function fetchGroupMRs(config: GitLabConfig): Promise<GitLabMR[]> {
   const harvest = async (scope: 'groups' | 'projects'): Promise<void> => {
     for (const state of ['opened', 'merged'] as const) {
       for (let page = 1; page <= MAX_PAGES; page++) {
-        const url = `https://gitlab.com/api/v4/${scope}/${encoded}/merge_requests?state=${state}&per_page=100&page=${page}&order_by=updated_at&sort=desc`
-        const res = await fetch(url, { headers })
+        const res = await providerGet('gitlab', auth, `/api/v4/${scope}/${encoded}/merge_requests?state=${state}&per_page=100&page=${page}&order_by=updated_at&sort=desc`)
         if (!res.ok) {
           if (res.status !== 404) {
-            const text = await res.text().catch(() => '')
-            lastErr = new Error(`GitLab ${res.status}: ${text.slice(0, 200) || res.statusText}`)
+            const body = (await res.json().catch(() => null)) as { message?: string } | null
+            lastErr = new Error(`GitLab ${res.status}: ${body?.message ?? 'request failed'}`)
           }
           return // 404 = path isn't this scope; other error recorded in lastErr
         }
@@ -92,8 +91,7 @@ export async function fetchGroupMRs(config: GitLabConfig): Promise<GitLabMR[]> {
 
 // Fallback for Planner/Guest roles that cannot list group MRs.
 // Uses GET /users/:username/merge_requests which is accessible at any membership level.
-export async function fetchUserMRs(usernames: string[], token: string): Promise<GitLabMR[]> {
-  const headers = { 'PRIVATE-TOKEN': token.trim(), Accept: 'application/json' }
+export async function fetchUserMRs(usernames: string[], auth: ProviderAuth): Promise<GitLabMR[]> {
   const byId = new Map<number, GitLabMR>()
   let okCount = 0
 
@@ -103,8 +101,7 @@ export async function fetchUserMRs(usernames: string[], token: string): Promise<
     const encoded = encodeURIComponent(username)
     for (const state of ['opened', 'merged'] as const) {
       for (let page = 1; page <= MAX_PAGES; page++) {
-        const url = `https://gitlab.com/api/v4/users/${encoded}/merge_requests?state=${state}&per_page=100&page=${page}&order_by=updated_at&sort=desc`
-        const res = await fetch(url, { headers })
+        const res = await providerGet('gitlab', auth, `/api/v4/users/${encoded}/merge_requests?state=${state}&per_page=100&page=${page}&order_by=updated_at&sort=desc`)
         if (!res.ok) break // 404 = username wrong; 403 = skip; move to next
         okCount++
         const batch = (await res.json()) as GitLabMR[]

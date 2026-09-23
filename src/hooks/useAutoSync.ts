@@ -1,3 +1,4 @@
+import { hasCredential } from '../utils/credentials'
 import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
 
@@ -24,7 +25,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     ;(async () => {
       const conns = useStore.getState().gitlabConnections
       const stale = conns.find((c) => {
-        if (!c.enabled || !c.token || !c.groupPath) return false
+        if (!c.enabled || !hasCredential(c) || !c.groupPath) return false
         return Date.now() - (c.lastSync ? new Date(c.lastSync).getTime() : 0) > 30 * 60 * 1000
       })
       if (stale) {
@@ -39,7 +40,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     ;(async () => {
       const conns = useStore.getState().githubConnections
       const stale = conns.find((c) => {
-        if (!c.enabled || !c.token || !c.orgOrUser) return false
+        if (!c.enabled || !hasCredential(c) || !c.orgOrUser) return false
         return Date.now() - (c.lastSync ? new Date(c.lastSync).getTime() : 0) > 30 * 60 * 1000
       })
       if (stale) {
@@ -54,7 +55,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     ;(async () => {
       const conns = useStore.getState().jiraConnections
       const stale = conns.find((c) => {
-        if (!c.enabled || !c.token) return false
+        if (!c.enabled || !hasCredential(c)) return false
         return Date.now() - (c.lastSync ? new Date(c.lastSync).getTime() : 0) > 5 * 60 * 1000
       })
       if (stale) {
@@ -70,7 +71,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
 
   // Jira interval poll — use the smallest configured interval across all enabled connections
   useEffect(() => {
-    const active = jiraConnections.filter((c) => c.enabled && c.syncInterval && c.token)
+    const active = jiraConnections.filter((c) => c.enabled && c.syncInterval && hasCredential(c))
     if (!active.length) return
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
@@ -88,11 +89,11 @@ export function useAutoSync(onToast: (msg: string) => void) {
       }
     }, ms)
     return () => clearInterval(id)
-  }, [JSON.stringify(jiraConnections.map((c) => [c.id, c.enabled, c.syncInterval, c.token]))])
+  }, [JSON.stringify(jiraConnections.map((c) => [c.id, c.enabled, c.syncInterval, hasCredential(c)]))])
 
   // GitLab interval poll
   useEffect(() => {
-    const active = gitlabConnections.filter((c) => c.enabled && c.syncInterval && c.token && c.groupPath)
+    const active = gitlabConnections.filter((c) => c.enabled && c.syncInterval && hasCredential(c) && c.groupPath)
     if (!active.length) return
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
@@ -102,11 +103,11 @@ export function useAutoSync(onToast: (msg: string) => void) {
       } catch {}
     }, ms)
     return () => clearInterval(id)
-  }, [JSON.stringify(gitlabConnections.map((c) => [c.id, c.enabled, c.syncInterval, c.token]))])
+  }, [JSON.stringify(gitlabConnections.map((c) => [c.id, c.enabled, c.syncInterval, hasCredential(c)]))])
 
   // GitHub interval poll
   useEffect(() => {
-    const active = githubConnections.filter((c) => c.enabled && c.syncInterval && c.token && c.orgOrUser)
+    const active = githubConnections.filter((c) => c.enabled && c.syncInterval && hasCredential(c) && c.orgOrUser)
     if (!active.length) return
     const ms = Math.min(...active.map((c) => c.syncInterval)) * 60 * 1000
     const id = setInterval(async () => {
@@ -116,14 +117,14 @@ export function useAutoSync(onToast: (msg: string) => void) {
       } catch {}
     }, ms)
     return () => clearInterval(id)
-  }, [JSON.stringify(githubConnections.map((c) => [c.id, c.enabled, c.syncInterval, c.token, c.orgOrUser]))])
+  }, [JSON.stringify(githubConnections.map((c) => [c.id, c.enabled, c.syncInterval, hasCredential(c), c.orgOrUser]))])
 
   // GitLab sync on window focus — throttled to once every 5 minutes
   useEffect(() => {
     const onFocus = () => {
       const conns = useStore.getState().gitlabConnections
       const stale = conns.some((c) => {
-        if (!c.enabled || !c.token || !c.groupPath) return false
+        if (!c.enabled || !hasCredential(c) || !c.groupPath) return false
         const lastSyncMs = c.lastSync ? new Date(c.lastSync).getTime() : 0
         return Date.now() - lastSyncMs >= 5 * 60 * 1000
       })
@@ -141,7 +142,7 @@ export function useAutoSync(onToast: (msg: string) => void) {
     const onFocus = () => {
       const conns = useStore.getState().githubConnections
       const stale = conns.some((c) => {
-        if (!c.enabled || !c.token || !c.orgOrUser) return false
+        if (!c.enabled || !hasCredential(c) || !c.orgOrUser) return false
         const lastSyncMs = c.lastSync ? new Date(c.lastSync).getTime() : 0
         return Date.now() - lastSyncMs >= 5 * 60 * 1000
       })

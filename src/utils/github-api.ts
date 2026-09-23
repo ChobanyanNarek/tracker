@@ -1,4 +1,5 @@
 import { keysFromText } from './format'
+import { providerGet, type ProviderAuth } from './credentials'
 
 export interface GitHubPR {
   id: number
@@ -25,14 +26,14 @@ export function extractJiraKeys(pr: GitHubPR, projectKeys: string[] = []): strin
   return keysFromText(texts, projectKeys)
 }
 
-async function enrichPRs(prs: GitHubPR[], headers: HeadersInit): Promise<GitHubPR[]> {
+async function enrichPRs(prs: GitHubPR[], auth: ProviderAuth): Promise<GitHubPR[]> {
   const toEnrich = prs.slice(0, 100)
   const enriched = await Promise.allSettled(
     toEnrich.map(async (pr) => {
       const match = pr.html_url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/)
       if (!match) return pr
       const [, repoPath, num] = match
-      const r = await fetch(`https://api.github.com/repos/${repoPath}/pulls/${num}`, { headers })
+      const r = await providerGet('github', auth, `/repos/${repoPath}/pulls/${num}`)
       if (!r.ok) return pr
       const detail = await r.json() as { body?: string | null; head?: { ref: string }; merged_at?: string | null }
       return { ...pr, body: detail.body ?? pr.body, head: detail.head, merged_at: detail.merged_at }
@@ -50,17 +51,11 @@ export function normalizeGithubPath(raw: string): { owner: string; repo?: string
 }
 
 // Fetch ALL PRs from all repos in a GitHub org/user, or a single repo (mirrors GitLab fetchGroupMRs)
-export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<GitHubPR[]> {
+export async function fetchOrgPRs(orgOrUser: string, auth: ProviderAuth): Promise<GitHubPR[]> {
   if (!orgOrUser.trim()) throw new Error('GitHub path is empty — paste a GitHub org or repo URL (e.g. https://github.com/mycompany)')
-  if (!token.trim()) throw new Error('Personal Access Token is empty')
+  if ('token' in auth && !auth.token.trim()) throw new Error('Personal Access Token is empty')
 
   const { owner, repo: singleRepo } = normalizeGithubPath(orgOrUser)
-
-  const headers: HeadersInit = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  }
 
   // If a specific repo was given, use it directly; otherwise discover all repos in the org/user
   const repos: string[] = []
@@ -71,7 +66,7 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
     for (const scope of ['orgs', 'users'] as const) {
       let page = 1
       while (true) {
-        const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100&page=${page}`, { headers })
+        const res = await providerGet('github', auth, `/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100&page=${page}`)
         lastStatus = res.status
         if (!res.ok) {
           break
@@ -101,7 +96,7 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
     for (const state of ['open', 'closed'] as const) {
       let page = 1
       while (page <= 5) {
-        const res = await fetch(`https://api.github.com/repos/${repoSlug}/pulls?state=${state}&per_page=100&page=${page}&sort=updated&direction=desc`, { headers })
+        const res = await providerGet('github', auth, `/repos/${repoSlug}/pulls?state=${state}&per_page=100&page=${page}&sort=updated&direction=desc`)
         if (!res.ok) break
         const batch = await res.json() as (GitHubPR & { merged_at?: string | null })[]
         let done = false
@@ -124,13 +119,7 @@ export async function fetchOrgPRs(orgOrUser: string, token: string): Promise<Git
   return all
 }
 
-export async function fetchUserPRs(username: string, token: string, orgOrUser?: string): Promise<GitHubPR[]> {
-  const headers: HeadersInit = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  }
-
+export async function fetchUserPRs(username: string, auth: ProviderAuth, orgOrUser?: string): Promise<GitHubPR[]> {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const scope = orgOrUser?.trim() ? `+org:${orgOrUser.trim()}` : ''
 
@@ -142,12 +131,11 @@ export async function fetchUserPRs(username: string, token: string, orgOrUser?: 
   const byId = new Map<number, GitHubPR>()
 
   for (const q of queries) {
-    const url = `https://api.github.com/search/issues?q=${q}&per_page=100`
-    const res = await fetch(url, { headers })
+    const res = await providerGet('github', auth, `/search/issues?q=${q}&per_page=100`)
     if (!res.ok) {
       if (res.status === 422) continue
-      const text = await res.text().catch(() => '')
-      throw new Error(`GitHub ${res.status}: ${text.slice(0, 200) || res.statusText}`)
+      const body = (await res.json().catch(() => null)) as { message?: string } | null
+      throw new Error(`GitHub ${res.status}: ${body?.message ?? 'request failed'}`)
     }
     const data = (await res.json()) as { items: GitHubPR[] }
     for (const item of data.items) byId.set(item.id, item)
@@ -155,5 +143,5 @@ export async function fetchUserPRs(username: string, token: string, orgOrUser?: 
 
   const all = [...byId.values()]
   console.info(`[GitHub sync] fetched ${all.length} PRs for ${username}, enriching details…`)
-  return enrichPRs(all, headers)
+  return enrichPRs(all, auth)
 }

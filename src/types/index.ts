@@ -22,6 +22,7 @@ export interface GitLabConfig {
   name: string
   enabled: boolean
   token: string
+  tokenInVault?: boolean  // token is held in the server's encrypted vault; `token` is then empty
   groupPath: string       // e.g. 'mycompany' or 'mycompany/subgroup'
   syncInterval: number    // minutes; 0 = manual only
   developerUsernames?: Record<string, string | string[]>  // devId → gitlab username(s) for this connection; read via identityList()
@@ -35,6 +36,7 @@ export interface GitHubConfig {
   name: string
   enabled: boolean
   token: string
+  tokenInVault?: boolean  // token is held in the server's encrypted vault; `token` is then empty
   orgOrUser: string       // GitHub org or user — all repos in this org are scanned (mirrors GitLab groupPath)
   syncInterval: number    // minutes; 0 = manual only
   developerUsernames?: Record<string, string | string[]>  // devId → github username(s); read via identityList()
@@ -64,6 +66,7 @@ export interface JiraConfig {
   baseUrl: string
   email: string
   token: string
+  tokenInVault?: boolean  // token is held in the server's encrypted vault; `token` is then empty
   projectKeys: string[]
   syncInterval: number  // minutes; 0 = manual only
   developerEmails?: Record<string, string | string[]>  // devId → jira email(s) for this connection; read via identityList()

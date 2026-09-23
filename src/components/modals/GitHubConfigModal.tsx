@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useStore } from '../../store'
+import { useStore, reconcileVault } from '../../store'
 import type { GitHubConfig } from '../../types'
 import { normalizeGithubPath } from '../../utils/github-api'
 import { formatDateTime } from '../../utils/dates'
 import { identityList } from '../../utils/format'
+import { authFor, hasCredential, providerGet } from '../../utils/credentials'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 
@@ -81,21 +82,18 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
     setTestResult(null)
     try {
       const { owner, repo: singleRepo } = normalizeGithubPath(conn.orgOrUser.trim())
-      const headers = {
-        Authorization: `Bearer ${conn.token.trim()}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      }
+      // Through the backend proxy, so a vaulted token works here too.
+      const auth = authFor(conn)
       if (singleRepo) {
         // Single repo — verify it exists and count open PRs
-        const res = await fetch(`https://api.github.com/repos/${singleRepo}/pulls?state=open&per_page=1`, { headers })
-        if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text().catch(() => res.statusText)}`)
+        const res = await providerGet('github', auth, `/repos/${singleRepo}/pulls?state=open&per_page=1`)
+        if (!res.ok) throw new Error(`GitHub ${res.status}`)
         setTestResult({ ok: true, msg: `Connection successful ✓ — repo ${singleRepo} is accessible` })
       } else {
         // Org/user — list repos
         let repos: string[] = []
         for (const scope of ['orgs', 'users'] as const) {
-          const res = await fetch(`https://api.github.com/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100`, { headers })
+          const res = await providerGet('github', auth, `/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100`)
           if (!res.ok) continue
           const batch = await res.json() as { full_name: string }[]
           repos = batch.map((r) => r.full_name)
@@ -164,7 +162,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
           <input
             style={{ ...inputStyle, paddingRight: 32 }}
             type={showToken ? 'text' : 'password'}
-            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+            placeholder={conn.tokenInVault ? 'Stored securely on the server — paste a new token to replace' : 'ghp_xxxxxxxxxxxxxxxxxxxx'}
             value={conn.token}
             onChange={(e) => patch('token', e.target.value)}
           />
@@ -196,8 +194,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       )}
       <button
         onClick={testConnection}
-        disabled={testing || !conn.token || !conn.orgOrUser}
-        style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.token || !conn.orgOrUser ? 0.5 : 1 }}
+        disabled={testing || !hasCredential(conn) || !conn.orgOrUser}
+        style={{ alignSelf: 'flex-start', background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !hasCredential(conn) || !conn.orgOrUser ? 0.5 : 1 }}
       >
         {testing ? '…testing' : 'Test connection'}
       </button>
@@ -303,6 +301,7 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
     // alongside their adopted copy.
     const others = githubConnections.filter((c) => c.projectId && c.projectId !== projectId)
     setGithubConnections([...others, ...conns])
+    reconcileVault(githubConnections.filter((c) => !c.projectId || c.projectId === projectId), conns)
     onClose()
   }
 
@@ -312,6 +311,7 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
     // alongside their adopted copy.
     const others = githubConnections.filter((c) => c.projectId && c.projectId !== projectId)
     setGithubConnections([...others, ...conns])
+    reconcileVault(githubConnections.filter((c) => !c.projectId || c.projectId === projectId), conns)
     setSyncing(true)
     setSyncResult(null)
     try {
@@ -329,7 +329,7 @@ export default function GitHubConfigModal({ onClose, projectId }: Props) {
     setSyncing(false)
   }
 
-  const anyEnabled = conns.some((c) => c.enabled && c.token && c.orgOrUser)
+  const anyEnabled = conns.some((c) => c.enabled && hasCredential(c) && c.orgOrUser)
 
   return (
     <Modal

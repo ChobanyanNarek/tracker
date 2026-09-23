@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore } from '../../store'
+import { useStore, reconcileVault } from '../../store'
 import type { JiraConfig, JiraStatusMapping, StatusGroup, StatusGroupColor } from '../../types'
 import { fetchJiraIssues, fetchJiraStatuses, fetchJiraBoards, type JiraStatusInfo, type JiraBoardInfo } from '../../utils/jira-api'
 import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX, defaultGroupForCategory, remapAfterGroupChange } from '../../utils/status-groups'
@@ -7,6 +7,7 @@ import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
 import { identityList } from '../../utils/format'
+import { hasCredential } from '../../utils/credentials'
 
 // projectId is required: a connection always belongs to exactly one project.
 interface Props { onClose: () => void; projectId: string }
@@ -355,7 +356,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
             <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: 'var(--accent)', textDecoration: 'none' }}><Icon name="external" size={11} />create</a>
           </span>
           <div style={{ position: 'relative' }}>
-            <input style={{ ...inputStyle, paddingRight: 32 }} type={showToken ? 'text' : 'password'} placeholder="API token" value={conn.token} onChange={(e) => patch('token', e.target.value)} />
+            <input style={{ ...inputStyle, paddingRight: 32 }} type={showToken ? 'text' : 'password'} placeholder={conn.tokenInVault ? 'Stored securely on the server — paste a new token to replace' : 'API token'} value={conn.token} onChange={(e) => patch('token', e.target.value)} />
             <button onClick={() => setShowToken((s) => !s)} title={showToken ? 'Hide token' : 'Show token'} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name={showToken ? 'eye-off' : 'eye'} size={14} /></button>
           </div>
         </div>
@@ -381,8 +382,8 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
               <button
                 type="button"
                 onClick={loadBoards}
-                disabled={fetchingBoards || !conn.baseUrl || !conn.token}
-                style={{ fontSize: 10, fontFamily: 'var(--mono)', background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}
+                disabled={fetchingBoards || !conn.baseUrl || !hasCredential(conn)}
+                style={{ fontSize: 10, fontFamily: 'var(--mono)', background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !hasCredential(conn) ? 0.4 : 1 }}
               >
                 {fetchingBoards ? '…loading' : '⟳ Load boards'}
               </button>
@@ -448,7 +449,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button onClick={testConnection} disabled={testing || !conn.baseUrl || !conn.token} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.5 : 1 }}>
+        <button onClick={testConnection} disabled={testing || !conn.baseUrl || !hasCredential(conn)} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', opacity: !conn.baseUrl || !hasCredential(conn) ? 0.5 : 1 }}>
           {testing ? '…testing' : 'Test connection'}
         </button>
         {conn.lastSync && (
@@ -473,7 +474,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>Jira status → group</span>
-          <button onClick={fetchStatuses} disabled={fetchingStatuses || !conn.baseUrl || !conn.token} style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !conn.token ? 0.4 : 1 }}>
+          <button onClick={fetchStatuses} disabled={fetchingStatuses || !conn.baseUrl || !hasCredential(conn)} style={{ fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 500, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', color: 'var(--accent)', borderRadius: 5, padding: '3px 9px', cursor: 'pointer', opacity: !conn.baseUrl || !hasCredential(conn) ? 0.4 : 1 }}>
             {fetchingStatuses ? '…loading' : '⟳ Fetch statuses'}
           </button>
         </div>
@@ -578,6 +579,7 @@ export default function JiraConfigModal({ onClose, projectId }: Props) {
     // alongside their adopted copy.
     const others = jiraConnections.filter((c) => c.projectId && c.projectId !== projectId)
     setJiraConnections([...others, ...conns])
+    reconcileVault(jiraConnections.filter((c) => !c.projectId || c.projectId === projectId), conns)
     onClose()
   }
 
@@ -587,6 +589,7 @@ export default function JiraConfigModal({ onClose, projectId }: Props) {
     // alongside their adopted copy.
     const others = jiraConnections.filter((c) => c.projectId && c.projectId !== projectId)
     setJiraConnections([...others, ...conns])
+    reconcileVault(jiraConnections.filter((c) => !c.projectId || c.projectId === projectId), conns)
     setSyncing(true); setSyncResult(null)
     try {
       const { added, updated, removed } = await syncJira()
@@ -595,7 +598,7 @@ export default function JiraConfigModal({ onClose, projectId }: Props) {
     setSyncing(false)
   }
 
-  const anyEnabled = conns.some((c) => c.enabled && c.baseUrl && c.token)
+  const anyEnabled = conns.some((c) => c.enabled && c.baseUrl && hasCredential(c))
 
   return (
     <Modal

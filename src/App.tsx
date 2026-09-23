@@ -251,6 +251,8 @@ function AuthedApp() {
   useEffect(() => {
     if (isSyncingRef.current && !cloudSyncing) {
       showToast('✓ Data loaded from cloud')
+      // Move any integration token still held in the browser into the server's vault.
+      void useStore.getState().moveTokensToVault()
       migrateIssueIds()
       deduplicateJiras()
       autoCarryOverdue()
