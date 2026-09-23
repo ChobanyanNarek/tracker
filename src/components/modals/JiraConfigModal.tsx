@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store'
 import type { JiraConfig, JiraStatusMapping, StatusGroup, StatusGroupColor } from '../../types'
 import { fetchJiraIssues, fetchJiraStatuses, fetchJiraBoards, type JiraStatusInfo, type JiraBoardInfo } from '../../utils/jira-api'
-import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX } from '../../utils/status-groups'
+import { DEFAULT_STATUS_GROUPS, GROUP_COLOR_TOKENS, GROUP_COLOR_HEX, defaultGroupForCategory, remapAfterGroupChange } from '../../utils/status-groups'
 import Modal from '../ui/Modal'
 import Icon, { BrandIcon } from '../ui/Icon'
 import { formatDateTime } from '../../utils/dates'
@@ -261,10 +261,9 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
         seen.add(key)
         const prev = existing.find((m) => m.jiraStatus.trim().toLowerCase() === key)
         if (prev) return [prev]
-        let groupId = 'todo'
-        if (s.categoryKey === 'indeterminate') groupId = 'inprogress'
-        if (s.categoryKey === 'done') groupId = 'hidden'
-        return [{ jiraStatus: s.name, groupId }]
+        // Only groups this connection actually has -- a hardcoded stock id would dangle
+        // whenever the user has renamed or recreated that group.
+        return [{ jiraStatus: s.name, groupId: defaultGroupForCategory(s.categoryKey, groups) }]
       })
       onChange({ ...conn, statusMappings: merged })
     } catch (err) {
@@ -467,7 +466,7 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
             group used to store only that partial set -- every group the user never touched
             then resolved against the defaults, where isClosed is unset, and their issues
             stayed on the daily board however the checkboxes looked. */}
-        <GroupManager groups={groups} onChange={(g) => onChange({ ...conn, statusGroups: g })} />
+        <GroupManager groups={groups} onChange={(g) => onChange(remapAfterGroupChange(conn, g))} />
       </div>
 
       {/* ── STATUS MAPPING ── */}

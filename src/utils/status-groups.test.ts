@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JiraConfig, StatusGroup } from '../types'
-import { buildJqlFromMappings, groupForJiraStatus, isClosedGroup, resolveGroups, DEFAULT_STATUS_GROUPS } from './status-groups'
+import { buildJqlFromMappings, defaultGroupForCategory, groupForJiraStatus, isClosedGroup, remapAfterGroupChange, repointOrphanMappings, resolveGroups, DEFAULT_STATUS_GROUPS } from './status-groups'
 
 // The Mabrook configuration as reported: a mixed set, with a user-created
 // "Code Review" group that carries a generated id.
@@ -41,12 +41,6 @@ describe('isClosedGroup', () => {
     expect(isClosedGroup('todo', conn())).toBe(false)
   })
 
-  it('honours a closed user group reached through the stock id', () => {
-    // Regression: mappings pointed at 'review' while the user's group was
-    // group_mub3smo1, so the closed setting was silently ignored.
-    expect(isClosedGroup('review', conn())).toBe(true)
-  })
-
   it('does not infer closed for groups the user never defined', () => {
     // Regression: inferring from a unanimous set hid open groups in a mixed set.
     expect(isClosedGroup('something-else', conn())).toBe(false)
@@ -76,5 +70,46 @@ describe('buildJqlFromMappings', () => {
 
   it('always bounds closed issues to the last 30 days', () => {
     expect(buildJqlFromMappings([])).toContain('updated >= -30d')
+  })
+})
+
+describe('repointOrphanMappings', () => {
+  it("moves a mapping off a missing stock id onto the user's same-named group", () => {
+    // Regression: 'Code Review' mapped to 'review' while the user's group was
+    // group_mub3smo1, so the group's closed setting was silently ignored.
+    const fixed = repointOrphanMappings(conn({ statusMappings: [{ jiraStatus: 'Code Review', groupId: 'review' }] }))
+    expect(fixed.statusMappings![0]!.groupId).toBe('group_mub3smo1')
+    expect(isClosedGroup(fixed.statusMappings![0]!.groupId, fixed)).toBe(true)
+  })
+
+  it('leaves valid, hidden and unmatchable mappings untouched', () => {
+    const c = conn({ statusMappings: [
+      { jiraStatus: 'To Do', groupId: 'todo' },
+      { jiraStatus: 'Parked', groupId: 'hidden' },
+      { jiraStatus: 'Odd', groupId: 'group_gone' },
+    ] })
+    expect(repointOrphanMappings(c)).toBe(c)
+  })
+})
+
+describe('defaultGroupForCategory', () => {
+  it('only picks groups the connection has', () => {
+    const custom: StatusGroup[] = [{ id: 'g_open', label: 'Open', color: 'blue' }, { id: 'g_shut', label: 'Shut', color: 'green', isClosed: true }]
+    expect(defaultGroupForCategory('new', custom)).toBe('g_open')
+    expect(defaultGroupForCategory('indeterminate', custom)).toBe('g_open')
+    expect(defaultGroupForCategory('done', custom)).toBe('g_shut')
+  })
+
+  it('sends done statuses to a closed group, not hidden', () => {
+    // hidden statuses are cut from the Jira query, so their issues would never be fetched.
+    expect(defaultGroupForCategory('done', groups)).toBe('done')
+  })
+})
+
+describe('remapAfterGroupChange', () => {
+  it("re-points a removed group's mappings at a remaining open group", () => {
+    const c = conn({ statusMappings: [{ jiraStatus: 'Code Review', groupId: 'group_mub3smo1' }] })
+    const next = remapAfterGroupChange(c, groups.filter((g) => g.id !== 'group_mub3smo1'))
+    expect(next.statusMappings![0]!.groupId).toBe('todo')
   })
 })

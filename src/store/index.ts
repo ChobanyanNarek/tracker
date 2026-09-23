@@ -8,7 +8,7 @@ import type { JiraIssueRaw } from '../utils/jira-api'
 import { fetchGroupMRs, fetchUserMRs, extractJiraKeys } from '../utils/gitlab-api'
 import { fetchUserPRs, fetchOrgPRs, normalizeGithubPath, extractJiraKeys as extractGithubJiraKeys } from '../utils/github-api'
 import { resolveTrackerTz } from '../utils/working-hours'
-import { groupForJiraStatus, isClosedGroup, legacyStatusToGroupId } from '../utils/status-groups'
+import { groupForJiraStatus, isClosedGroup, legacyStatusToGroupId, repointOrphanMappings } from '../utils/status-groups'
 
 function makeId(prefix: string): string {
   return prefix + Date.now() + Math.random().toString(36).slice(2, 6)
@@ -1294,7 +1294,7 @@ export const useStore = create<Store>((set, get) => {
 
     setTrackerTimezone: (trackerTimezone) => set((s) => withSave({ ...s, trackerTimezone })),
 
-    setJiraConnections: (jiraConnections) => set((s) => withSave({ ...s, jiraConnections })),
+    setJiraConnections: (jiraConnections) => set((s) => withSave({ ...s, jiraConnections: jiraConnections.map(repointOrphanMappings) })),
 
     // Resolve a single scrum project's exact board issue keys from Jira, on demand
     // (e.g. right after selecting a board). Keeps board-scoped views accurate without a sync.
@@ -1305,10 +1305,7 @@ export const useStore = create<Store>((set, get) => {
       // Only this project's own connection -- never borrow another project's credentials.
       // Both lookups require the connection to belong to THIS project: a stale
       // jiraConnectionId could otherwise point at another project's connection.
-      const conn = (proj.jiraConnectionId
-        ? jiraConnections.find((c) => c.id === proj.jiraConnectionId && c.enabled && c.projectId === proj.id)
-        : undefined)
-        ?? jiraConnections.find((c) => c.projectId === proj.id && c.enabled)
+      const conn = jiraConnectionForProject(jiraConnections, proj.id, proj.jiraConnectionId)
       if (!conn) return
       const members = proj.members ?? []
       const emails = [...new Set(developers
@@ -2316,7 +2313,7 @@ function applyCloudState(cloud: Record<string, unknown> | null, startedAtRevisio
           ...(cloud.schedule ? { schedule: cloud.schedule as AppState['schedule'] } : {}),
           ...(cloud.scheduleHours ? { scheduleHours: cloud.scheduleHours as AppState['scheduleHours'] } : {}),
           ...(cloud.jiraConnections
-            ? { jiraConnections: cloud.jiraConnections as AppState['jiraConnections'] }
+            ? { jiraConnections: (cloud.jiraConnections as AppState['jiraConnections']).map(repointOrphanMappings) }
             : cloud.jiraConfig
               ? { jiraConnections: [{ ...(cloud.jiraConfig as JiraConfig), id: 'j_legacy', name: 'Default' }] }
               : {}),
@@ -2491,25 +2488,34 @@ export function taskMatchesBoard(t: Task, boardId: number): boolean {
 }
 
 // The Jira connection that owns the status-group mappings used for display.
-export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
-  // A connection is usable for display if it defines EITHER mappings or groups. Requiring
-  // mappings meant a connection that only had groups configured was never found, so
-  // issueShowsOnBoard received no connection at all and nothing could be hidden or closed
-  // however the integration settings looked.
-  const usable = (c: JiraConfig) => c.enabled && (!!c.statusMappings?.length || !!c.statusGroups?.length)
-  // Scope to the selected project. Connections are per-project, so taking the first usable
-  // one meant every project was rendered with whichever connection happened to sit first in
-  // the array: its own project looked right, while the others had their issues resolved
-  // against a different Jira's mappings. Statuses that other instance doesn't define matched
-  // nothing and fell back to 'todo', so a whole project displayed as To Do.
-  if (state.selectedProject && state.selectedProject !== 'ALL') {
-    // A project uses its own connection or none at all. There is no global connection to
-    // fall back to, and another project's must never be borrowed.
-    return state.jiraConnections.find((c) => c.projectId === state.selectedProject && usable(c))
+/*
+ * The ONE answer to "which Jira connection belongs to this project". Every screen used to
+ * work this out for itself, slightly differently, and the variants drifted: some fell back
+ * to another project's connection, some required status mappings, some ignored a stale
+ * connection id pointing across projects. Each variant was a separate cross-project bug.
+ *
+ * Exact project match only -- there is no global connection and no borrowing. Prefers a
+ * connection with display configuration (mappings or groups) when a project has several,
+ * and honours a preferred id only when that connection also belongs to the project.
+ */
+export function jiraConnectionForProject(
+  connections: JiraConfig[],
+  projectId: string | undefined,
+  preferredId?: string,
+): JiraConfig | undefined {
+  if (!projectId || projectId === 'ALL') return undefined
+  const own = connections.filter((c) => c.enabled && c.projectId === projectId)
+  if (preferredId) {
+    const preferred = own.find((c) => c.id === preferredId)
+    if (preferred) return preferred
   }
-  // "All projects" spans every project, so no single connection owns the view; use the
-  // first usable one purely so status groups still render.
-  return state.jiraConnections.find(usable)
+  return own.find((c) => !!c.statusMappings?.length || !!c.statusGroups?.length) ?? own[0]
+}
+
+// The connection for the selected project. On "All projects" no single connection owns
+// the view, so this returns undefined -- callers resolve per task or per issue instead.
+export function getActiveJiraConn(state: AppState): JiraConfig | undefined {
+  return jiraConnectionForProject(state.jiraConnections, state.selectedProject)
 }
 
 // Single source of truth for board visibility, shared by Daily AND Deadlines.
@@ -2694,9 +2700,9 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
   const connFor = (projectId: string | undefined): JiraConfig | undefined => {
     const key = projectId ?? ''
     if (!connByProject.has(key)) {
-      connByProject.set(key, state.jiraConnections.find(
-        (c) => c.enabled && (!!c.statusMappings?.length || !!c.statusGroups?.length) && (c.projectId ?? '') === key,
-      ) ?? getActiveJiraConn(state))
+      // Exact match only: a task whose project has no connection uses the default groups
+      // rather than borrowing another project's settings.
+      connByProject.set(key, jiraConnectionForProject(state.jiraConnections, key))
     }
     return connByProject.get(key)
   }

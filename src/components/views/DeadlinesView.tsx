@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, getActiveJiraConn } from '../../store'
+import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, jiraConnectionForProject } from '../../store'
 import { dlInfo, todayStr, formatDate } from '../../utils/dates'
 import DatePicker from '../ui/DatePicker'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
@@ -86,7 +86,8 @@ export default function DeadlinesView() {
   const store = useStore()
   const { tasks, developers, projects, selectedDev, selectedProject, setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView } = store
   const boardScope = getBoardScope(store)
-  const jiraConn = getActiveJiraConn(store)
+  // Each deadline is labelled with its own task's project settings, not the view's.
+  const connFor = (projectId: string | undefined) => jiraConnectionForProject(store.jiraConnections, projectId)
 
   const yesterday = new Date(new Date(today + 'T12:00:00').getTime() - 86_400_000).toISOString().slice(0, 10)
 
@@ -247,12 +248,12 @@ export default function DeadlinesView() {
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
                   {g.label} <span style={{ background: 'var(--surface3)', color: 'var(--text3)', padding: '1px 7px', borderRadius: 8, fontSize: 10 }}>{groups[g.key].length}</span>
                 </div>
-                {groups[g.key].map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} conn={jiraConn} onJump={jumpTo} />)}
+                {groups[g.key].map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} conn={connFor(item.task.projectId)} onJump={jumpTo} />)}
               </div>
             ))
           })()
         ) : (
-          sorted.map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} conn={jiraConn} onJump={jumpTo} />)
+          sorted.map((item) => <DeadlineCard key={item._key} item={item} developers={developers} projects={projects} yesterday={yesterday} conn={connFor(item.task.projectId)} onJump={jumpTo} />)
         )}
       </div>
     </div>

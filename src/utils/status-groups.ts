@@ -58,19 +58,8 @@ export function isClosedGroup(groupId: string | undefined, conn: JiraConfig | un
   const own = saved.find((g) => g.id === groupId)
   if (own) return own.isClosed === true
 
-  // The id is not in the saved set. Groups carry generated ids, so a mapping can point at
-  // a stock id like 'review' while the user's own group for the same thing is
-  // 'group_abc123' -- the two never match by id and the group's closed setting was
-  // silently ignored. Fall back to matching the DEFAULT group's label against the saved
-  // groups' labels, which is what the user actually sees and sets.
-  const byDefaultLabel = DEFAULT_STATUS_GROUPS.find((g) => g.id === groupId)?.label
-  if (byDefaultLabel) {
-    const sameLabel = saved.find(
-      (g) => g.label.trim().toLowerCase() === byDefaultLabel.trim().toLowerCase(),
-    )
-    if (sameLabel) return sameLabel.isClosed === true
-  }
-
+  // Not a group this connection defines -- not closed. Mappings are kept pointing at real
+  // groups (see repointOrphanMappings / remapAfterGroupChange), so no guessing happens here.
   return false
 }
 
@@ -118,4 +107,54 @@ export function legacyStatusToGroupId(status: string): string {
     todo: 'todo', inprogress: 'inprogress', blocked: 'blocked', review: 'review', done: 'done',
   }
   return map[status] ?? 'todo'
+}
+
+// ── Keeping mappings pointed at groups that exist ─────────────────
+// A mapping whose groupId matches no group in the connection resolves to nothing: its
+// closed flag can't be read and its badge falls back to a stock label. These helpers keep
+// that from happening, so no lookup ever needs to guess.
+
+// Default group for a newly seen Jira status, chosen only from the groups this connection
+// actually has. Done-category statuses go to a closed group rather than 'hidden': hidden
+// statuses are excluded from the Jira query, so those issues would never be fetched.
+export function defaultGroupForCategory(categoryKey: string, groups: StatusGroup[]): string {
+  const has = (id: string) => groups.some((g) => g.id === id)
+  const firstOpen = groups.find((g) => !g.isClosed)?.id
+  if (categoryKey === 'done') return groups.find((g) => g.isClosed)?.id ?? 'hidden'
+  if (categoryKey === 'indeterminate') return has('inprogress') ? 'inprogress' : firstOpen ?? groups[0]?.id ?? 'hidden'
+  return has('todo') ? 'todo' : firstOpen ?? groups[0]?.id ?? 'hidden'
+}
+
+// One-time repair for configs saved before this was enforced: a mapping pointing at a stock
+// id the user's groups no longer contain (e.g. 'review', after recreating the group as
+// "Code Review" with a generated id) is re-pointed at the saved group carrying that stock
+// group's label. Deterministic, and it only uses the user's own naming; anything that
+// cannot be matched is left as is.
+export function repointOrphanMappings(conn: JiraConfig): JiraConfig {
+  const groups = conn.statusGroups ?? []
+  const mappings = conn.statusMappings ?? []
+  if (!groups.length || !mappings.length) return conn
+  const ids = new Set(groups.map((g) => g.id))
+  let changed = false
+  const next = mappings.map((m) => {
+    if (m.groupId === 'hidden' || ids.has(m.groupId)) return m
+    const stockLabel = DEFAULT_STATUS_GROUPS.find((g) => g.id === m.groupId)?.label.trim().toLowerCase()
+    const target = stockLabel ? groups.find((g) => g.label.trim().toLowerCase() === stockLabel) : undefined
+    if (!target) return m
+    changed = true
+    return { ...m, groupId: target.id }
+  })
+  return changed ? { ...conn, statusMappings: next } : conn
+}
+
+// When a group is removed, move the mappings that pointed at it to a remaining open group,
+// so those statuses keep resolving instead of silently becoming unknown.
+export function remapAfterGroupChange(conn: JiraConfig, nextGroups: StatusGroup[]): JiraConfig {
+  const before = new Set((conn.statusGroups ?? DEFAULT_STATUS_GROUPS).map((g) => g.id))
+  const after = new Set(nextGroups.map((g) => g.id))
+  const fallback = nextGroups.find((g) => !g.isClosed)?.id ?? nextGroups[0]?.id ?? 'hidden'
+  const mappings = (conn.statusMappings ?? []).map((m) =>
+    before.has(m.groupId) && !after.has(m.groupId) ? { ...m, groupId: fallback } : m,
+  )
+  return { ...conn, statusGroups: nextGroups, statusMappings: mappings }
 }

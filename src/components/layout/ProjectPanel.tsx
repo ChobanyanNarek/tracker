@@ -3,7 +3,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from 
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { DragEndEvent } from '@dnd-kit/core'
-import { useStore } from '../../store'
+import { useStore, jiraConnectionForProject } from '../../store'
 import { PALETTE } from '../../constants'
 import { hexRgb, identityList, initials } from '../../utils/format'
 import { todayStr, formatDate } from '../../utils/dates'
@@ -309,8 +309,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
   useEffect(() => {
     if (editMode !== 'scrum') return
     // Only this project's own connection; another project's credentials must never be used.
-    const conn = jiraConnections.find(c => c.id === editJiraConnectionId && c.enabled && c.projectId === editingProjId)
-      ?? jiraConnections.find(c => c.enabled && c.projectId === editingProjId)
+    const conn = jiraConnectionForProject(jiraConnections, editingProjId ?? undefined, editJiraConnectionId || undefined)
     if (!conn) return
     setLoadingBoards(true)
     fetchJiraBoards(conn).then(b => setBoards(b.filter(x => x.type === 'scrum'))).catch(() => {}).finally(() => setLoadingBoards(false))
@@ -361,8 +360,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
     // (a board holds a specific subset of issues; prefix alone is too coarse).
     if (boardId) {
       const editingProjNow = projects.find(p => p.id === projId)
-      const conn = jiraConnections.find(c => c.id === connId && c.enabled && c.projectId === projId)
-        ?? jiraConnections.find(c => c.enabled && c.projectId === projId)
+      const conn = jiraConnectionForProject(jiraConnections, projId, connId || undefined)
       if (conn) {
         setResolvingBoard(true)
         try {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStore, getActiveJiraConn } from '../../store'
+import { useStore, jiraConnectionForProject } from '../../store'
 import { STATUS_LABEL } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
@@ -72,7 +72,6 @@ export default function SearchView() {
     searchQuery, setSearchQuery,
     setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView,
   } = state
-  const conn = getActiveJiraConn(state)
 
   const q = searchQuery.trim()
 
@@ -251,7 +250,7 @@ export default function SearchView() {
             const rgb = dev ? hexRgb(dev.color) : '37,99,235'
             const devColor = dev?.color ?? 'var(--accent)'
             const dl = issue.deadline ? dlInfo(issue.deadline) : null
-            const { label: issueStatusLabel, text: statusColor } = resolveIssueDisplay(issue, conn)
+            const { label: issueStatusLabel, text: statusColor } = resolveIssueDisplay(issue, jiraConnectionForProject(state.jiraConnections, task.projectId))
 
             return (
               <div

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore, getBoardScope, taskPassesBoardFilter, sprintMatchesBoard, jiraOnBoard } from '../../store'
+import { useStore, getBoardScope, taskPassesBoardFilter, sprintMatchesBoard, jiraOnBoard, jiraConnectionForProject } from '../../store'
 import type { Sprint } from '../../types'
 import { initials, hexRgb } from '../../utils/format'
 import { fetchJiraSprints } from '../../utils/jira-api'
@@ -209,7 +209,7 @@ export default function SprintView() {
   const syncFromJira = async () => {
     if (!proj || proj.mode !== 'scrum' || !proj.jiraBoardId) return
     // This project's own connection only — never borrow another project's credentials.
-    const conn = jiraConnections.find((c) => c.enabled && c.projectId === proj.id)
+    const conn = jiraConnectionForProject(jiraConnections, proj.id, proj.jiraConnectionId)
     if (!conn) return
     setSyncing(true)
     setSyncError(null)

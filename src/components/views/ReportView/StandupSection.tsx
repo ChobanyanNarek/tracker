@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore, getVisibleTasks, getVisibleDevIds, getActiveJiraConn } from '../../../store'
+import { useStore, getVisibleTasks, getVisibleDevIds, jiraConnectionForProject } from '../../../store'
 import { STATUS_EMOJI } from '../../../constants'
 import { resolveIssueDisplay } from '../../ui/StatusBadge'
 import { getJiras, jiraLabel } from '../../../utils/format'
@@ -18,7 +18,6 @@ const OFF_LABEL: Record<string, string> = {
 export default function StandupSection() {
   const state = useStore()
   const { developers, projects, schedule, selectedDev, selectedProject, selectedDate } = state
-  const conn = getActiveJiraConn(state)
 
   const [reportDate, setReportDate] = useState(selectedDate)
   const [copied, setCopied] = useState(false)
@@ -83,6 +82,8 @@ export default function StandupSection() {
         const offSuffix = offType && offType !== 'work' ? `  —  ${OFF_LABEL[offType] ?? offType}` : ''
 
         const taskItems = dt.map((t) => ({
+          // Each task is labelled with its OWN project's status groups.
+          conn: jiraConnectionForProject(state.jiraConnections, t.projectId),
           jiras: getJiras(t).filter((j) => !j.hidden && (j.name?.trim() || j.url?.trim())),
           comment: t.comment?.trim() ?? '',
         })).filter((tc) => tc.jiras.length > 0 || tc.comment)
@@ -96,7 +97,7 @@ export default function StandupSection() {
         }
 
         lines.push(`${indent}${dev.name} (${dev.role})${offSuffix}`)
-        taskItems.forEach(({ jiras, comment }) => {
+        taskItems.forEach(({ conn, jiras, comment }) => {
           jiras.forEach((j) => {
             const name = j.name || jiraLabel(j.url) || 'Issue'
             const status = resolveIssueDisplay(j, conn).label

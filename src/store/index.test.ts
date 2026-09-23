@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { JiraConfig, JiraIssue, StatusGroup, Task } from '../types'
-import { useStore, getActiveJiraConn, getVisibleTasks, issueShowsOnBoard } from './index'
+import { useStore, getActiveJiraConn, getVisibleTasks, issueShowsOnBoard, jiraConnectionForProject } from './index'
 
 type State = ReturnType<typeof useStore.getState>
 const DATE = '2026-09-21'
@@ -131,5 +131,25 @@ describe('startup migrations keep projects apart', () => {
   it('deduplicateJiras keeps the same key in both projects', () => {
     useStore.getState().deduplicateJiras()
     expect(useStore.getState().tasks.flatMap((t) => t.jiras ?? []).length).toBe(2)
+  })
+})
+
+describe('jiraConnectionForProject', () => {
+  it('ignores a preferred id that belongs to another project', () => {
+    // Regression: a stale jiraConnectionId let a project borrow another's credentials.
+    const found = jiraConnectionForProject([conn('mab'), conn('min')], 'min', 'j_mab')
+    expect(found?.projectId).toBe('min')
+  })
+
+  it('returns nothing on All projects instead of picking the first connection', () => {
+    expect(getActiveJiraConn(state({ jiraConnections: [conn('mab')], selectedProject: 'ALL' }))).toBeUndefined()
+  })
+
+  it("never lends a project's settings to a project without a connection", () => {
+    const s = state({
+      jiraConnections: [conn('mab', { statusMappings: [{ jiraStatus: 'In Progress', groupId: 'hidden' }] })],
+      tasks: [task('t1', 'min', [issue('MIN-1', 'In Progress', 'inprogress')])],
+    })
+    expect(visibleKeys(s)).toEqual(['MIN-1'])
   })
 })
