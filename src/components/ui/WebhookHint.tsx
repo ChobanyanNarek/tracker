@@ -14,7 +14,8 @@ const WHERE: Record<'jira' | 'github' | 'gitlab', string> = {
  * about 20 seconds of a change instead. Optional: shown only when the server runs syncs.
  */
 export default function WebhookHint({ provider }: { provider: 'jira' | 'github' | 'gitlab' }) {
-  const hookPath = useStore((s) => s.serverSync?.hookPath)
+  // Only while the server runs syncs: otherwise the address would trigger nothing.
+  const hookPath = useStore((s) => (s.serverSync?.serverSync ? s.serverSync.hookPath : undefined))
   const [copied, setCopied] = useState(false)
   if (!hookPath) return null
   const url = apiUrl(hookPath)
