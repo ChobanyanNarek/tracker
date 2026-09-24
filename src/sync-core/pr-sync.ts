@@ -1,4 +1,4 @@
-import type { AppState, GitHubConfig, GitLabConfig, JiraIssue, PrEntry, PrState, PrStateEvent } from '../types'
+import type { AppState, GitHubConfig, GitLabConfig, JiraIssue, PrEntry, PrState, PrStateEvent, Task } from '../types'
 import { authFor, hasCredential } from './credentials'
 import { localParts } from './dates'
 import { extractJiraKeys as extractGithubJiraKeys, fetchOrgPRs, fetchUserPRs, normalizeGithubPath } from './github-api'
@@ -7,12 +7,101 @@ import { fetchConnectionProjectKeys } from './jira-api'
 import type { SyncRun, SyncState } from './jira-sync'
 import { identityList, jiraDedupeKey } from './keys'
 import type { Transport } from './transport'
+import { pause } from './util'
 
 /*
  * The GitLab and GitHub syncs, shared by the web app and the server: link merge and pull
  * requests to the Jira issues they mention. Compute against a snapshot, apply to the
  * state as it is when the work finishes.
  */
+
+interface IssueRef { task: Task; jira: JiraIssue; order: number }
+
+/*
+ * Every task issue, indexed by each key a pull or merge request could match it on: its
+ * issue id, its key as the tracker reads it, and (for GitLab, which also matches keys in
+ * the issue URL) every key-shaped token in its URL. Built once per sync. Matching each PR
+ * by scanning every issue of every task was PRs x issues work -- over a minute of frozen
+ * server or browser with a year of history. The index only narrows the candidates: each
+ * one still goes through the original match test, so the results are the same.
+ */
+function buildIssueIndex(tasks: Task[], withUrlKeys: boolean): Map<string, IssueRef[]> {
+  const index = new Map<string, IssueRef[]>()
+  let order = 0
+  for (const task of tasks) {
+    for (const jira of task.jiras ?? []) {
+      const ref: IssueRef = { task, jira, order: order++ }
+      const keys = new Set<string>()
+      if (jira.issueId) keys.add(jira.issueId.toUpperCase())
+      const k = jiraDedupeKey(jira.url, jira.name)
+      if (k && k !== 'name:') keys.add(k.toUpperCase())
+      if (withUrlKeys) {
+        for (const m of (jira.url ?? '').matchAll(/(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*-\d+/g)) keys.add(m[0].toUpperCase())
+      }
+      for (const key of keys) {
+        const list = index.get(key)
+        if (list) list.push(ref)
+        else index.set(key, [ref])
+      }
+    }
+  }
+  return index
+}
+
+// The issues a PR naming these keys could match, in task order.
+function candidatesFor(index: Map<string, IssueRef[]>, keys: string[]): IssueRef[] {
+  const seen = new Set<number>()
+  const out: IssueRef[] = []
+  for (const key of keys) {
+    for (const ref of index.get(key.toUpperCase()) ?? []) {
+      if (!seen.has(ref.order)) { seen.add(ref.order); out.push(ref) }
+    }
+  }
+  return out.sort((a, b) => a.order - b.order)
+}
+
+/*
+ * The Jira key prefixes belonging to each project, worked out once per project per sync
+ * (it read every issue of every task, and ran once or twice per PR).
+ */
+function projectKeyCache(state: SyncState, discoveredKeys: Map<string, string[]>): { get: (projectId: string) => string[]; forget: (projectId: string) => void } {
+  const cache = new Map<string, string[]>()
+  let taskPrefixes: Map<string, Set<string>> | null = null
+  const prefixesFromTasks = (projectId: string): Set<string> => {
+    if (!taskPrefixes) {
+      taskPrefixes = new Map()
+      for (const t of state.tasks) {
+        const pid = t.projectId ?? ''
+        const set = taskPrefixes.get(pid) ?? new Set<string>()
+        for (const j of t.jiras ?? []) {
+          const prefix = jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase()
+          if (prefix) set.add(prefix)
+        }
+        taskPrefixes.set(pid, set)
+      }
+    }
+    return taskPrefixes.get(projectId) ?? new Set()
+  }
+  return {
+    get: (projectId) => {
+      const hit = cache.get(projectId)
+      if (hit) return hit
+      const own = state.jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
+      const proj = state.projects.find((p) => p.id === projectId)
+      const keys = [
+        ...new Set([
+          ...own.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
+          ...(proj?.boardProjectKeys ?? []).map((k) => k.trim().toUpperCase()).filter(Boolean),
+          ...prefixesFromTasks(projectId),
+          ...(discoveredKeys.get(projectId) ?? []),
+        ]),
+      ]
+      cache.set(projectId, keys)
+      return keys
+    },
+    forget: (projectId) => { cache.delete(projectId) },
+  }
+}
 
 export interface GitlabSyncCounts {
   linked: number
@@ -32,7 +121,7 @@ export interface GitlabSyncPlan {
 }
 
 export async function computeGitlabSync(state: SyncState, transport: Transport, run: SyncRun): Promise<GitlabSyncPlan> {
-  const { gitlabConnections, jiraConnections, tasks, developers, projects } = state
+  const { gitlabConnections, jiraConnections, tasks, developers } = state
   const enabledConns = gitlabConnections.filter((c) => c.enabled && hasCredential(c) && c.groupPath)
   if (!enabledConns.length) throw new Error('No GitLab connections configured')
 
@@ -59,25 +148,12 @@ export async function computeGitlabSync(state: SyncState, transport: Transport, 
     )
     const keys = conn ? await fetchConnectionProjectKeys(transport, conn) : []
     discoveredKeys.set(projectId, keys)
+    projectKeys.forget(projectId)
     return keys
   }
 
-  const projectKeysFor = (projectId: string): string[] => {
-    const own = jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
-    const proj = projects.find((p) => p.id === projectId)
-    return [
-      ...new Set([
-        ...own.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
-        ...(proj?.boardProjectKeys ?? []).map((k) => k.trim().toUpperCase()).filter(Boolean),
-        ...tasks
-          .filter((t) => (t.projectId ?? '') === projectId)
-          .flatMap((t) => t.jiras ?? [])
-          .map((j) => jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase() ?? '')
-          .filter(Boolean),
-        ...(discoveredKeys.get(projectId) ?? []),
-      ]),
-    ]
-  }
+  const projectKeys = projectKeyCache(state, discoveredKeys)
+  const projectKeysFor = (projectId: string): string[] => projectKeys.get(projectId)
 
   const mrById = new Map<number, Awaited<ReturnType<typeof fetchGroupMRs>>[number]>()
   // Which project each MR's connection belongs to. MRs are pooled across connections
@@ -120,7 +196,12 @@ export async function computeGitlabSync(state: SyncState, transport: Transport, 
   const prPatches = new Map<string, Map<string, PrEntry[]>>()
   const mrUrlToStatus = new Map<string, JiraIssue['status']>()
 
+  const mrIssueIndex = buildIssueIndex(tasks, true)
+  let seenMrs = 0
+
   for (const mr of mrs) {
+    // Hundreds of MRs: let other work run now and then.
+    if (++seenMrs % 200 === 0) await pause()
     // Only this MR's own project's issue keys — never another project's.
     const mrProj = mrProjectId.get(mr.id) ?? ''
     // Nothing known yet for this project (new, no board, no issues): ask Jira once.
@@ -161,9 +242,9 @@ export async function computeGitlabSync(state: SyncState, transport: Transport, 
     // belongs to exactly one project, so an issue key that happens to match in another
     // project must never pull this MR across.
     // An unscoped connection links anywhere instead of matching nothing.
-    for (const task of tasks) {
+    for (const { task, jira } of candidatesFor(mrIssueIndex, keys)) {
       if (mrProj && (task.projectId ?? '') !== mrProj) continue
-      for (const jira of (task.jiras ?? [])) {
+      {
         if (!matchesIssue(jira)) continue
         matched = true
         const identity = jira.issueId ?? (jira.url || null)
@@ -256,7 +337,7 @@ export interface GithubSyncPlan {
 }
 
 export async function computeGithubSync(state: SyncState, transport: Transport, run: SyncRun): Promise<GithubSyncPlan> {
-  const { githubConnections, jiraConnections, tasks, developers, projects } = state
+  const { githubConnections, jiraConnections, tasks, developers } = state
   const enabledConns = githubConnections.filter((c) => c.enabled && hasCredential(c))
   if (!enabledConns.length) throw new Error('No GitHub connections configured')
 
@@ -283,25 +364,12 @@ export async function computeGithubSync(state: SyncState, transport: Transport, 
     )
     const keys = conn ? await fetchConnectionProjectKeys(transport, conn) : []
     discoveredKeys.set(projectId, keys)
+    projectKeys.forget(projectId)
     return keys
   }
 
-  const projectKeysFor = (projectId: string): string[] => {
-    const own = jiraConnections.filter((c) => (c.projectId ?? '') === projectId)
-    const proj = projects.find((p) => p.id === projectId)
-    return [
-      ...new Set([
-        ...own.flatMap((c) => c.projectKeys.map((k) => k.trim().toUpperCase()).filter(Boolean)),
-        ...(proj?.boardProjectKeys ?? []).map((k) => k.trim().toUpperCase()).filter(Boolean),
-        ...tasks
-          .filter((t) => (t.projectId ?? '') === projectId)
-          .flatMap((t) => t.jiras ?? [])
-          .map((j) => jiraDedupeKey(j.url, j.name).match(/^([A-Za-z][A-Za-z0-9]+)-\d+$/)?.[1]?.toUpperCase() ?? '')
-          .filter(Boolean),
-        ...(discoveredKeys.get(projectId) ?? []),
-      ]),
-    ]
-  }
+  const projectKeys = projectKeyCache(state, discoveredKeys)
+  const projectKeysFor = (projectId: string): string[] => projectKeys.get(projectId)
 
   const prById = new Map<number, Awaited<ReturnType<typeof fetchOrgPRs>>[number]>()
   // Which project each PR's connection belongs to — PRs are pooled across connections
@@ -346,7 +414,12 @@ export async function computeGithubSync(state: SyncState, transport: Transport, 
   let linked = 0
   let updated = 0
 
+  const prIssueIndex = buildIssueIndex(tasks, false)
+  let seenPrs = 0
+
   for (const pr of allPRs) {
+    // Hundreds of PRs: let other work run now and then.
+    if (++seenPrs % 200 === 0) await pause()
     // Only this PR's own project's issue keys — never another project's.
     const prProj = prProjectId.get(pr.id) ?? ''
     // Nothing known yet for this project (new, no board, no issues): ask Jira once.
@@ -386,9 +459,9 @@ export async function computeGithubSync(state: SyncState, transport: Transport, 
     // A connection saved before projectId became mandatory has none. Treat that as
     // "not scoped" and let it link anywhere, rather than comparing against '' and
     // matching no task at all -- which made those connections' PRs vanish completely.
-    for (const task of tasks) {
+    for (const { task, jira } of candidatesFor(prIssueIndex, keys)) {
       if (prProj && (task.projectId ?? '') !== prProj) continue
-      for (const jira of (task.jiras ?? [])) {
+      {
         if (!matchesIssue(jira)) continue
         matched = true
         const identity = jira.issueId ?? (jira.url || null)

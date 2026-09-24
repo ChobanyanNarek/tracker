@@ -6,7 +6,7 @@ import {
 } from './jira-api'
 import { identityList, jiraDedupeKey } from './keys'
 import type { Transport } from './transport'
-import { makeId, sortJiraIssues } from './util'
+import { makeId, pause, sortJiraIssues } from './util'
 
 /*
  * The Jira sync, shared by the web app and the server. `computeJiraSync` does the network
@@ -119,7 +119,10 @@ export async function computeJiraSync(state: SyncState, transport: Transport, ru
       && Date.now() - lastFullAt < FULL_SYNC_EVERY_MS
     const sinceClause = incremental ? `updated >= -${Math.ceil((Date.now() - lastSyncAt) / 60_000) + 10}m` : ''
 
-    const byDev = new Map<string, JiraIssueRaw[]>()
+    // Each developer's issues, already in the app's compact form: the raw Jira JSON is
+    // dropped as soon as a developer is fetched, so a sync never holds every developer's
+    // raw responses at once (that exhausted the server's memory).
+    const byDev = new Map<string, JiraIssue[]>()
     // Track devs whose fetch succeeded, and the full set of issue keys Jira returned
     // for each. Used to prune issues that were deleted/reassigned away in Jira.
     const fetchedDevs = new Set<string>()
@@ -199,14 +202,14 @@ export async function computeJiraSync(state: SyncState, transport: Transport, ru
       fetchedDevs.add(dev.id)
       if (truncated) truncatedDevs.add(dev.id)
       returnedKeysByDev.set(dev.id, new Set(devIssues.map((i) => i.key)))
-      if (devIssues.length) byDev.set(dev.id, devIssues)
+      if (devIssues.length) byDev.set(dev.id, devIssues.map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings, effectiveBoardId)))
     }
 
     let connAdded = 0
     let connUpdated = 0
     let connRemoved = 0
 
-    byDev.forEach((devIssues, devId) => {
+    const mergeDeveloper = (devIssues: JiraIssue[], devId: string): void => {
       // Scope to this connection's project. Matching on devId+date alone meant a
       // developer who works on two projects had both projects' issues land on whichever
       // project's task synced first, so the other project showed nothing for them.
@@ -216,7 +219,7 @@ export async function computeJiraSync(state: SyncState, transport: Transport, ru
         dedupedTasks.find((t) => t.devId === devId && t.date === today && inProject(t) && t.jiraSync) ??
         dedupedTasks.find((t) => t.devId === devId && t.date === today && inProject(t))
 
-      const incoming = devIssues.map((i) => rawToJiraItem(i, conn.baseUrl, conn.statusMappings, effectiveBoardId))
+      const incoming = devIssues
       const todayTasks = dedupedTasks.filter((t) => t.devId === devId && t.date === today && inProject(t))
 
       const keyToTask = new Map<string, { task: typeof dedupedTasks[number]; idx: number }>()
@@ -238,14 +241,24 @@ export async function computeJiraSync(state: SyncState, transport: Transport, ru
         if (kept.length !== t.deletedJiraUrls.length) t.deletedJiraUrls = kept
       })
 
+      // Where each existing issue sits in the day's task, by key and by URL (first one wins,
+      // as findIndex did). Replacing an issue in place keeps its key and URL, so the
+      // positions stay right for the whole loop; new issues are only appended after it.
+      const firstByKey = new Map<string, number>()
+      const firstByUrl = new Map<string, number>()
+      syncTask?.jiras.forEach((ej, idx) => {
+        const ejKey = jiraDedupeKey(ej.url, ej.name)
+        if (!firstByKey.has(ejKey)) firstByKey.set(ejKey, idx)
+        if (!firstByUrl.has(ej.url)) firstByUrl.set(ej.url, idx)
+      })
+
       incoming.forEach((nj) => {
         const njKey = jiraDedupeKey(nj.url, nj.name)
 
         if (syncTask) {
-          const existIdx = syncTask.jiras.findIndex((ej) => {
-            const ejKey = jiraDedupeKey(ej.url, ej.name)
-            return (njKey && njKey !== 'name:' && ejKey === njKey) || ej.url === nj.url
-          })
+          const byKey = njKey && njKey !== 'name:' ? firstByKey.get(njKey) : undefined
+          const byUrl = firstByUrl.get(nj.url)
+          const existIdx = byKey === undefined ? (byUrl ?? -1) : byUrl === undefined ? byKey : Math.min(byKey, byUrl)
           if (existIdx >= 0) {
             const ex = syncTask.jiras[existIdx]!
             // Jira is the source of truth on sync: take the fresh Jira status and
@@ -300,7 +313,14 @@ export async function computeJiraSync(state: SyncState, transport: Transport, ru
       if (syncTask) {
         syncTask.status = syncTask.jiras.every((j) => j.status === 'done') ? 'done' : 'inprogress'
       }
-    })
+    }
+
+    // One developer at a time, letting other work run in between: the whole merge in one
+    // go blocked the server (and a browser tab) for the length of every developer's issues.
+    for (const [devId, devIssues] of byDev) {
+      mergeDeveloper(devIssues, devId)
+      await pause()
+    }
 
     // Prune issues Jira no longer returns (deleted in Jira, or reassigned away).
     // Runs across ALL tasks (every date) for devs whose fetch succeeded, so a deleted

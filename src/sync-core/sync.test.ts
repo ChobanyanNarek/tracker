@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { GitHubConfig, GitLabConfig, JiraConfig, JiraIssue, Task } from '../types'
+import type { GitHubConfig, GitLabConfig, JiraConfig, JiraIssue, PrEntry, Task } from '../types'
+import { jiraDedupeKey } from './keys'
 import { applyJiraSync, computeJiraSync, type SyncState } from './jira-sync'
 import { applyGithubSync, applyGitlabSync, computeGithubSync, computeGitlabSync } from './pr-sync'
 import type { Transport } from './transport'
@@ -182,5 +183,70 @@ describe('GitHub sync core', () => {
     expect(com1!.status).toBe('review')
     // PR 3 now names COM-1, not COM-2: the old link goes.
     expect(com2!.prs).toEqual([])
+  })
+})
+
+describe('PR linking finds exactly what a full scan would', () => {
+  // The old rule, applied to every issue of every task: the index must agree with it.
+  function scan(tasks: Task[], keys: string[], projectId: string, withUrl: boolean): string[] {
+    const keySet = new Set(keys)
+    const res = keys.map((key) => new RegExp(`(^|[^A-Za-z0-9])${key}([^0-9]|$)`, 'i'))
+    const hits: string[] = []
+    for (const t of tasks) {
+      if (projectId && t.projectId !== projectId) continue
+      for (const j of t.jiras) {
+        const k = jiraDedupeKey(j.url, j.name)
+        const ok = (j.issueId && keySet.has(j.issueId.toUpperCase()))
+          || (k && k !== 'name:' && keySet.has(k.toUpperCase()))
+          || (withUrl && res.some((re) => re.test(j.url ?? '')))
+        const identity = j.issueId ?? (j.url || null)
+        if (ok && identity) hits.push(`${t.id}|${identity}`)
+      }
+    }
+    return hits.sort()
+  }
+
+  const odd: JiraIssue[] = [
+    issue('COM-7'),
+    { ...issue('X'), issueId: undefined, url: 'https://mab.atlassian.net/browse/com-7', name: 'lowercase key only in the URL' },
+    { ...issue('X'), issueId: undefined, url: 'https://mab.atlassian.net/browse/COM-70', name: 'COM-70 not COM-7' },
+    { ...issue('X'), issueId: undefined, url: 'https://mab.atlassian.net/browse/XCOM-7', name: 'prefix glued on' },
+    { ...issue('X'), issueId: undefined, url: 'https://mab.atlassian.net/secure/ABC-COM-7x', name: 'key after a hyphen' },
+    { ...issue('X'), issueId: undefined, url: '', name: 'COM-7 in the name only' },
+    { ...issue('X'), issueId: 'com-7', url: 'https://elsewhere.example/7', name: 'lowercase issue id' },
+  ]
+
+  const tasksFor = (): Task[] => [task('a', 'p1', odd), task('b', 'p2', odd), task('c', 'p1', [issue('COM-8')])]
+
+  const linked = (patches: Map<string, Map<string, PrEntry[]>>): string[] =>
+    [...patches].flatMap(([taskId, byIssue]) => [...byIssue.keys()].map((identity) => `${taskId}|${identity}`)).sort()
+
+  it('GitLab (which also matches keys inside issue URLs)', async () => {
+    const s = state({
+      jiraConnections: [jiraConn()],
+      gitlabConnections: [{ id: 'gl1', name: 'GL', enabled: true, token: 't', groupPath: 'acme', syncInterval: 5, projectId: 'p1' } as GitLabConfig],
+      tasks: tasksFor(),
+    })
+    const mr = { id: 1, iid: 1, title: 'x', source_branch: 'feature/COM-7', web_url: 'https://gitlab.com/acme/web/-/merge_requests/1', created_at: '2026-09-22T08:00:00Z', state: 'opened', author: { id: 1, username: 'd', name: 'D' }, assignees: [] }
+    const t = fakeTransport({ '/pm-tracker/gitlab': (body) => ({ status: 200, data: String(body.path).includes('/groups/') && String(body.path).includes('opened') ? [mr] : [] }) })
+
+    const plan = await computeGitlabSync(s, t, run)
+
+    expect(linked(plan.prPatches)).toEqual(scan(s.tasks, ['COM-7'], 'p1', true))
+    expect(linked(plan.prPatches).length).toBeGreaterThan(2)
+  })
+
+  it('GitHub', async () => {
+    const s = state({
+      jiraConnections: [jiraConn()],
+      githubConnections: [{ id: 'gh1', name: 'GH', enabled: true, token: 't', orgOrUser: 'acme/web', syncInterval: 5, projectId: 'p1' } as GitHubConfig],
+      tasks: tasksFor(),
+    })
+    const pulls = [{ id: 1, number: 2, title: 'COM-7 fix', html_url: 'https://github.com/acme/web/pull/2', created_at: '2026-09-22T08:00:00Z', state: 'open', user: { login: 'd' } }]
+    const t = fakeTransport({ '/pm-tracker/github': (body) => ({ status: 200, data: String(body.path).includes('state=open') ? pulls : [] }) })
+
+    const plan = await computeGithubSync(s, t, run)
+
+    expect(linked(plan.prPatches)).toEqual(scan(s.tasks, ['COM-7'], 'p1', false))
   })
 })

@@ -15,3 +15,8 @@ export function sortJiraIssues(jiras: JiraIssue[]): JiraIssue[] {
   const hidden = jiras.filter((j) => j.hidden)
   return [...active, ...done, ...hidden]
 }
+
+// Let other work run (server requests, browser rendering) before continuing a long job.
+export function pause(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}

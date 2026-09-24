@@ -63,11 +63,19 @@ export function validZone(preferred: string | undefined, fallback: string): stri
 }
 
 // Wall-clock date and HH:MM of an instant in `tz`.
+// One formatter per zone: building one per PR was a measurable share of a sync.
+const partsFormatters = new Map<string, Intl.DateTimeFormat>()
+
 export function localParts(d: Date, tz: string): { date: string; time: string } {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(d)
+  let formatter = partsFormatters.get(tz)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    })
+    partsFormatters.set(tz, formatter)
+  }
+  const parts = formatter.formatToParts(d)
   const g = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
   return { date: `${g('year')}-${g('month')}-${g('day')}`, time: `${g('hour')}:${g('minute')}` }
 }

@@ -21,6 +21,30 @@ export interface GitHubPR {
   closed_at?: string | null
 }
 
+/*
+ * Only the fields the sync reads. A GitHub pull request arrives with both repositories'
+ * full details and dozens of links (~25 KB); keeping all of that for hundreds of PRs is
+ * what made a sync's memory balloon.
+ */
+function slimPR(pr: GitHubPR): GitHubPR {
+  return {
+    id: pr.id,
+    number: pr.number,
+    title: pr.title,
+    body: pr.body,
+    html_url: pr.html_url,
+    created_at: pr.created_at,
+    updated_at: pr.updated_at,
+    state: pr.state,
+    draft: pr.draft,
+    user: { login: pr.user?.login },
+    pull_request: pr.pull_request ? { merged_at: pr.pull_request.merged_at } : undefined,
+    head: pr.head ? { ref: pr.head.ref } : undefined,
+    merged_at: pr.merged_at,
+    closed_at: pr.closed_at,
+  }
+}
+
 export function extractJiraKeys(pr: GitHubPR, projectKeys: string[] = []): string[] {
   // Only use title and branch name — body is unreliable on stacked/merged PRs
   // (it contains commit messages from base branches, producing false key matches)
@@ -38,7 +62,7 @@ async function enrichPRs(t: Transport, prs: GitHubPR[], auth: ProviderAuth): Pro
       const r = await providerGet(t, 'github', auth, `/repos/${repoPath}/pulls/${num}`)
       if (!r.ok) return pr
       const detail = await r.json() as { body?: string | null; head?: { ref: string }; merged_at?: string | null }
-      return { ...pr, body: detail.body ?? pr.body, head: detail.head, merged_at: detail.merged_at }
+      return { ...pr, body: detail.body ?? pr.body, head: detail.head ? { ref: detail.head.ref } : undefined, merged_at: detail.merged_at }
     })
   )
   return [...enriched.map((r, i) => r.status === 'fulfilled' ? r.value : toEnrich[i]!), ...prs.slice(100)]
@@ -108,7 +132,7 @@ export async function fetchOrgPRs(t: Transport, orgOrUser: string, auth: Provide
             if (!pr.merged_at) continue
             if (new Date(pr.merged_at) < thirtyDaysAgo) { done = true; break }
           }
-          byId.set(pr.id, pr)
+          byId.set(pr.id, slimPR(pr))
         }
         if (batch.length < 100 || done) break
         page++
@@ -140,7 +164,7 @@ export async function fetchUserPRs(t: Transport, username: string, auth: Provide
       throw new Error(`GitHub ${res.status}: ${body?.message ?? 'request failed'}`)
     }
     const data = (await res.json()) as { items: GitHubPR[] }
-    for (const item of data.items) byId.set(item.id, item)
+    for (const item of data.items) byId.set(item.id, slimPR(item))
   }
 
   const all = [...byId.values()]

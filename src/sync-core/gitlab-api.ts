@@ -21,6 +21,25 @@ export interface GitLabMR {
 }
 
 // Keys from the MR title only.
+// Only the fields the sync reads (see slimPR in github-api.ts).
+function slimMR(m: GitLabMR): GitLabMR {
+  return {
+    id: m.id,
+    iid: m.iid,
+    title: m.title,
+    source_branch: m.source_branch,
+    web_url: m.web_url,
+    created_at: m.created_at,
+    merged_at: m.merged_at,
+    closed_at: m.closed_at,
+    state: m.state,
+    draft: m.draft,
+    work_in_progress: m.work_in_progress,
+    author: { id: m.author?.id, username: m.author?.username, name: m.author?.name },
+    assignees: (m.assignees ?? []).map((a) => ({ id: a.id, username: a.username })),
+  }
+}
+
 export function extractTitleJiraKeys(mr: GitLabMR, projectKeys: string[] = []): string[] {
   return keysFromText(mr.title, projectKeys)
 }
@@ -72,7 +91,7 @@ export async function fetchGroupMRs(t: Transport, config: GitLabConfig): Promise
         }
         anyOk = true
         const batch = (await res.json()) as GitLabMR[]
-        for (const m of batch) byId.set(m.id, m)
+        for (const m of batch) byId.set(m.id, slimMR(m))
         if (batch.length < 100) break
         if (page === MAX_PAGES) console.warn(`[GitLab sync] hit ${MAX_PAGES}-page cap for ${scope} state=${state}; older MRs may be skipped`)
       }
@@ -107,7 +126,7 @@ export async function fetchUserMRs(t: Transport, usernames: string[], auth: Prov
         if (!res.ok) break // 404 = username wrong; 403 = skip; move to next
         okCount++
         const batch = (await res.json()) as GitLabMR[]
-        for (const m of batch) byId.set(m.id, m)
+        for (const m of batch) byId.set(m.id, slimMR(m))
         if (batch.length < 100) break
         if (page === MAX_PAGES) console.warn(`[GitLab sync] hit page cap for user ${username} state=${state}`)
       }
