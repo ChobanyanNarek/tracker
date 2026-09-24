@@ -207,7 +207,7 @@ describe('what a save sends', () => {
   it('splits a large save into several requests', () => {
     const many = Array.from({ length: 350 }, (_, i) => task(`n${i}`))
     a.edit({ tasks: [...a.state.tasks, ...many] })
-    expect(a.save()).toBe(2)
+    expect(a.save()).toBe(4) // 100 records per request
     expect(server.tasks.size).toBe(352)
   })
 

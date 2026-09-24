@@ -35,8 +35,9 @@ const VIEW_KEYS = new Set<string>(['selectedProject', 'selectedDev', 'selectedDa
 
 export type PersistedState = Pick<AppState, DocKey | 'tasks'>
 
-// Most records per save request; the rest go in the next one.
-export const BATCH_LIMIT = 300
+// Most records per save request; the rest go in the next one. Kept small: the server
+// validates each request in one go, and 300 full tasks took ~0.4 s of blocking there.
+export const BATCH_LIMIT = 100
 
 export function normalizeTask(t: Task): Task {
   return {
