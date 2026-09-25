@@ -6,6 +6,7 @@ import type { Developer } from '../../types'
 import Icon, { BrandIcon } from '../ui/Icon'
 import EmptyState from '../ui/EmptyState'
 import ConfirmDialog from '../ui/ConfirmDialog'
+import { useEscapeKey } from '../../hooks/useEscapeKey'
 
 const PANEL_W = 560
 
@@ -88,6 +89,8 @@ function IdentityRows({ values, placeholder, onChange }: {
 }
 
 export default function TeamPanel({ open, onClose, topOffset }: PanelProps) {
+  useEscapeKey(open, onClose)
+
   const developers = useStore((s) => s.developers)
   const projects = useStore((s) => s.projects)
   const addDeveloper = useStore((s) => s.addDeveloper)

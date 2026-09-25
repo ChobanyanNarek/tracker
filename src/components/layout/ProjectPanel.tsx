@@ -1,4 +1,5 @@
 import { hasCredential } from '../../utils/credentials'
+import { useEscapeKey } from '../../hooks/useEscapeKey'
 import { useState, useEffect, useMemo } from 'react'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
@@ -267,6 +268,8 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
 // ── Main panel ──────────────────────────────────────────────────────────────
 
 export default function ProjectPanel({ open, onClose, topOffset, onToast }: Props) {
+  useEscapeKey(open, onClose)
+
   // Project add form
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')

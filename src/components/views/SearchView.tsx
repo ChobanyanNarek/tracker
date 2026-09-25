@@ -36,6 +36,30 @@ interface PlainResult {
 // keeps working unmodified. `rest` carries every Task field beyond the ones
 // the backend broke out into real columns (pr, prs, deadline, etc — see
 // syncTasksFromState on the backend, which is the mirror of this).
+/*
+ * The same match the backend makes -- the query anywhere on the task or its issues --
+ * over the tasks this browser already has. Used when the search endpoint cannot be
+ * reached, so search keeps working offline instead of reporting nothing.
+ */
+function searchLoadedTasks(tasks: Task[], q: string, projectId: string, status: StatusFilter): RemoteTask[] {
+  const needle = q.toLowerCase()
+  return tasks
+    .filter((t) => {
+      if (projectId !== 'ALL' && t.projectId !== projectId) return false
+      if (status !== 'ALL' && t.status !== status && !getJiras(t).some((j) => j.status === status)) return false
+      if (!needle) return true
+      const haystack = [t.title, t.comment, ...getJiras(t).flatMap((j) => [j.name, j.url, j.issueId ?? ''])]
+      return haystack.some((v) => (v ?? '').toLowerCase().includes(needle))
+    })
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .map((t) => ({
+      id: t.id, createdAt: '', updatedAt: '', clientId: t.id, devId: t.devId, projectId: t.projectId,
+      title: t.title, status: t.status, date: t.date, comment: t.comment ?? null,
+      jiras: (t.jiras ?? []) as unknown as Record<string, unknown>[],
+      rest: { prs: t.prs ?? [], deadline: t.deadline, deadlineTime: t.deadlineTime },
+    }))
+}
+
 function toLocalTask(remote: RemoteTask): Task {
   return {
     id: remote.clientId,
@@ -101,8 +125,16 @@ export default function SearchView() {
             setTimeout(() => runFetch(attempt + 1), RETRY_DELAYS_MS[attempt])
             return
           }
+          /*
+           * The server is unreachable, but this browser already holds every task, so
+           * search those instead of showing "No results" over data that is right here.
+           */
+          const local = searchLoadedTasks(state.tasks, q, selectedProject, statusFilter)
           setLoading(false)
-          setFetchFailed(true); setRemoteTasks([]); setTotalPages(1); setTotalCount(0)
+          setFetchFailed(true)
+          setRemoteTasks(local.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE))
+          setTotalPages(Math.max(1, Math.ceil(local.length / PAGE_SIZE)))
+          setTotalCount(local.length)
           return
         }
         setLoading(false)
@@ -111,8 +143,12 @@ export default function SearchView() {
         setTotalCount(result.meta.itemCount)
       })
     }
+
     const handle = setTimeout(() => runFetch(0), DEBOUNCE_MS)
     return () => { cancelled = true; clearTimeout(handle) }
+    // state.tasks is read only in the offline branch; re-running on every task edit would
+    // refetch constantly, so it is deliberately not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, statusFilter, selectedProject, page])
 
   const devById = new Map(developers.map((d) => [d.id, d]))
@@ -234,7 +270,7 @@ export default function SearchView() {
       {/* count */}
       <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
         {fetchFailed
-          ? 'Search is temporarily unavailable — check your connection.'
+          ? `Offline — searching the ${totalCount} task${totalCount !== 1 ? 's' : ''} loaded in this browser.`
           : q || statusFilter !== 'ALL'
             ? `${totalCount} task${totalCount !== 1 ? 's' : ''} matched${q ? ` "${q}"` : ''}`
             : `${totalCount} task${totalCount !== 1 ? 's' : ''} total`}
