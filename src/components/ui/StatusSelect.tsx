@@ -7,9 +7,11 @@ interface Props {
   conn?: JiraConfig
   onChange: (v: Status, groupId: string) => void
   style?: React.CSSProperties
+  /** What this control changes, for screen readers (e.g. the issue's title). */
+  label?: string
 }
 
-export default function StatusSelect({ value, groupId, conn, onChange, style }: Props) {
+export default function StatusSelect({ value, groupId, conn, onChange, style, label }: Props) {
   const groups = resolveGroups(conn)
   const activeId = groupId ?? legacyStatusToGroupId(value)
   const activeGroup = groups.find((g) => g.id === activeId) ?? groups[0]!
@@ -17,6 +19,7 @@ export default function StatusSelect({ value, groupId, conn, onChange, style }: 
 
   return (
     <select
+      aria-label={label ? `Status for ${label}` : 'Status'}
       value={activeId}
       onChange={(e) => {
         const gid = e.target.value

@@ -1,5 +1,5 @@
 import { hasCredential } from '../../utils/credentials'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -197,6 +197,15 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
   onSelect: () => void; onEditToggle: () => void; onDeleteRequest: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: p.id })
+  /*
+   * Developers who have left stay in `members` so their history survives, so count only
+   * the active ones -- the row claimed "5 devs" for a team of four.
+   */
+  const developers = useStore((s) => s.developers)
+  const memberCount = useMemo(() => {
+    const archived = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
+    return p.members.filter((id) => !archived.has(id)).length
+  }, [developers, p.members])
 
   return (
     <div
@@ -227,7 +236,7 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
         <div style={{ fontSize: 14, fontWeight: 600, color: isActive ? 'var(--accent)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
           <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-            {p.members.length} dev{p.members.length !== 1 ? 's' : ''}
+            {memberCount} dev{memberCount !== 1 ? 's' : ''}
             {(p.nonWorkingDays ?? [0, 6]).length > 0 && <span> · off {(p.nonWorkingDays ?? [0, 6]).map(d => DOW_NAME[d]).join(',')}</span>}
           </span>
           {p.mode === 'scrum' && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent-dim)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '1px 5px' }}>SCRUM</span>}

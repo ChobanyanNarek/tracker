@@ -118,6 +118,55 @@ describe('Jira sync core', () => {
     expect(applyJiraSync(live, plan).tasks[0]!.comment).toBe('typed during sync')
   })
 
+  it('syncs only the connection project\'s own members', async () => {
+    // d4 has a Jira email on this connection but does not work on p1: syncing them put
+    // another project's developer onto p1's board, deadlines and reports.
+    const s = state({
+      developers: [
+        { id: 'd1', name: 'Dev', color: '#000', role: 'dev', periods: [] },
+        { id: 'd4', name: 'Other project', color: '#000', role: 'dev', periods: [] },
+      ],
+      jiraConnections: [jiraConn({ developerEmails: { d1: ['dev@x.com'], d4: ['other@x.com'] } })],
+    })
+    const t = fakeTransport({ '/pm-tracker/jira-search': () => ({ issues: [rawIssue('COM-1')], truncated: false }) })
+
+    const next = applyJiraSync(s, await computeJiraSync(s, t, run))
+
+    expect(next.tasks.map((x) => x.devId)).toEqual(['d1'])
+    expect(t.calls.every((c) => !JSON.stringify(c.body).includes('other@x.com'))).toBe(true)
+  })
+
+  it('stops syncing a developer who has left', async () => {
+    const s = state({
+      developers: [
+        { id: 'd1', name: 'Dev', color: '#000', role: 'dev', periods: [] },
+        { id: 'd9', name: 'Gone', color: '#000', role: 'dev', periods: [], archivedAt: '2026-08-01' },
+      ],
+      projects: [{ id: 'p1', name: 'Mabrook', desc: '', color: '#000', members: ['d1', 'd9'], nonWorkingDays: [0, 6] }],
+      jiraConnections: [jiraConn({ developerEmails: { d1: ['dev@x.com'], d9: ['gone@x.com'] } })],
+    })
+    const t = fakeTransport({ '/pm-tracker/jira-search': () => ({ issues: [rawIssue('COM-1')], truncated: false }) })
+
+    const next = applyJiraSync(s, await computeJiraSync(s, t, run))
+
+    expect(next.tasks.map((x) => x.devId)).toEqual(['d1'])
+  })
+
+  it('still syncs everyone when the connection has no project scope', async () => {
+    const s = state({
+      developers: [
+        { id: 'd1', name: 'Dev', color: '#000', role: 'dev', periods: [] },
+        { id: 'd4', name: 'Other', color: '#000', role: 'dev', periods: [] },
+      ],
+      jiraConnections: [jiraConn({ projectId: undefined, developerEmails: { d1: ['dev@x.com'], d4: ['other@x.com'] } })],
+    })
+    const t = fakeTransport({ '/pm-tracker/jira-search': () => ({ issues: [rawIssue('COM-1')], truncated: false }) })
+
+    const next = applyJiraSync(s, await computeJiraSync(s, t, run))
+
+    expect(next.tasks.map((x) => x.devId).sort()).toEqual(['d1', 'd4'])
+  })
+
   it('refuses to run with no usable connection', async () => {
     await expect(computeJiraSync(state({ jiraConnections: [jiraConn({ token: '' })] }), fakeTransport({}), run))
       .rejects.toThrow('No Jira connections configured')

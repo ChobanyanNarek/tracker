@@ -5,10 +5,8 @@ import { initials, hexRgb } from '../../utils/format'
 import { fetchJiraSprints } from '../../utils/jira-api'
 import SprintModal from '../sprint/SprintModal'
 import Icon from '../ui/Icon'
-
-function todayStr() {
-  return new Date().toISOString().slice(0, 10)
-}
+// Local date, not UTC: see the note in SprintBand.
+import { todayStr } from '../../utils/dates'
 
 function diffDays(a: string, b: string): number {
   return Math.round((new Date(b + 'T12:00:00').getTime() - new Date(a + 'T12:00:00').getTime()) / 86400000)
@@ -233,8 +231,8 @@ export default function SprintView() {
         addSprint({
           projectId: selectedProject,
           name: js.name,
-          startDate: js.startDate ?? new Date().toISOString().slice(0, 10),
-          endDate: js.endDate ?? new Date().toISOString().slice(0, 10),
+          startDate: js.startDate ?? todayStr(),
+          endDate: js.endDate ?? todayStr(),
           jiraSprintId: js.id,
           jiraBoardId: proj.jiraBoardId,
         })

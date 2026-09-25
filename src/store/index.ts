@@ -1483,12 +1483,18 @@ export const useStore = create<Store>((set, get) => {
       try { return await run } finally { githubSyncInFlight = null }
     },
 
+    /*
+     * The menu calls this "Backup -- download all data", and Restore replaces everything
+     * with it, so it must carry everything that is saved. Notes and sprints used to be
+     * left out, which meant restoring a backup silently deleted every note and sprint.
+     * Integration tokens are deliberately NOT here: they live in the server's vault.
+     */
     exportJSON: () => {
-      const { developers, projects, tasks, schedule, scheduleHours } = get()
-      const blob = new Blob(
-        [JSON.stringify({ _v: 2, exportedAt: new Date().toISOString(), developers, projects, tasks, schedule, scheduleHours }, null, 2)],
-        { type: 'application/json' },
-      )
+      const state = get()
+      const payload: Record<string, unknown> = { _v: 3, exportedAt: new Date().toISOString() }
+      for (const key of DOC_KEYS) payload[key] = state[key]
+      payload.tasks = state.tasks
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
       a.download = `progressor-${todayStr()}.json`
@@ -1496,16 +1502,16 @@ export const useStore = create<Store>((set, get) => {
     },
 
     importJSON: async (json) => {
-      const d = JSON.parse(json) as Partial<AppState> & { _v?: number; scheduleHours?: Record<string, Record<string, number>> }
+      const d = JSON.parse(json) as Partial<AppState> & { _v?: number }
       if (!d.developers || !d.tasks) throw new Error('Invalid backup file')
       const s = get()
       const next: AppState = {
         ...s,
+        // Everything the file carries, shaped the way a cloud load shapes it. A key the
+        // file does not have keeps its current value rather than being blanked.
+        ...cloudToState(d as Record<string, unknown>),
         developers: d.developers.map((dev) => ({ periods: [], ...dev })),
-        projects: (d.projects ?? []).map((p) => ({ nonWorkingDays: [0, 6], ...p, members: p.members ?? [] })),
         tasks: d.tasks.map(normalizeTask),
-        schedule: (d.schedule as Record<string, Record<string, string>>) ?? {},
-        scheduleHours: d.scheduleHours ?? {},
         selectedDev: 'ALL',
         selectedProject: 'ALL',
       }

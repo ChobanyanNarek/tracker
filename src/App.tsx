@@ -26,6 +26,7 @@ import TimelineView from './components/views/TimelineView'
 import SprintBand from './components/sprint/SprintBand'
 import ReportView from './components/views/ReportView'
 import NotesView from './components/views/NotesView'
+import { todayStr } from './utils/dates'
 
 const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
@@ -313,7 +314,7 @@ function AuthedApp() {
   }
   const activeSprint = isScrumProject
     ? (() => {
-        const today = new Date().toISOString().slice(0, 10)
+        const today = todayStr()
         const boardId = proj?.jiraBoardId
         const projectSprints = sprints.filter((s) => sprintMatchesBoard(s, selectedProject, boardId))
         return projectSprints.find((s) => today >= s.startDate && today <= s.endDate) ?? projectSprints.slice(-1)[0]

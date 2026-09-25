@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
 import type { Sprint } from '../../types'
+import { todayStr } from '../../utils/dates'
 
 interface Props {
   sprint: Sprint | null
@@ -12,7 +13,7 @@ export default function SprintModal({ sprint, projectId, onClose }: Props) {
   const { addSprint, updateSprint } = useStore()
 
   const [name, setName] = useState(sprint?.name ?? '')
-  const [startDate, setStartDate] = useState(sprint?.startDate ?? new Date().toISOString().slice(0, 10))
+  const [startDate, setStartDate] = useState(sprint?.startDate ?? todayStr())
   const [endDate, setEndDate] = useState(sprint?.endDate ?? '')
 
   const handleSave = () => {

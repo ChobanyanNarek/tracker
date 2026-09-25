@@ -153,6 +153,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
         </div>
         {perfBadge}
         <select
+          aria-label={`Priority for ${issue.name || jiraLbl || 'this issue'}`}
           value={issue.priority ?? 'low'}
           onChange={(e) => onPriorityChange(issue.issueId, issue.url ?? '', e.target.value as JiraIssue['priority'])}
           style={{ border: `1.5px solid ${pc.color}`, borderRadius: 10, fontSize: 10, fontWeight: 600, padding: '1px 6px', outline: 'none', cursor: 'pointer', background: 'transparent', color: pc.color, fontFamily: 'var(--mono)' }}
@@ -208,6 +209,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
           </span>
         )}
         <StatusSelect
+          label={issue.name || jiraLbl || undefined}
           value={issue.status}
           groupId={issue.groupId}
           conn={conn}

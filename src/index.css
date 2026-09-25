@@ -347,8 +347,51 @@ input:focus, select:focus, textarea:focus {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  /*
+   * A fade at the right edge, only while there is more to scroll to. Without it the bar
+   * ends flush at the screen edge on a phone and the later tabs (Schedule, Timeline,
+   * Report, Notes) look as if they do not exist.
+   */
+  background-image: linear-gradient(to left, var(--surface), rgba(0, 0, 0, 0) 28px);
+  background-position: right center;
+  background-repeat: no-repeat;
+  background-size: 28px 100%;
+  background-attachment: local, scroll;
 }
 .tabs-bar::-webkit-scrollbar { display: none; }
+
+/* Same for the day strip and any other horizontal scroller that can run past the edge. */
+.day-strip {
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+}
+
+/* ── Phones ─────────────────────────────────────────────────────────────────
+ * The app is laid out for a wide screen; these adjust the few places where that
+ * costs real usability on a narrow one, without changing the desktop layout.
+ */
+@media (max-width: 640px) {
+  /* Tabs: tighter, so more of them are visible before scrolling. */
+  .view-tab { padding: 6px 10px; font-size: 12px; }
+
+  /* Comfortable tap targets (Apple/Google both recommend ~44px). */
+  .btn-primary, .btn-secondary { padding: 10px 16px; min-height: 40px; }
+
+  /*
+   * Dialogs become a bottom sheet: full width, anchored to the bottom, so the content and
+   * its buttons sit near the thumb instead of in a narrow centred box. `width` is set
+   * inline per dialog, hence the override.
+   */
+  .modal-ov { align-items: flex-end; }
+  .modal-box {
+    width: 100% !important; max-width: 100%;
+    max-height: 92vh;
+    border-radius: var(--rx) var(--rx) 0 0;
+  }
+  .modal-body { padding: 14px 16px; }
+  .modal-hdr { padding: 14px 16px 11px; }
+  .modal-footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+}
 
 /* ── Notes markdown ─────────────────────────────────────────────────────────── */
 .nv-md p { margin: 0 0 11px; }

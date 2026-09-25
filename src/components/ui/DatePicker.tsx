@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import Icon from './Icon'
+import { todayStr } from '../../utils/dates'
 
 interface DatePickerProps {
   value: string
@@ -24,7 +25,8 @@ function daysInMonth(year: number, month: number): number {
 }
 
 export default function DatePicker({ value, onChange, placeholder = 'Select date', style, minDate, maxDate }: DatePickerProps) {
-  const today = new Date().toISOString().slice(0, 10)
+  // Local date: in UTC+n the highlighted "today" was yesterday until mid-morning.
+  const today = todayStr()
   const [open, setOpen] = useState(false)
 
   const initFromValue = () => {

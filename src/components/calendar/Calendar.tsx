@@ -1,8 +1,9 @@
+import { useEffect, useRef } from 'react'
 import { useStore } from '../../store'
 import { todayStr, dlInfo, daysInMonth, padDate, isAmHoliday } from '../../utils/dates'
+import { getJiras } from '../../utils/format'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
-import { getJiras } from '../../utils/format'
 
 export default function Calendar() {
   const { selectedDate, selectedProject, tasks, setSelectedDate } = useStore()
@@ -14,6 +15,17 @@ export default function Calendar() {
   const total = daysInMonth(year, month)
 
   const monthLabel = `${MONTHS[month].slice(0, 3).toUpperCase()} ${year}`
+
+  /*
+   * Keep the selected day in view. The strip is wider than the window on most screens (and
+   * far wider on a phone), and it always started at the 1st -- so late in the month, and on
+   * every phone, today was off-screen until the user scrolled to find it.
+   */
+  const stripRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const chip = stripRef.current?.querySelector(`[data-date="${selectedDate}"]`)
+    chip?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [selectedDate])
 
   // Build alert dot map
   const dlMap: Record<string, 'over' | 'warn'> = {}
@@ -52,7 +64,7 @@ export default function Calendar() {
       </div>
 
       {/* day chips */}
-      <div style={{ display: 'flex', gap: 3, overflowX: 'auto', flex: 1, scrollbarWidth: 'none' }}>
+      <div ref={stripRef} className="day-strip" style={{ display: 'flex', gap: 3, overflowX: 'auto', flex: 1, scrollbarWidth: 'none' }}>
         {Array.from({ length: total }, (_, i) => i + 1).map((day) => {
           const ds = padDate(year, month, day)
           const d = new Date(ds + 'T12:00:00')
@@ -75,6 +87,7 @@ export default function Calendar() {
           return (
             <div
               key={ds}
+              data-date={ds}
               onClick={() => setSelectedDate(ds)}
               title={holiday ?? ''}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, padding: '4px 7px', borderRadius: 'var(--r)', border, cursor: 'pointer', background: bg, transition: 'all .15s', minWidth: 38, flexShrink: 0, position: 'relative', opacity }}

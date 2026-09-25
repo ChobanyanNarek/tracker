@@ -153,3 +153,74 @@ describe('jiraConnectionForProject', () => {
     expect(visibleKeys(s)).toEqual(['MIN-1'])
   })
 })
+
+describe('backup and restore', () => {
+  /*
+   * The menu offers this as "download all data", and Restore replaces everything with it.
+   * Notes and sprints were missing from the file, so restoring a backup deleted every
+   * note and sprint the user had.
+   */
+  const note = { id: 'n1', title: 'Client call', body: 'branded invoice', createdAt: '2026-09-01T10:00:00Z', updatedAt: '2026-09-01T10:00:00Z' }
+  const sprint = { id: 's1', projectId: 'p1', name: 'Sprint 3', startDate: '2026-09-01', endDate: '2026-09-14' }
+
+  function exportedPayload(): Record<string, unknown> {
+    let captured = ''
+    const realBlob = globalThis.Blob
+    const realCreate = URL.createObjectURL
+    class CapturingBlob extends realBlob {
+      constructor(parts: BlobPart[], options?: BlobPropertyBag) {
+        captured = String(parts[0])
+        super(parts, options)
+      }
+    }
+    globalThis.Blob = CapturingBlob as unknown as typeof Blob
+    URL.createObjectURL = () => 'blob:stub'
+    try {
+      useStore.getState().exportJSON()
+    } finally {
+      globalThis.Blob = realBlob
+      URL.createObjectURL = realCreate
+    }
+    return JSON.parse(captured) as Record<string, unknown>
+  }
+
+  beforeEach(() => {
+    useStore.setState({
+      developers: [{ id: 'd1', name: 'Dev', color: '#000', role: 'dev', periods: [] }],
+      projects: [{ id: 'p1', name: 'Mabrook', desc: '', color: '#000', members: ['d1'], nonWorkingDays: [0, 6] }],
+      tasks: [{ id: 't1', devId: 'd1', projectId: 'p1', date: DATE, title: 'Work', status: 'inprogress', jiras: [], prs: [] }] as unknown as Task[],
+      notes: [note],
+      sprints: [sprint],
+      schedule: { d1: { [DATE]: 'vacation' } },
+      scheduleHours: { d1: { [DATE]: 6 } },
+      jiraConnections: [conn('p1')],
+    } as Partial<State> as State)
+  })
+
+  it('writes every saved section into the backup file', () => {
+    const payload = exportedPayload()
+
+    expect(payload.notes).toEqual([note])
+    expect(payload.sprints).toEqual([sprint])
+    expect(payload.schedule).toEqual({ d1: { [DATE]: 'vacation' } })
+    expect(payload.scheduleHours).toEqual({ d1: { [DATE]: 6 } })
+    expect((payload.tasks as Task[])[0]!.id).toBe('t1')
+    expect((payload.jiraConnections as JiraConfig[])[0]!.id).toBe('j_p1')
+  })
+
+  it('restores them again, instead of dropping what the file does not name', async () => {
+    const payload = exportedPayload()
+
+    useStore.setState({ notes: [], sprints: [], tasks: [], developers: [] } as Partial<State> as State)
+    // importJSON also waits for the cloud save to finish, which has no server here; the
+    // state is applied synchronously before that, which is what this checks.
+    void useStore.getState().importJSON(JSON.stringify(payload))
+    await Promise.resolve()
+
+    const restored = useStore.getState()
+    expect(restored.notes).toEqual([note])
+    expect(restored.sprints).toEqual([sprint])
+    expect(restored.tasks.map((t) => t.id)).toEqual(['t1'])
+    expect(restored.jiraConnections.map((c) => c.id)).toEqual(['j_p1'])
+  })
+})

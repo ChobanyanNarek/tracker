@@ -90,10 +90,29 @@ export async function computeJiraSync(state: SyncState, transport: Transport, ru
 
   for (const conn of enabledConns) {
     const projList = conn.projectKeys.map((k) => `"${k.trim()}"`).join(',')
+    /*
+     * Who this connection may sync: the members of its own project, still active.
+     *
+     * Without the membership check a developer who merely has an email on the connection
+     * received that project's issues even though they do not work on it, which put them
+     * on its board, its Deadlines and its reports. Without the archived check a developer
+     * who has left kept getting a fresh task every sync. The GitLab and GitHub syncs
+     * already skip archived developers; this matches them.
+     *
+     * A connection with no project, or a project with an empty member list, keeps the old
+     * behaviour of syncing everyone with an identity -- that is what "not scoped yet" has
+     * always meant elsewhere in the sync.
+     */
+    const connProject = conn.projectId ? projects.find((p) => p.id === conn.projectId) : undefined
+    const members = connProject?.members
+    const syncable = (d: typeof developers[number]): boolean =>
+      !d.archivedAt && (!members?.length || members.includes(d.id))
+
     // A developer can hold several Jira identities (separate instances, a renamed
     // account). `emails` carries all of them; `email` is the primary, used where a
     // single value is required (the board API takes one assignee per call).
     const connDevs = developers
+      .filter((d) => syncable(d))
       .map((d) => {
         const emails = identityList(conn.developerEmails?.[d.id])
         return { dev: d, emails, email: emails[0] ?? '' }
@@ -101,8 +120,7 @@ export async function computeJiraSync(state: SyncState, transport: Transport, ru
       .filter((x) => x.emails.length > 0)
 
     // Resolve effective board ID: project's jiraBoardId takes priority over conn.boardId
-    const linkedProj = conn.projectId ? projects.find((p) => p.id === conn.projectId) : null
-    const effectiveBoardId = linkedProj?.jiraBoardId ?? conn.boardId
+    const effectiveBoardId = connProject?.jiraBoardId ?? conn.boardId
 
     /*
      * Incremental sync: a background sync fetches only issues updated since the last

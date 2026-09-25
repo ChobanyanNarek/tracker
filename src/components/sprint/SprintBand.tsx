@@ -1,12 +1,11 @@
 import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard } from '../../store'
 import type { Sprint } from '../../types'
+// The tracker's own local date. new Date().toISOString() is UTC, which is the wrong day
+// for everyone east of Greenwich between midnight and their UTC offset.
+import { todayStr } from '../../utils/dates'
 
 function diffDays(a: string, b: string): number {
   return Math.round((new Date(b + 'T12:00:00').getTime() - new Date(a + 'T12:00:00').getTime()) / 86400000)
-}
-
-function todayStr() {
-  return new Date().toISOString().slice(0, 10)
 }
 
 interface Props {

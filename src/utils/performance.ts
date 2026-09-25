@@ -137,6 +137,20 @@ function tzWallClockMs(dateStr: string, timeStr: string, tz: string): number {
   return tzWallClockToUtcMs(dateStr, timeStr || '00:00', tz)
 }
 
+/*
+ * Could this issue have been delivered inside the range, judging by the dates it carries
+ * (status history and PRs)? Used only to widen the cheap pre-filter; the real decision is
+ * made on the computed delivery instant.
+ */
+function mightDeliverInRange(issue: JiraIssue, range: PerfRange): boolean {
+  const dates = [
+    ...(issue.statusHistory ?? []).map((h) => h.at.slice(0, 10)),
+    ...(issue.prs ?? []).map((p) => p.date),
+  ].filter(Boolean)
+
+  return dates.some((d) => inRange(d, range))
+}
+
 function inRange(dateStr: string, range: PerfRange): boolean {
   if (range.from && dateStr < range.from) return false
   if (range.to && dateStr > range.to) return false
@@ -386,7 +400,12 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
   for (const task of input.tasks) {
     if (!devById.has(task.devId)) continue
     for (const issue of task.jiras ?? []) {
-      if (!issue.deadline || !inRange(issue.deadline, range)) continue
+      // Keep anything that could fall in the range on EITHER date, and decide once
+      // delivery is known (below). Filtering on the deadline alone here hid work that was
+      // finished inside the range but was due after it -- "This month" ends today, so an
+      // issue delivered today and due later this month counted for nobody.
+      if (!issue.deadline) continue
+      if (range.from && issue.deadline < range.from && !mightDeliverInRange(issue, range)) continue
       const key = `${task.devId}:${issue.issueId ?? jiraDedupeKey(issue.url, issue.name)}`
       const rank = (issue.statusHistory?.length ?? 0) * 100 + (issue.prs?.length ?? 0)
       const ex = best.get(key)
@@ -395,9 +414,19 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
   }
 
   const perDev = new Map<string, IssuePerf[]>()
+  const tz = resolveTrackerTz()
+  const fromMs = range.from ? tzWallClockMs(range.from, '00:00', tz) : null
+  const toMs = range.to ? tzWallClockMs(range.to, '23:59', tz) : null
   for (const { taskId, issue, devId } of best.values()) {
     const dev = devById.get(devId)!
     const ip = computeIssue(taskId, issue, dev, input.schedule, input.scheduleHours, nowMs)
+    /*
+     * In range when the work landed in it, or -- for anything not delivered -- when it
+     * was due in it. So a delivered issue is counted in the period it was delivered.
+     */
+    const anchorMs = ip.deliveryMs ?? ip.deadlineMs
+    if (fromMs != null && anchorMs < fromMs) continue
+    if (toMs != null && anchorMs > toMs) continue
     if (!perDev.has(devId)) perDev.set(devId, [])
     perDev.get(devId)!.push(ip)
   }
