@@ -5,6 +5,7 @@ import { getJiras, jiraLabel, jiraDedupeKey } from '../../../utils/format'
 import { copyText } from '../../../utils/clipboard'
 import { formatDate, formatDateTime } from '../../../utils/dates'
 import { getAllReleaseNoteTasks, type RemoteTask } from '../../../utils/cloud-api'
+import { localReleaseNoteTasks } from '../../../utils/remote-tasks'
 import Icon from '../../ui/Icon'
 import LoadingSpinner from '../../ui/LoadingSpinner'
 import type { Developer, JiraConfig, JiraIssue, Sprint, Status, Task } from '../../../types'
@@ -83,13 +84,23 @@ export default function ScrumReleaseNotes() {
     }).then((result) => {
       if (cancelled) return
       setLoading(false)
-      if (!result) { setFetchFailed(true); setRemoteTasks([]); return }
+      // Offline: fall back to the tasks this browser already has (see `tasksForNotes`).
+      if (!result) { setFetchFailed(true); setRemoteTasks(null); return }
       setRemoteTasks(result)
     })
     return () => { cancelled = true }
   }, [selectedProject, sprintForFetch?.id, sprintForFetch?.startDate])
 
-  const tasks = useMemo(() => (remoteTasks ?? []).map(toLocalTask), [remoteTasks])
+  /*
+   * The server's answer, or -- when it could not be reached -- the tasks this browser
+   * already holds. Computed during render so it follows the task list as it loads.
+   */
+  const tasks = useMemo(() => {
+    const source = fetchFailed && sprintForFetch
+      ? localReleaseNoteTasks(state.tasks, selectedProject !== 'ALL' ? selectedProject : undefined, sprintForFetch.startDate)
+      : remoteTasks ?? []
+    return source.map(toLocalTask)
+  }, [fetchFailed, remoteTasks, state.tasks, selectedProject, sprintForFetch])
 
   // When the project/board changes, the previously selected sprint may no longer belong
   // to the current board — reset to the first valid sprint (or none) to avoid showing
@@ -456,10 +467,13 @@ export default function ScrumReleaseNotes() {
             </div>
           )}
 
+          {/* Offline is a note above the notes, not a replacement for them. */}
+          {!loading && fetchFailed && (
+            <div style={{ color: 'var(--amber)', fontStyle: 'italic', fontSize: 13 }}>Offline — built from the tasks loaded in this browser.</div>
+          )}
+
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}><LoadingSpinner size={16} /> Loading…</div>
-          ) : fetchFailed ? (
-            <div style={{ color: 'var(--red)', fontStyle: 'italic', fontSize: 13 }}>Couldn't load release notes — check your connection.</div>
           ) : (
             <>
               <IssueTable rows={completed} label="✅ Completed" />

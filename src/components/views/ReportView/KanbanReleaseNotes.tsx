@@ -5,6 +5,7 @@ import { getJiras, jiraLabel, jiraDedupeKey } from '../../../utils/format'
 import { copyText } from '../../../utils/clipboard'
 import { formatDate } from '../../../utils/dates'
 import { getAllReleaseNoteTasks, type RemoteTask } from '../../../utils/cloud-api'
+import { localReleaseNoteTasks } from '../../../utils/remote-tasks'
 import Icon from '../../ui/Icon'
 import DatePicker from '../../ui/DatePicker'
 import LoadingSpinner from '../../ui/LoadingSpinner'
@@ -42,6 +43,7 @@ function toLocalTask(remote: RemoteTask): Task {
 export default function KanbanReleaseNotes() {
   const state = useStore()
   const { developers, projects, selectedProject, selectedDev, releaseNoteColumns, releaseNoteData, setReleaseNoteColumns, updateReleaseNoteIssue } = state
+  const allTasks = state.tasks
   const conn: JiraConfig | undefined = getActiveJiraConn(state)
   const hpd = conn?.hoursPerDay ?? 8
   const boardScope = getBoardScope(state)
@@ -85,11 +87,24 @@ export default function KanbanReleaseNotes() {
     }).then((result) => {
       if (cancelled) return
       setLoading(false)
-      if (!result) { setFetchFailed(true); setRemoteTasks([]); return }
+      // Offline: fall back to the tasks this browser already has (see `tasksForNotes`).
+      if (!result) { setFetchFailed(true); setRemoteTasks(null); return }
       setRemoteTasks(result)
     })
     return () => { cancelled = true }
   }, [selectedProject, startDate, endDate])
+
+  /*
+   * What the rows are built from: the server's answer, or -- when it could not be
+   * reached -- the tasks this browser already holds. Computed during render rather than
+   * inside the fetch, so it follows the task list as it loads and as it changes.
+   */
+  const tasksForNotes = useMemo(
+    () => (fetchFailed
+      ? localReleaseNoteTasks(allTasks, selectedProject !== 'ALL' ? selectedProject : undefined, startDate, endDate)
+      : remoteTasks ?? []),
+    [fetchFailed, remoteTasks, allTasks, selectedProject, startDate, endDate],
+  )
 
   const cols: { id: string; label: string }[] = releaseNoteColumns ?? []
   const rnData: Record<string, { hidden?: boolean; selected?: boolean; customFields?: Record<string, string> }> = releaseNoteData ?? {}
@@ -97,7 +112,7 @@ export default function KanbanReleaseNotes() {
   // All unique issues across the fetched tasks, deduplicated by key, filtered by board scope + created date
   const allRows = useMemo((): IssueRow[] => {
     const map = new Map<string, IssueRow>()
-    ;(remoteTasks ?? []).forEach((remote) => {
+    tasksForNotes.forEach((remote) => {
       const t = toLocalTask(remote)
       if (memberIds && !memberIds.has(t.devId)) return
       if (selectedDev !== 'ALL' && t.devId !== selectedDev) return
@@ -115,7 +130,7 @@ export default function KanbanReleaseNotes() {
       })
     })
     return Array.from(map.values())
-  }, [remoteTasks, selectedDev, startDate, endDate, boardScope, memberIds])
+  }, [tasksForNotes, selectedDev, startDate, endDate, boardScope, memberIds])
 
   // Status groups from integration settings, in order
   const statusGroups: { id: string; label: string; color: string }[] = useMemo(() => {
@@ -322,10 +337,13 @@ export default function KanbanReleaseNotes() {
         </div>
       </div>
 
+      {/* Offline is a note above the notes, not a replacement for them. */}
+      {!loading && fetchFailed && (
+        <div style={{ color: 'var(--amber)', fontStyle: 'italic', fontSize: 13 }}>Offline — built from the tasks loaded in this browser.</div>
+      )}
+
       {loading ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}><LoadingSpinner size={16} /> Loading…</div>
-      ) : fetchFailed ? (
-        <div style={{ color: 'var(--red)', fontStyle: 'italic', fontSize: 13 }}>Couldn't load release notes — check your connection.</div>
       ) : (groupedRows.byGroup.size === 0 && groupedRows.ungrouped.length === 0) ? (
         <div style={{ color: 'var(--text3)', fontStyle: 'italic', fontSize: 13 }}>No issues found for this date range and status filter.</div>
       ) : (
