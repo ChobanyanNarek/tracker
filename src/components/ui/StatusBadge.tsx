@@ -19,32 +19,6 @@ export function resolveIssueDisplay(issue: JiraIssue, conn?: JiraConfig): { labe
   return { label: group.label, ...tokens }
 }
 
-// Resolve display color hex for charts/dots
-export function resolveIssueColor(issue: JiraIssue, conn?: JiraConfig): string {
-  const groupId = liveGroupId(issue, conn) ?? legacyStatusToGroupId(issue.status)
-  const group = resolveGroupForIssue(groupId, conn) ?? DEFAULT_STATUS_GROUPS.find((g) => g.id === 'todo')!
-  const tokens = GROUP_COLOR_TOKENS[group.color]
-  return tokens.text.startsWith('var(') ? tokens.text : tokens.text
-}
-
-// Resolve for a plain Status (non-Jira tasks)
-export function resolveStatusDisplay(status: Status): { label: string; bg: string; text: string; border: string } {
-  const group = DEFAULT_STATUS_GROUPS.find((g) => g.id === status) ?? DEFAULT_STATUS_GROUPS[0]!
-  return { label: group.label, ...GROUP_COLOR_TOKENS[group.color] }
-}
-
-// For the StatusSelect dropdown — shows all groups from a connection
-export function groupSelectStyle(groupId: string, conn?: JiraConfig): React.CSSProperties {
-  const group = resolveGroupForIssue(groupId, conn) ?? DEFAULT_STATUS_GROUPS.find((g) => g.id === 'todo')!
-  const tokens = GROUP_COLOR_TOKENS[group.color]
-  return { background: tokens.bg, color: tokens.text, borderColor: tokens.border }
-}
-
-// Legacy: resolve display for a raw Status string (for non-Jira tasks)
-export function statusClassName(status: Status): string {
-  return `spill s-${status}`
-}
-
 // Label for a status — use group label if available, else fallback
 export function statusLabel(status: Status): string {
   return STATUS_LABEL[status] ?? status

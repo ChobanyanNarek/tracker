@@ -8,12 +8,6 @@ export function todayStr(): string {
   return localDate(new Date())
 }
 
-export function offsetDate(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return localDate(d)
-}
-
 export function isAmHoliday(dateStr: string): string | null {
   const mmdd = dateStr.slice(5)
   return AM_HOLIDAYS[mmdd] ?? null
@@ -108,11 +102,6 @@ export function formatDateTime(value: Date | number | string): string {
 /** Format a Date object as dd.mm.yyyy */
 export function formatDateObj(d: Date): string {
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
-}
-
-/** Format a timestamp (ms) as dd.mm.yyyy */
-export function formatDateMs(ms: number): string {
-  return formatDateObj(new Date(ms))
 }
 
 export function daysInMonth(year: number, month: number): number {

@@ -32,25 +32,6 @@ export function jiraLabel(url: string): string | null {
   return m ? m[1] : null
 }
 
-export function jiraPresetLabel(url: string): string {
-  if (!url) return ''
-  const ticket = url.match(/([A-Z][A-Z0-9]+-\d+)/)
-  if (ticket) return ticket[1]
-  try {
-    const parsed = new URL(url)
-    const parts = parsed.pathname
-      .replace(/\/+$/, '')
-      .split('/')
-      .filter(Boolean)
-    const last = parts[parts.length - 1] ?? ''
-    return (
-      parsed.hostname.replace('www.', '').split('.')[0] + (last ? '/' + last : '')
-    ).slice(0, 28)
-  } catch {
-    return url.replace(/^https?:\/\//, '').slice(0, 28)
-  }
-}
-
 export function getJiras(task: Task): JiraIssue[] {
   if (Array.isArray(task.jiras) && task.jiras.length) return task.jiras
   if (task.jira)
@@ -68,11 +49,6 @@ export function getJiras(task: Task): JiraIssue[] {
       },
     ]
   return []
-}
-
-export function hasPending(task: Task): boolean {
-  const j = getJiras(task)
-  return j.length ? j.some((x) => x.status !== 'done') : task.status !== 'done'
 }
 
 const PRESETS_KEY = 'pm_tracker_task_presets'
@@ -115,20 +91,6 @@ export function saveJiraPresets(arr: string[]): void {
 export function subscribePresets(fn: () => void): () => void {
   _presetListeners.add(fn)
   return () => _presetListeners.delete(fn)
-}
-
-/*
- * Resolve a developer's identities for one connection: the connection's own override
- * wins when it has any usable value, otherwise the developer's global default. An
- * override that exists but is blank must NOT beat the default — that silently synced
- * nothing before.
- */
-export function resolveIdentities(
-  override: string | string[] | undefined,
-  fallback: string | string[] | undefined,
-): string[] {
-  const o = identityList(override)
-  return o.length ? o : identityList(fallback)
 }
 
 // ── Parent / subtask nesting ───────────────────────────────────

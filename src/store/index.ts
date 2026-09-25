@@ -1776,10 +1776,6 @@ export function getActiveBoardIssueKeys(state: AppState): Set<string> | undefine
   return new Set(proj.boardIssueKeys.map((k) => k.trim().toUpperCase()))
 }
 
-export function taskMatchesBoard(t: Task, boardId: number): boolean {
-  return (t.jiras ?? []).some((j) => j.boardId === boardId)
-}
-
 // The Jira connection that owns the status-group mappings used for display.
 /*
  * The ONE answer to "which Jira connection belongs to this project". Every screen used to
@@ -1860,12 +1856,6 @@ export function jiraFullKey(j: JiraIssue): string | undefined {
   if (/^[A-Z][A-Z0-9]+-\d+$/.test(dk)) return dk.toUpperCase()
   if (j.issueId && /^[A-Z][A-Z0-9]+-\d+$/.test(j.issueId)) return j.issueId.toUpperCase()
   return undefined
-}
-
-// The project-key prefix (e.g. "CS") of an issue.
-export function jiraKeyPrefix(j: JiraIssue): string | undefined {
-  const full = jiraFullKey(j)
-  return full ? full.split('-')[0] : undefined
 }
 
 // Board scope for the current selection. issueKeys = exact keys on the board (accurate);

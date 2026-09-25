@@ -78,13 +78,3 @@ export async function getPaymentHistory(): Promise<PaymentRecord[]> {
     return res.json() as Promise<PaymentRecord[]>
   } catch { return [] }
 }
-
-export async function refundPayment(paymentId: string): Promise<{ ok: boolean; message?: string }> {
-  const res = await fetch(`${API_URL}/payment/refund/${paymentId}`, {
-    method: 'POST',
-    headers: authHeaders(),
-  })
-  const body = await res.json().catch(() => ({})) as { ok?: boolean; message?: string }
-  if (!res.ok) throw new Error(body.message ?? 'Refund failed')
-  return body as { ok: boolean; message?: string }
-}

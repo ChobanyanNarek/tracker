@@ -184,65 +184,6 @@ export function calcWorkingHours(
   return total
 }
 
-/**
- * Returns the ISO instant that is `hours` *working hours* after startIso, with
- * minute precision — the inverse of calcWorkingHours. Used to build the
- * effective deadline (original deadline shifted later by blocked working hours).
- */
-export function addWorkingHoursToInstant(
-  startIso: string,
-  hours: number,
-  dev: Developer,
-  schedule: Record<string, Record<string, string>>,
-  scheduleHours: Record<string, Record<string, number>>,
-  tzOverride?: string,
-): string {
-  const sched = getSchedule(dev)
-  const tz = resolveTrackerTz(tzOverride ?? sched.timezone)
-  const startMs = new Date(startIso).getTime()
-  if (!(hours > 1e-9)) return new Date(startMs).toISOString()
-
-  const winStartMin = timeToMinutes(sched.startTime)
-  const winEndMin = timeToMinutes(sched.endTime)
-  const winDurationH = (winEndMin - winStartMin) / 60
-  if (winDurationH <= 0) return new Date(startMs).toISOString()
-
-  let remaining = hours
-  const startDateStr = tzDateStr(startMs, tz)
-  const [sy, sm, sd] = startDateStr.split('-').map(Number)
-  const cursorUtc = new Date(Date.UTC(sy!, (sm ?? 1) - 1, sd!))
-
-  // Walk forward up to ~5 years of calendar days; stop when the budget runs out.
-  for (let i = 0; i < 1850; i++) {
-    const dateStr = `${cursorUtc.getUTCFullYear()}-${pad2(cursorUtc.getUTCMonth() + 1)}-${pad2(cursorUtc.getUTCDate())}`
-    const midnightMs = tzMidnightUtcMs(dateStr, tz)
-    const dow = tzDow(midnightMs + 12 * 3_600_000, tz)
-    const dayOff = schedule[dev.id]?.[dateStr]
-    const isWork = sched.workDays.includes(dow) && (!dayOff || dayOff === 'work')
-
-    if (isWork) {
-      const dayWinStartMs = midnightMs + winStartMin * 60_000
-      const dayWinEndMs = midnightMs + winEndMin * 60_000
-      const from = Math.max(startMs, dayWinStartMs) // clips only the first relevant day
-      if (from < dayWinEndMs) {
-        const cap = effectiveDailyHours(dev, dateStr, scheduleHours, sched)
-        const rate = cap / winDurationH // working hours accrued per raw hour
-        const workAvail = ((dayWinEndMs - from) / 3_600_000) * rate
-        if (workAvail >= remaining - 1e-9) {
-          const rawNeededMs = (remaining / rate) * 3_600_000
-          return new Date(from + rawNeededMs).toISOString()
-        }
-        remaining -= workAvail
-      }
-    }
-
-    cursorUtc.setUTCDate(cursorUtc.getUTCDate() + 1)
-  }
-
-  // Budget never consumed (e.g. no work days) — return start unchanged.
-  return new Date(startMs).toISOString()
-}
-
 export function fmtWorkHours(hours: number): string {
   if (hours < 0.5) return Math.round(hours * 60) + 'm'
   if (hours < 8) return (Math.round(hours * 10) / 10) + 'h'
