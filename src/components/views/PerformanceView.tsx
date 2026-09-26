@@ -359,15 +359,23 @@ export default function PerformanceView() {
   const projects = store.projects
 
   const proj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
-  const developers = proj ? allDevelopers.filter((d) => proj.members.includes(d.id)) : allDevelopers
   const boardScope = getBoardScope(store)
-  const tasks = (proj ? allTasks.filter((t) => t.projectId === selectedProject) : allTasks)
-    .filter((t) => taskPassesBoardFilter(t, boardScope))
-    .map((t) => {
-      if (!boardScope.active || !(t.jiras ?? []).length) return t
-      const jiras = t.jiras.filter((j) => jiraOnBoard(j, boardScope))
-      return { ...t, jiras }
-    })
+  // These two feed the expensive computeTeamPerformance memo below. Built inline they were
+  // new arrays on every render, so that memo recomputed the whole team on every keystroke.
+  const developers = useMemo(
+    () => proj ? allDevelopers.filter((d) => proj.members.includes(d.id)) : allDevelopers,
+    [allDevelopers, proj],
+  )
+  const tasks = useMemo(
+    () => (proj ? allTasks.filter((t) => t.projectId === selectedProject) : allTasks)
+      .filter((t) => taskPassesBoardFilter(t, boardScope))
+      .map((t) => {
+        if (!boardScope.active || !(t.jiras ?? []).length) return t
+        const jiras = t.jiras.filter((j) => jiraOnBoard(j, boardScope))
+        return { ...t, jiras }
+      }),
+    [allTasks, proj, selectedProject, boardScope],
+  )
 
   const [rangeKey, setRangeKey] = useState<RangeKey>('month')
   const [selected, setSelected] = useState<{ issue: IssuePerf; dev: Developer } | null>(null)

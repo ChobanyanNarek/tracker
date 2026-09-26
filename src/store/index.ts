@@ -1946,7 +1946,43 @@ export function taskPassesBoardFilter(t: Task, scope: BoardScope): boolean {
   return jiras.some((j) => jiraOnBoard(j, scope))
 }
 
+/*
+ * The Daily board calls this once per developer, and each call used to walk every task in
+ * the store twice (the carried-over set, then the PR union). With ten developers and a
+ * year of history that was a six-figure scan on every keystroke. Same inputs, same answer:
+ * the results are cached per developer until one of the inputs actually changes.
+ */
+interface VisibleTasksCache {
+  tasks: Task[]; projects: Project[]; conns: JiraConfig[]
+  date: string; project: string; dev: string
+  byDev: Map<string, Task[]>
+}
+let visibleTasksCache: VisibleTasksCache | null = null
+
 export function getVisibleTasks(state: AppState, devId?: string): Task[] {
+  const fresh = visibleTasksCache
+    && visibleTasksCache.tasks === state.tasks
+    && visibleTasksCache.projects === state.projects
+    && visibleTasksCache.conns === state.jiraConnections
+    && visibleTasksCache.date === state.selectedDate
+    && visibleTasksCache.project === state.selectedProject
+    && visibleTasksCache.dev === state.selectedDev
+  if (!fresh) {
+    visibleTasksCache = {
+      tasks: state.tasks, projects: state.projects, conns: state.jiraConnections,
+      date: state.selectedDate, project: state.selectedProject, dev: state.selectedDev,
+      byDev: new Map(),
+    }
+  }
+  const key = devId ?? ''
+  const hit = visibleTasksCache!.byDev.get(key)
+  if (hit) return hit
+  const computed = computeVisibleTasks(state, devId)
+  visibleTasksCache!.byDev.set(key, computed)
+  return computed
+}
+
+function computeVisibleTasks(state: AppState, devId?: string): Task[] {
   const selectedDayOfWeek = new Date(state.selectedDate + 'T12:00:00').getDay()
   const boardScope = getBoardScope(state)
 

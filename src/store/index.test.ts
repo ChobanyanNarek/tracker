@@ -103,6 +103,14 @@ describe('getVisibleTasks', () => {
     expect(visibleKeys(s)).toEqual(['MAB-1'])
   })
 
+  it('does not serve a stale answer after the tasks change', () => {
+    // The per-developer results are cached; a cache that outlived an edit would freeze
+    // the board. Same date, same project, one more issue.
+    const base = { jiraConnections: [conn('mab')] }
+    expect(visibleKeys(state({ ...base, tasks: [task('t1', 'mab', [issue('MAB-1', 'To Do', 'todo')])] }))).toEqual(['MAB-1'])
+    expect(visibleKeys(state({ ...base, tasks: [task('t1', 'mab', [issue('MAB-1', 'To Do', 'todo'), issue('MAB-2', 'To Do', 'todo')])] }))).toEqual(['MAB-1', 'MAB-2'])
+  })
+
   it('shows the same issue on each of its dates', () => {
     // Regression: the de-dupe key lacked the date, so a carried-over issue vanished.
     const tasks = [task('old', 'mab', [issue('COM-1326', 'To Do', 'todo')], '2026-09-18'),
