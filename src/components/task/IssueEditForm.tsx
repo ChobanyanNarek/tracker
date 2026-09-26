@@ -56,7 +56,7 @@ export default function IssueEditForm({ issue, onSave, onCancel }: Props) {
     <div style={{ border: '1px solid var(--accent)', background: 'var(--surface2)', borderRadius: 'var(--r)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.6px' }}>✎ Edit issue</div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
+      <div className="form-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
         <div>
           <label className="field-label">Issue name</label>
           <input className="field" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Issue name" />
@@ -67,7 +67,7 @@ export default function IssueEditForm({ issue, onSave, onCancel }: Props) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto', gap: 7, alignItems: 'end' }}>
+      <div className="issue-detail-row" style={{ display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto', gap: 7, alignItems: 'end' }}>
         <div>
           <label className="field-label">Status</label>
           <select className="field" style={{ width: 'auto', fontFamily: 'var(--mono)', fontSize: 11, cursor: 'pointer' }} value={status} onChange={(e) => setStatus(e.target.value as Status)}>

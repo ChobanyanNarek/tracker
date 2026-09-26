@@ -391,6 +391,15 @@ input:focus, select:focus, textarea:focus {
   .modal-body { padding: 14px 16px; }
   .modal-hdr { padding: 14px 16px 11px; }
   .modal-footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+
+  /*
+   * Issue and task forms are laid out as wide multi-column grids. On a phone those
+   * columns pushed the status, priority and deadline off the side of the screen, into a
+   * scroller most people never notice. Stack them instead.
+   */
+  .issue-detail-row { grid-template-columns: 1fr 1fr !important; align-items: start !important; }
+  .issue-detail-row > *:first-child { grid-column: 1 / -1; }
+  .form-two-col { grid-template-columns: 1fr !important; }
 }
 
 /* ── Notes markdown ─────────────────────────────────────────────────────────── */

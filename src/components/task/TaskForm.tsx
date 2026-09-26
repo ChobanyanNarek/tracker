@@ -100,7 +100,8 @@ function JiraRow({ value, onChange, onRemove }: { value: JiraFormRow; onChange: 
       </div>
 
       {/* detail row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto 130px 80px', gap: 7, alignItems: 'start' }}>
+      {/* Five columns on a wide screen; the media query stacks them on a phone. */}
+      <div className="issue-detail-row" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto 130px 80px', gap: 7, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <input className="field" type="url" placeholder="https://jira.company.com/browse/PROJ-1" value={value.url} onChange={(e) => onChange({ ...value, url: e.target.value })} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
@@ -259,7 +260,7 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
     <div style={{ background: 'var(--surface2)', border: '1px solid var(--accent)', borderRadius: 'var(--rl)', padding: 14, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 8 }}>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)' }}>{taskId ? '✎ Edit checkpoint' : '+ New checkpoint'}</div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <div className="form-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <div>
           <label className="field-label">Developer</label>
           <select className="field" style={{ cursor: 'pointer' }} value={devId} onChange={(e) => handleDevChange(e.target.value)}>
