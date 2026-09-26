@@ -43,6 +43,7 @@ export interface StatusInterval {
   status: Status
   startMs: number
   endMs: number
+  /** Working hours of this interval that counted as work — nothing past delivery does. */
   workH: number
 }
 
@@ -382,6 +383,7 @@ function clampStaleTail(
 function buildIntervals(
   sortedHistory: StatusHistoryEntry[],
   nowMs: number,
+  accrualEndMs: number,
   dev: Developer,
   schedule: Record<string, Record<string, string>>,
   scheduleHours: Record<string, Record<string, number>>,
@@ -391,11 +393,15 @@ function buildIntervals(
     const startMs = atMs(sortedHistory[i]!)
     const endMs = i + 1 < sortedHistory.length ? atMs(sortedHistory[i + 1]!) : nowMs
     if (endMs <= startMs) continue
+    // The row shows the whole span the status was held, but only the part that counted as
+    // work carries hours -- otherwise a ticket left open read "11.1d" beside an "Actual
+    // work" of a few hours, with nothing to explain the gap.
+    const countedEnd = Math.min(endMs, accrualEndMs)
     out.push({
       status: sortedHistory[i]!.status,
       startMs,
       endMs,
-      workH: cappedWorkHours([[startMs, endMs]], dev, schedule, scheduleHours),
+      workH: countedEnd > startMs ? cappedWorkHours([[startMs, countedEnd]], dev, schedule, scheduleHours) : 0,
     })
   }
   return out
@@ -413,41 +419,9 @@ function computeIssue(
   const tz = resolveTrackerTz(sched.timezone)
   const sortedHistory = [...(issue.statusHistory ?? [])].sort((a, b) => atMs(a) - atMs(b))
   const hasInProgress = sortedHistory.some((e) => e.status === 'inprogress')
-  const intervals = buildIntervals(sortedHistory, nowMs, dev, schedule, scheduleHours)
 
   const firstIp = sortedHistory.find((e) => e.status === 'inprogress')
   const startMs = firstIp ? atMs(firstIp) : null
-
-  const seg = (status: Status): Array<[number, number]> =>
-    intervals.filter((iv) => iv.status === status).map((iv) => [iv.startMs, iv.endMs])
-  const inProgress = clampStaleTail(seg('inprogress'), nowMs, dev, schedule, scheduleHours)
-  const blocked = clampStaleTail(seg('blocked'), nowMs, dev, schedule, scheduleHours)
-  const stale = inProgress.stale || blocked.stale
-  // Raw per-day hours, not yet capped: the cap belongs to the developer's day as a whole,
-  // and is applied across all of their issues together once they are all computed.
-  const effortByDay = workHoursByDay(inProgress.segments, dev, schedule, scheduleHours)
-  const blockedH = cappedWorkHours(blocked.segments, dev, schedule, scheduleHours)
-
-  // Rework: In Progress again after having reached Review/Done
-  let reworkCount = 0
-  let seenDelivered = false
-  for (const e of sortedHistory) {
-    if (e.status === 'review' || e.status === 'done') seenDelivered = true
-    else if (e.status === 'inprogress' && seenDelivered) {
-      reworkCount++
-      seenDelivered = false
-    }
-  }
-
-  /*
-   * The issue's original deadline, when it has been moved. Measuring against the current
-   * one only says whether the last promise was kept; measuring against the first says
-   * whether the work landed when it was first said it would.
-   */
-  const firstDue = issue.deadlineHistory?.[0]
-  const originalMs = firstDue && firstDue.deadline !== issue.deadline
-    ? tzWallClockMs(firstDue.deadline, firstDue.deadlineTime || sched.endTime, tz)
-    : null
 
   const deadlineAssumed = !!issue.deadline && !issue.deadlineTime
   // No deadline is not the same as no work: the issue still has effort, cycle time and
@@ -479,10 +453,62 @@ function computeIssue(
     }
   }
 
+  /*
+   * Work stops when the work is delivered. A ticket whose MR went up on the 10th but whose
+   * Jira status was never moved off In Progress used to keep booking hours until today --
+   * and, because a developer's day is shared out between the issues open in it, that
+   * phantom work also ate the capacity of the issues they were genuinely working on.
+   */
+  const accrualEndMs = deliveryMs ?? nowMs
+  const clip = (segments: Array<[number, number]>): Array<[number, number]> =>
+    segments
+      .map(([a, b]) => [a, Math.min(b, accrualEndMs)] as [number, number])
+      .filter(([a, b]) => b > a)
+
+  const intervals = buildIntervals(sortedHistory, nowMs, accrualEndMs, dev, schedule, scheduleHours)
+
+  const seg = (status: Status): Array<[number, number]> =>
+    intervals.filter((iv) => iv.status === status).map((iv) => [iv.startMs, iv.endMs])
+  // The stale cut-off only has to catch issues still running to "now"; anything delivered
+  // is already bounded by its delivery.
+  const inProgress = clampStaleTail(clip(seg('inprogress')), accrualEndMs, dev, schedule, scheduleHours)
+  const blocked = clampStaleTail(clip(seg('blocked')), accrualEndMs, dev, schedule, scheduleHours)
+  const stale = deliveryMs == null && (inProgress.stale || blocked.stale)
+  // Raw per-day hours, not yet capped: the cap belongs to the developer's day as a whole,
+  // and is applied across all of their issues together once they are all computed.
+  const effortByDay = workHoursByDay(inProgress.segments, dev, schedule, scheduleHours)
+  const blockedH = cappedWorkHours(blocked.segments, dev, schedule, scheduleHours)
+
+  // Rework: In Progress again after having reached Review/Done
+  let reworkCount = 0
+  let seenDelivered = false
+  for (const e of sortedHistory) {
+    if (e.status === 'review' || e.status === 'done') seenDelivered = true
+    else if (e.status === 'inprogress' && seenDelivered) {
+      reworkCount++
+      seenDelivered = false
+    }
+  }
+
+  /*
+   * The issue's original deadline, when it has been moved. Measuring against the current
+   * one only says whether the last promise was kept; measuring against the first says
+   * whether the work landed when it was first said it would.
+   */
+  const firstDue = issue.deadlineHistory?.[0]
+  const originalMs = firstDue && firstDue.deadline !== issue.deadline
+    ? tzWallClockMs(firstDue.deadline, firstDue.deadlineTime || sched.endTime, tz)
+    : null
+
   const suspect = startMs != null && prInstants.length > 0 && Math.min(...prInstants) < startMs
 
+  /*
+   * In flight until it was Done. Failing a Done entry, until it was delivered -- there is
+   * no evidence of anything happening after that, and letting it run to "now" made the
+   * flow efficiency of a delivered issue decay a little further every day.
+   */
   const lastEntry = sortedHistory[sortedHistory.length - 1]
-  const flowEndMs = lastEntry?.status === 'done' ? atMs(lastEntry) : nowMs
+  const flowEndMs = lastEntry?.status === 'done' ? atMs(lastEntry) : (deliveryMs ?? nowMs)
   const flowSpanH = startMs != null
     ? cappedWorkHours([[startMs, Math.max(flowEndMs, startMs)]], dev, schedule, scheduleHours)
     : null

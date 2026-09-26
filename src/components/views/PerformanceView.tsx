@@ -274,6 +274,7 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
       case 'onTimeBlocky': return 'Delivered on time, but a large share of the tracked time was spent blocked.'
       case 'lateSolid':    return 'Delivered after the deadline, but the working time itself was productive — the deadline may have been unrealistic.'
       case 'lateBlocky':   return 'Delivered after the deadline with a large share of blocked time.'
+      case 'deliveredNoDue': return 'Delivered — but no deadline was set, so it is not counted in on-time.'
       case 'ongoing':      return 'Still in progress — no MR push or review yet.'
       case 'overdue':      return 'Past the deadline with no delivery signal (no MR push, no review).'
       default:             return "Never marked In Progress, so effort can't be measured."

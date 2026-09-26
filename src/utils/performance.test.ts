@@ -315,3 +315,54 @@ describe('where the time went', () => {
     expect(team.byStatus.done).toBeUndefined()       // finished is not time spent
   })
 })
+
+/*
+ * The case that exposed this: an MR went up the next morning, but nobody moved the Jira
+ * status off In Progress, so the issue sat "in progress" for another seventeen days.
+ */
+describe('work stops when the work is delivered', () => {
+  const leftOpen = (key: string, prs: Array<{ url: string; date: string; time: string }>): JiraIssue => ({
+    ...issue(key, '', null),
+    prs,
+    statusHistory: [{ status: 'inprogress', at: '2026-09-09T17:47:00+04:00' }],
+  })
+
+  const at = (iso: string) => { vi.useFakeTimers(); vi.setSystemTime(new Date(iso)) }
+
+  it('does not keep booking hours after the MR went up', () => {
+    at('2026-09-26T22:23:00+04:00')
+    const delivered = leftOpen('HOME-1', [{ url: 'https://gl/mr/1', date: '2026-09-10', time: '13:50' }])
+    const ip = computeTeamPerformance(input([delivered])).devs[0]!.issues[0]!
+
+    // 09 Sep 17:47→19:00 plus 10 Sep 10:00→13:50 — five hours, not seventeen days.
+    expect(ip.effortH).toBeCloseTo(5.05, 1)
+    expect(ip.cycleH!).toBeCloseTo(5.05, 1)
+    expect(ip.flowEffPct!).toBe(100)
+    expect(ip.stale).toBe(false) // it was delivered; it is not forgotten
+    // The timeline row agrees with the work total instead of contradicting it.
+    expect(ip.intervals.at(-1)!.workH).toBeCloseTo(5.05, 1)
+  })
+
+  it('no longer eats the capacity of the issues actually being worked on', () => {
+    at('2026-09-26T22:23:00+04:00')
+    // One delivered-but-never-closed ticket beside one the developer is really working on.
+    const phantom = leftOpen('HOME-1', [{ url: 'https://gl/mr/1', date: '2026-09-10', time: '13:50' }])
+    const real = leftOpen('HOME-2', [])
+
+    const team = computeTeamPerformance(input([phantom, real]))
+    const realIssue = team.devs[0]!.issues.find((i) => i.issueId === 'HOME-2')!
+
+    // The phantom only competes for the two days it was genuinely open, so the live issue
+    // keeps most of its days instead of halving them for a fortnight.
+    expect(realIssue.effortH).toBeGreaterThan(30)
+  })
+
+  it('still cuts off an issue that really was abandoned', () => {
+    at('2026-09-26T22:23:00+04:00')
+    const abandoned = leftOpen('HOME-3', [])
+    const ip = computeTeamPerformance(input([abandoned])).devs[0]!.issues[0]!
+
+    expect(ip.stale).toBe(true)
+    expect(ip.effortH).toBeLessThanOrEqual(41.5) // five working days, not seventeen
+  })
+})
