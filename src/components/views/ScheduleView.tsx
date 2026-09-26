@@ -105,6 +105,13 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
     return () => document.removeEventListener('click', close)
   }, [onClose])
 
+  // The rows were divs with onClick, so the menu could be opened but not used from a
+  // keyboard. They are buttons now; this undoes the UA chrome they come with.
+  const row: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer',
+    width: '100%', background: 'none', border: 0, font: 'inherit', color: 'inherit', textAlign: 'left',
+  }
+
   const top = Math.min(anchorRect.bottom + 4, window.innerHeight - 320)
   const left = Math.min(anchorRect.left, window.innerWidth - 210)
 
@@ -112,32 +119,32 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
     <div ref={ref} style={{ position: 'fixed', top, left, zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', boxShadow: '0 8px 32px rgba(0,0,0,.25)', minWidth: 200, overflow: 'hidden' }}>
       <div style={{ padding: '7px 12px', fontSize: 11, fontWeight: 600, color: 'var(--text3)', borderBottom: '1px solid var(--border)', fontFamily: 'var(--mono)' }}>{label}</div>
       {(['work', 'dayoff', 'sick', 'holiday'] as const).map((k) => (
-        <div key={k} onClick={() => onSelect(k)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer', background: current === k ? 'var(--accent-dim)' : undefined, borderLeft: current === k ? '3px solid var(--accent)' : '3px solid transparent', transition: 'background .1s' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = current === k ? 'var(--accent-dim)' : '' }}>
+        <button type="button" key={k} onClick={() => onSelect(k)} aria-pressed={current === k} style={{ ...row, background: current === k ? 'var(--accent-dim)' : 'none', borderLeft: current === k ? '3px solid var(--accent)' : '3px solid transparent', transition: 'background .1s' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = current === k ? 'var(--accent-dim)' : '' }}>
           <Icon name={DAY_TYPES[k].icon} size={14} color={DAY_TYPES[k].color} />
           <span style={{ fontSize: 12, fontWeight: 600 }}>{DAY_TYPES[k].label}</span>
-        </div>
+        </button>
       ))}
       <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
-      <div onClick={() => onSelect('vacation')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = '' }}>
+      <button type="button" onClick={() => onSelect('vacation')} style={row} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = '' }}>
         <Icon name="palm" size={14} color="var(--teal)" />
         <div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>Vacation</div>
           <div style={{ fontSize: 10, color: 'var(--text3)' }}>Single day</div>
         </div>
-      </div>
-      <div onClick={onRange} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = '' }}>
+      </button>
+      <button type="button" onClick={onRange} style={row} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = '' }}>
         <Icon name="palm" size={14} color="var(--teal)" />
         <div>
           <div style={{ fontSize: 12, fontWeight: 600 }}>Vacation — range</div>
           <div style={{ fontSize: 10, color: 'var(--accent)' }}>Click start → click end date</div>
         </div>
-      </div>
+      </button>
       {current && (
         <>
           <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
-          <div onClick={onClear} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer', color: 'var(--red)' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--red-dim)' }} onMouseLeave={(e) => { e.currentTarget.style.background = '' }}>
+          <button type="button" onClick={onClear} style={{ ...row, color: 'var(--red)' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--red-dim)' }} onMouseLeave={(e) => { e.currentTarget.style.background = '' }}>
             <span>✕</span><span style={{ fontSize: 12, fontWeight: 600 }}>Clear this day</span>
-          </div>
+          </button>
         </>
       )}
     </div>

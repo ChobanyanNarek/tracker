@@ -331,10 +331,12 @@ input:focus, select:focus, textarea:focus {
 .navseg {
   display: flex; align-items: center; gap: 8px; cursor: pointer;
   padding: 0 15px; height: 100%;
+  /* It is a <button> so the keyboard can reach it; these undo the UA's chrome. */
+  background: none; border: 0; font: inherit; color: inherit; text-align: left;
   border-right: 1px solid var(--border);
   user-select: none; transition: background .15s;
 }
-.navseg:first-of-type { border-left: 1px solid var(--border); }
+.navseg { border-left: 1px solid var(--border); }
 .navseg:hover { background: var(--surface2); }
 .navseg.open { background: var(--accent-dim); }
 .navseg-caret { font-size: 10px; color: var(--text3); transition: transform .2s; }

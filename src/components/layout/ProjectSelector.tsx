@@ -14,7 +14,14 @@ export default function ProjectSelector({ open, onToggle, compact, fill }: Props
   const activeProj = selectedProject === 'ALL' ? null : projects.find((p) => p.id === selectedProject)
 
   return (
-    <div className={`navseg${open ? ' open' : ''}${compact ? ' compact' : ''}`} style={{ minWidth: compact || fill ? 0 : 190, flex: fill ? 1 : undefined }} onClick={onToggle}>
+    <button
+      type="button"
+      className={`navseg${open ? ' open' : ''}${compact ? ' compact' : ''}`}
+      style={{ minWidth: compact || fill ? 0 : 190, flex: fill ? 1 : undefined }}
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={`Project: ${activeProj?.name ?? 'All projects'}`}
+    >
       <div style={{ width: 10, height: 10, borderRadius: 3, background: activeProj?.color ?? 'var(--text3)', flexShrink: 0 }} />
       {!compact && (
         <span style={{ fontSize: 13, fontWeight: 500, flex: 1, color: open ? 'var(--accent)' : activeProj ? 'var(--text)' : 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -22,6 +29,6 @@ export default function ProjectSelector({ open, onToggle, compact, fill }: Props
         </span>
       )}
       <span className="navseg-caret">▾</span>
-    </div>
+    </button>
   )
 }
