@@ -250,7 +250,9 @@ async function gzipJson(data: Record<string, unknown>): Promise<{ body: BodyInit
   }
 }
 
-export type SaveFailReason = 'unauthorized' | 'network' | 'tooLarge' | 'server'
+/** 'refused' is not returned by a request: it is set when the server stores the rest of a
+ *  batch but rejects individual records, which no retry can fix. */
+export type SaveFailReason = 'unauthorized' | 'network' | 'tooLarge' | 'server' | 'refused'
 
 /*
  * True only while the document is actually going away, so the last save can switch to a

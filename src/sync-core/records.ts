@@ -140,6 +140,18 @@ export class RecordTracker {
   ready = false
 
   /*
+   * Records the server refused outright and that have not been edited since. The rest of
+   * their batch saved, so without this the next (empty) batch would report 'saved' and the
+   * user would be told work was stored that was in fact thrown away.
+   */
+  get refused(): string[] {
+    return [
+      ...[...this.rejectedDocs.keys()].map((k) => `doc:${k}`),
+      ...[...this.rejectedTasks.keys()].map((k) => `task:${k}`),
+    ]
+  }
+
+  /*
    * After a full load. `next` is the store state built from `res` by cloudToState, so the
    * bases point at the very objects the store holds and an untouched record costs nothing.
    */

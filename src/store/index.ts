@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData, ScheduleType } from '../types'
-import { commitRecords, commitRecordsOnUnload, getServerSyncStatus, loadRecords, markRestored, markUnloading, runServerSync, type RecordsResponse, type ServerSyncStatus, type SyncKind } from '../utils/cloud-api'
+import { commitRecords, commitRecordsOnUnload, getServerSyncStatus, loadRecords, markRestored, markUnloading, runServerSync, type RecordsResponse, type SaveFailReason, type ServerSyncStatus, type SyncKind } from '../utils/cloud-api'
 import { cloudToState, DOC_KEYS, normalizeTask, RecordTracker, recordsToCloud, type PersistedState } from '../sync-core/records'
 import { listVault, removeFromVault, storeInVault, type Credentialed } from '../utils/credentials'
 import { reportError } from '../utils/error-reporter'
@@ -121,9 +121,18 @@ function retryDelay(attempt: number): number {
   return exp / 2 + Math.random() * (exp / 2)
 }
 
-function scheduleFlush(ms: number): void {
+/*
+ * True while saveTimer is a backoff retry rather than the ordinary debounce. An edit while
+ * the server is failing used to reschedule that timer to the 800ms debounce, so a user
+ * typing through an outage fired a full commit about once per second instead of backing
+ * off. `dirty` already guarantees those edits ride along with the retry when it fires.
+ */
+let retryPending = false
+
+function scheduleFlush(ms: number, isRetry = false): void {
   if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => { saveTimer = null; flushPersist() }, ms)
+  retryPending = isRetry
+  saveTimer = setTimeout(() => { saveTimer = null; retryPending = false; flushPersist() }, ms)
 }
 
 function flushPersist(): void {
@@ -134,7 +143,8 @@ function flushPersist(): void {
   dirty = false
   const batch = records.collect(persistedSlice(useStore.getState()))
   if (!batch) {
-    useStore.setState({ saveStatus: 'saved', saveError: null })
+    if (records.refused.length) useStore.setState({ saveStatus: 'error', saveError: 'refused' })
+    else useStore.setState({ saveStatus: 'saved', saveError: null })
     return
   }
   saveInFlight = true
@@ -151,13 +161,15 @@ function flushPersist(): void {
         syncLog('save:FAIL', { note: 'empty reply' })
         useStore.setState({ saveStatus: 'error', saveError: 'server' })
         reportError({ kind: 'save', message: 'Cloud save answered for none of the records sent' })
-        scheduleFlush(retryDelay(retryAttempt++))
+        scheduleFlush(retryDelay(retryAttempt++), true)
         return
       }
       retryAttempt = 0
       if (out.patch) useStore.setState(out.patch)
       syncLog('save:ok', out.conflicts ? { note: `${out.conflicts} merged with newer saves` } : {})
-      // The server refused these as unstorable; retrying cannot help, so record why.
+      // The server refused these as unstorable; retrying cannot help. The rest of the
+      // batch did save, so the next round finds nothing to send and used to settle on
+      // 'saved' -- telling the user their work was stored when some of it was thrown away.
       if (out.rejected.length) {
         reportError({ kind: 'save', message: `Records refused by the server: ${out.rejected.slice(0, 5).join(', ')}` })
       }
@@ -181,7 +193,7 @@ function flushPersist(): void {
     // The server answered but refused the save: record it. A network failure is not
     // reported -- if the server is unreachable, the report could not arrive either.
     if (res.reason !== 'network') reportError({ kind: 'save', message: `Cloud save rejected: ${res.reason}` })
-    scheduleFlush(retryDelay(retryAttempt++))
+    scheduleFlush(retryDelay(retryAttempt++), true)
   })
 }
 
@@ -227,6 +239,7 @@ function persistState(immediate = false): void {
   // Don't let a fresh edit reset an in-progress backoff timer into a tight loop; the
   // post-flight flush already picks up whatever is pending.
   if (saveInFlight) return
+  if (retryPending && !immediate) return
   scheduleFlush(immediate ? 0 : SAVE_DEBOUNCE_MS)
 }
 
@@ -337,7 +350,7 @@ interface StoreActions {
   saveStatus: 'saved' | 'saving' | 'error'
   // Distinguishes a transient network failure (genuinely retrying) from an expired session
   // (retrying is futile — the user must sign in again or their edits are never saved).
-  saveError: 'unauthorized' | 'network' | 'tooLarge' | 'server' | null
+  saveError: SaveFailReason | null
 
   setReleaseNoteColumns: (cols: ReleaseNoteColumn[]) => void
   setReleaseNoteData: (data: Record<string, ReleaseNoteIssueData>) => void
@@ -1968,6 +1981,9 @@ export function getVisibleTasks(state: AppState, devId?: string): Task[] {
     && visibleTasksCache.project === state.selectedProject
     && visibleTasksCache.dev === state.selectedDev
   if (!fresh) {
+    // One render pass' worth of rows for pmVisible(), not a day's. Left unbounded this
+    // pushed ~200 objects per developer per render and reached tens of MB in a session.
+    if (typeof window !== 'undefined') (window as never as Record<string, unknown[]>).__pmShown = []
     visibleTasksCache = {
       tasks: state.tasks, projects: state.projects, conns: state.jiraConnections,
       date: state.selectedDate, project: state.selectedProject, dev: state.selectedDev,

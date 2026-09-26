@@ -25,6 +25,8 @@ export default function ConnectivityBanner() {
     ? "You're offline — keep this tab open. Your changes are not saved yet and will sync when you're back online."
     : expired
       ? 'Your session expired, so changes are not being saved. Sign in again to save them.'
+      : saveError === 'refused'
+        ? 'The server would not store some of your changes. They are only in this tab — edit them again or contact support.'
       : saveError === 'tooLarge'
         ? 'Your data is too large to save in one piece. Your changes are kept in this tab — contact support.'
         : saveError === 'server'

@@ -307,3 +307,51 @@ describe('the last save as the tab goes away', () => {
   })
 })
 
+
+describe('a record the server will not store', () => {
+  it('is reported as an error, not as saved', async () => {
+    // The rest of the batch stores fine, so the next (empty) round used to settle on
+    // 'saved' and the user was told work was kept that had in fact been thrown away.
+    serve({
+      commit: async (_url, init) => {
+        const body = await bodyOf(init!)
+        return json({
+          applied: body.docs.map((d) => ({ kind: 'doc', id: d.key, revision: 500 })),
+          conflicts: [],
+          rejected: body.tasks.map((t) => ({ kind: 'task', id: t.id, reason: 'invalid' })),
+        } satisfies CommitResponse)
+      },
+    })
+
+    useStore.getState().updateTask('t1', { comment: 'a comment the server refuses' })
+    persistNow()
+    await settle()
+
+    expect(useStore.getState().saveStatus).toBe('error')
+    expect(useStore.getState().saveError).toBe('refused')
+  })
+})
+
+describe('backing off a failing server', () => {
+  it('is not restarted by every keystroke', async () => {
+    // The retry is at least 1s out (2s base, half of it jittered). Typing used to clear
+    // that timer and reschedule the 800ms debounce, firing a full commit about once a
+    // second for as long as the user kept typing.
+    let attempts = 0
+    serve({ commit: () => { attempts++; return new Response(null, { status: 500 }) } })
+
+    useStore.getState().updateTask('t1', { comment: 'first' })
+    persistNow()
+    await settle()
+    expect(attempts).toBe(1)
+    expect(useStore.getState().saveError).toBe('server')
+
+    for (const c of 'typing through the outage') {
+      useStore.getState().updateTask('t1', { comment: c })
+    }
+    await settle()
+
+    // Still the one failed attempt: the pending retry was left where it was.
+    expect(attempts).toBe(1)
+  })
+})
