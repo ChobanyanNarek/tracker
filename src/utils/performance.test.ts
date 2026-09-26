@@ -78,8 +78,26 @@ describe('computeTeamPerformance ranges', () => {
     expect(team.devs[0]!.issues).toHaveLength(2)
   })
 
-  it('ignores issues with no deadline, which it cannot judge', () => {
-    expect(computeTeamPerformance(input([issue('COM-6', '', '2026-09-10T17:00:00+04:00')])).devs[0]!.issues).toEqual([])
+  it('counts work on an issue with no deadline, but not towards on-time', () => {
+    // It used to drop these entirely, so a month of work on undated tickets read as
+    // nothing delivered -- and leaving the deadline off was the cheapest way to score well.
+    const team = computeTeamPerformance(input([issue('COM-6', '', '2026-09-10T17:00:00+04:00')]))
+    const dev = team.devs[0]!
+
+    expect(dev.issues).toHaveLength(1)
+    expect(dev.issues[0]!.verdict).toBe('deliveredNoDue')
+    expect(dev.deliveredCount).toBe(1)
+    expect(dev.onTimePct).toBeNull()   // nothing to judge it against
+    expect(team.onTimePct).toBeNull()
+  })
+
+  it('keeps on-time honest when only some issues have a deadline', () => {
+    const team = computeTeamPerformance(input([
+      issue('COM-7', '2026-09-20', '2026-09-18T17:00:00+04:00'), // on time
+      issue('COM-8', '', '2026-09-18T17:00:00+04:00'),           // undated
+    ]))
+    expect(team.deliveredCount).toBe(2)
+    expect(team.onTimePct).toBe(100) // 1 of 1 judged, not 1 of 2
   })
 
   it('counts one issue once, however many daily copies carry it', () => {

@@ -27,6 +27,7 @@ const VERDICT_CONF: Record<Verdict, { label: string; color: string; dim: string 
   lateBlocky:   { label: 'Late · blocked',    color: 'var(--red)',    dim: 'var(--red-dim)' },
   ongoing:      { label: 'In progress',       color: 'var(--accent)', dim: 'var(--accent-dim)' },
   overdue:      { label: 'Overdue',           color: 'var(--red)',    dim: 'var(--red-dim)' },
+  deliveredNoDue: { label: 'Delivered · no due date', color: 'var(--text2)', dim: 'var(--surface3)' },
   insufficient: { label: 'No data',           color: 'var(--text3)',  dim: 'var(--surface3)' },
 }
 
@@ -232,7 +233,9 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
           <div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>Timing (local time)</div>
             {row('Started (first In Progress)', issue.startMs ? tzDateTimeLabel(issue.startMs, LOCAL_TZ) : '—')}
-            {row('Deadline', <>{tzDateTimeLabel(issue.deadlineMs, LOCAL_TZ)}{issue.deadlineAssumed && <span style={{ color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 3 }}> <Icon name="info" size={9} /> end of day assumed</span>}</>)}
+            {row('Deadline', issue.deadlineMs == null
+              ? <span style={{ color: 'var(--text3)' }}>none set — not counted in on-time</span>
+              : <>{tzDateTimeLabel(issue.deadlineMs, LOCAL_TZ)}{issue.deadlineAssumed && <span style={{ color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 3 }}> <Icon name="info" size={9} /> end of day assumed</span>}</>)}
             {row('Delivery (last MR push)', issue.deliveryMs ? `${tzDateTimeLabel(issue.deliveryMs, LOCAL_TZ)}${issue.deliverySource === 'status' ? ' (from status)' : ''}` : 'not delivered')}
             {issue.deliveryDeltaH != null && row('Delivery vs deadline', <span style={{ color: issue.deliveryDeltaH <= 0 ? GREEN : RED }}>{fmtDelta(issue.deliveryDeltaH)}</span>)}
           </div>

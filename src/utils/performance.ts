@@ -34,6 +34,7 @@ export type Verdict =
   | 'onTimeBlocky' // delivered on time, but a large share was blocked
   | 'lateSolid'    // delivered late, but working time was productive
   | 'lateBlocky'   // delivered late with a large share blocked
+  | 'deliveredNoDue' // delivered, but nobody set a deadline to judge it against
   | 'ongoing'      // no delivery signal yet, deadline not passed
   | 'overdue'      // no delivery signal, deadline passed
   | 'insufficient' // never In Progress — cannot measure
@@ -51,7 +52,7 @@ export interface IssuePerf {
   name: string
   url: string
   prUrls: string[]
-  deadlineMs: number
+  deadlineMs: number | null
   deadlineAssumed: boolean
   startMs: number | null
   deliveryMs: number | null
@@ -130,10 +131,10 @@ export interface PerfInput {
   scheduleHours: Record<string, Record<string, number>>
 }
 
-const DELIVERED: Verdict[] = ['great', 'onTimeBlocky', 'lateSolid', 'lateBlocky']
+const DELIVERED: Verdict[] = ['great', 'onTimeBlocky', 'lateSolid', 'lateBlocky', 'deliveredNoDue']
 // Display priority within each developer section — most urgent first
 const VERDICT_ORDER: Record<Verdict, number> = {
-  lateBlocky: 0, overdue: 1, lateSolid: 2, onTimeBlocky: 3, ongoing: 4, great: 5, insufficient: 6,
+  lateBlocky: 0, overdue: 1, lateSolid: 2, onTimeBlocky: 3, ongoing: 4, great: 5, deliveredNoDue: 6, insufficient: 7,
 }
 const ON_TIME_TOLERANCE_MS = 5 * 60_000
 /*
@@ -381,8 +382,12 @@ function computeIssue(
     }
   }
 
-  const deadlineAssumed = !issue.deadlineTime
-  const deadlineMs = tzWallClockMs(issue.deadline, issue.deadlineTime || sched.endTime, tz)
+  const deadlineAssumed = !!issue.deadline && !issue.deadlineTime
+  // No deadline is not the same as no work: the issue still has effort, cycle time and
+  // flow efficiency. It is only the on-time verdict that cannot be formed.
+  const deadlineMs = issue.deadline
+    ? tzWallClockMs(issue.deadline, issue.deadlineTime || sched.endTime, tz)
+    : null
 
   // Delivery: LAST MR/PR push wins; fallback — last transition INTO review/done.
   const prInstants = (issue.prs ?? [])
@@ -422,7 +427,10 @@ function computeIssue(
 
   if (!hasInProgress || startMs == null) {
     verdict = 'insufficient'
-  } else if (deliveryMs != null) {
+  } else if (deliveryMs != null && deadlineMs == null) {
+    cycleH = cappedWorkHours([[startMs, Math.max(deliveryMs, startMs)]], dev, schedule, scheduleHours)
+    verdict = 'deliveredNoDue'
+  } else if (deliveryMs != null && deadlineMs != null) {
     cycleH = cappedWorkHours([[startMs, Math.max(deliveryMs, startMs)]], dev, schedule, scheduleHours)
     if (Math.abs(deliveryMs - deadlineMs) <= ON_TIME_TOLERANCE_MS) {
       timing = 'onTime'
@@ -439,7 +447,7 @@ function computeIssue(
     verdict = timing === 'late' ? 'lateSolid' : 'great'
   } else {
     cycleH = cappedWorkHours([[startMs, Math.max(nowMs, startMs)]], dev, schedule, scheduleHours)
-    verdict = nowMs > deadlineMs + ON_TIME_TOLERANCE_MS ? 'overdue' : 'ongoing'
+    verdict = deadlineMs != null && nowMs > deadlineMs + ON_TIME_TOLERANCE_MS ? 'overdue' : 'ongoing'
   }
 
   return {
@@ -551,8 +559,10 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
       // delivery is known (below). Filtering on the deadline alone here hid work that was
       // finished inside the range but was due after it -- "This month" ends today, so an
       // issue delivered today and due later this month counted for nobody.
-      if (!issue.deadline) continue
-      if (range.from && issue.deadline < range.from && !mightDeliverInRange(issue, range)) continue
+      // An issue with no deadline used to be skipped outright, so a month of work on
+      // tickets nobody dated showed up as nothing delivered -- and the cheapest way to
+      // protect a score was to leave the deadline off.
+      if (issue.deadline && range.from && issue.deadline < range.from && !mightDeliverInRange(issue, range)) continue
       const key = `${task.devId}:${issue.issueId ?? jiraDedupeKey(issue.url, issue.name)}`
       const rank = (issue.statusHistory?.length ?? 0) * 100 + (issue.prs?.length ?? 0)
       const ex = best.get(key)
@@ -571,7 +581,8 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
      * In range when the work landed in it, or -- for anything not delivered -- when it
      * was due in it. So a delivered issue is counted in the period it was delivered.
      */
-    const anchorMs = ip.deliveryMs ?? ip.deadlineMs
+    const anchorMs = ip.deliveryMs ?? ip.deadlineMs ?? ip.startMs
+    if (anchorMs == null) continue
     if (fromMs != null && anchorMs < fromMs) continue
     if (toMs != null && anchorMs > toMs) continue
     if (!perDev.has(devId)) perDev.set(devId, [])
@@ -589,12 +600,14 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
     .map((dev) => {
       const issues = (perDev.get(dev.id) ?? []).sort((a, b) => {
         const od = VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict]
-        return od !== 0 ? od : b.deadlineMs - a.deadlineMs
+        return od !== 0 ? od : (b.deadlineMs ?? 0) - (a.deadlineMs ?? 0)
       })
       const delivered = issues.filter((i) => DELIVERED.includes(i.verdict))
       const measured = issues.filter((i) => i.verdict !== 'insufficient')
       const n = delivered.length
-      const onTimeCount = delivered.filter((i) => i.timing !== 'late').length
+      // Only issues that actually had a deadline can be on time or late.
+      const judged = delivered.filter((i) => i.timing != null)
+      const onTimeCount = judged.filter((i) => i.timing !== 'late').length
       const effortTotalH = measured.reduce((s, i) => s + i.effortH, 0)
       const blockedTotalH = measured.reduce((s, i) => s + i.blockedH, 0)
       // Aggregate flow efficiency is total work over total time in flight, to match the
@@ -604,7 +617,7 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
       const reworkIssues = measured.filter((i) => i.reworkCount > 0).length
       const base = {
         deliveredCount: n,
-        onTimePct: n ? (onTimeCount / n) * 100 : null,
+        onTimePct: judged.length ? (onTimeCount / judged.length) * 100 : null,
         flowEffPct: flowSpanTotalH > 1e-9 ? Math.min(100, (effortTotalH / flowSpanTotalH) * 100) : null,
         medDeliveryDeltaH: median(delivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
       }
@@ -632,6 +645,7 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
     .sort((a, b) => (b.onTimePct ?? -1) - (a.onTimePct ?? -1))
 
   const allDelivered = devs.flatMap((d) => d.issues.filter((i) => DELIVERED.includes(i.verdict)))
+  const allJudged = allDelivered.filter((i) => i.timing != null)
   const teamEffort = devs.reduce((s, d) => s + d.effortTotalH, 0)
   const teamSpan = devs.reduce((s, d) => s + d.flowSpanTotalH, 0)
   const teamMeasured = devs.reduce((s, d) => s + (d.issues.length - d.insufficientCount), 0)
@@ -641,7 +655,7 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
   return {
     devs,
     deliveredCount: n,
-    onTimePct: n ? (allDelivered.filter((i) => i.timing !== 'late').length / n) * 100 : null,
+    onTimePct: allJudged.length ? (allJudged.filter((i) => i.timing !== 'late').length / allJudged.length) * 100 : null,
     flowEffPct: teamSpan > 1e-9 ? Math.min(100, (teamEffort / teamSpan) * 100) : null,
     cycleP50H: percentile(allDelivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.5),
     cycleP85H: percentile(allDelivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.85),
