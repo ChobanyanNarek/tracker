@@ -55,9 +55,34 @@ export function effectiveDailyHours(
  * Uses an iterative approach starting from UTC noon, which converges in ≤3 steps
  * and handles DST transitions correctly (unlike the naive noon-offset approximation).
  */
+/*
+ * Building an Intl.DateTimeFormat is one of the most expensive things in the language, and
+ * every helper below used to build a fresh one on each call -- inside a loop that runs once
+ * per calendar day, for every status interval of every issue. The Performance tab spent
+ * about a second per click constructing formatters. They are pure functions of their
+ * options, so one instance each is enough.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>()
+function formatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = locale + '|' + JSON.stringify(options)
+  let f = formatters.get(key)
+  if (!f) { f = new Intl.DateTimeFormat(locale, options); formatters.set(key, f) }
+  return f
+}
+
+/*
+ * The same (timezone, day) pair is resolved over and over as the day loop walks a span, so
+ * the answer is remembered. It is a pure calendar fact and never changes.
+ */
+const midnightCache = new Map<string, number>()
+
 export function tzMidnightUtcMs(dateStr: string, tz: string): number {
+  const cacheKey = tz + '|' + dateStr
+  const hit = midnightCache.get(cacheKey)
+  if (hit !== undefined) return hit
+
   const [Y, M, D] = dateStr.split('-').map(Number)
-  const fmt = new Intl.DateTimeFormat('en-US', {
+  const fmt = formatter('en-US', {
     timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -87,6 +112,10 @@ export function tzMidnightUtcMs(dateStr: string, tz: string): number {
     }
   }
 
+  // Bounded so a long-running tab cannot grow it without limit; the loops that matter
+  // walk the same few thousand days over and over, so a reset costs one rebuild.
+  if (midnightCache.size > 20_000) midnightCache.clear()
+  midnightCache.set(cacheKey, candidate)
   return candidate
 }
 
@@ -97,14 +126,14 @@ export function tzWallClockToUtcMs(dateStr: string, timeStr: string, tz: string)
 
 /** Returns YYYY-MM-DD for a UTC timestamp in the given IANA timezone. */
 export function tzDateStr(utcMs: number, tz: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
+  return formatter('en-CA', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(utcMs)
 }
 
 /** Returns "dd.mm.yyyy HH:MM" for a UTC timestamp in the given timezone. */
 export function tzDateTimeLabel(utcMs: number, tz: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = formatter('en-CA', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
   }).formatToParts(utcMs)
@@ -114,7 +143,7 @@ export function tzDateTimeLabel(utcMs: number, tz: string): string {
 
 /** Returns day-of-week (0=Sun…6=Sat) for a UTC timestamp in the given IANA timezone. */
 export function tzDow(utcMs: number, tz: string): number {
-  const s = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(utcMs)
+  const s = formatter('en-US', { timeZone: tz, weekday: 'short' }).format(utcMs)
   return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(s)
 }
 

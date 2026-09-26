@@ -209,6 +209,48 @@ function inRange(dateStr: string, range: PerfRange): boolean {
  * real clock time, a full work-window day counts as `dailyHours`.
  * Non-work days, vacation/sick/holiday days contribute nothing.
  */
+/*
+ * One developer's calendar day resolved once per run: does it count as a working day, what
+ * is the work window, how many productive hours does it hold. Every issue of a developer
+ * walks the same days, so without this the same answer is recomputed hundreds of times.
+ * Cleared at the top of each computeTeamPerformance, so a schedule edit is picked up.
+ */
+interface WorkDay { winStart: number; winEnd: number; cap: number }
+const dayCache = new Map<string, WorkDay | null>()
+
+function workDay(
+  dateStr: string,
+  dev: Developer,
+  sched: ReturnType<typeof getSchedule>,
+  tz: string,
+  winStartMin: number,
+  winEndMin: number,
+  schedule: Record<string, Record<string, string>>,
+  scheduleHours: Record<string, Record<string, number>>,
+): WorkDay | null {
+  const key = dev.id + '|' + dateStr
+  const hit = dayCache.get(key)
+  if (hit !== undefined) return hit
+
+  let out: WorkDay | null = null
+  const midnightMs = tzMidnightUtcMs(dateStr, tz)
+  const dow = tzDow(midnightMs + 12 * 3_600_000, tz)
+  if (sched.workDays.includes(dow)) {
+    const dayOff = schedule[dev.id]?.[dateStr]
+    // A public holiday counts as a day off unless the schedule explicitly says 'work'.
+    // Without this, a deadline over the New Year break charged eight hours a day for a
+    // week nobody worked, and the issue came out days late.
+    const holiday = isAmHoliday(dateStr) && dayOff !== 'work'
+    if ((!dayOff || dayOff === 'work') && !holiday) {
+      const winStart = midnightMs + winStartMin * 60_000
+      const winEnd = midnightMs + winEndMin * 60_000
+      if (winEnd > winStart) out = { winStart, winEnd, cap: effectiveDailyHours(dev, dateStr, scheduleHours, sched) }
+    }
+  }
+  dayCache.set(key, out)
+  return out
+}
+
 function workHoursByDay(
   segments: Array<[number, number]>,
   dev: Developer,
@@ -237,27 +279,15 @@ function workHoursByDay(
   // Safety bound: ~10 years of calendar days
   for (let i = 0; i < 3700 && cursorUtc <= endUtc; i++) {
     const dateStr = `${cursorUtc.getUTCFullYear()}-${String(cursorUtc.getUTCMonth() + 1).padStart(2, '0')}-${String(cursorUtc.getUTCDate()).padStart(2, '0')}`
-    const midnightMs = tzMidnightUtcMs(dateStr, tz)
-    const dow = tzDow(midnightMs + 12 * 3_600_000, tz)
+    const day = workDay(dateStr, dev, sched, tz, winStartMin, winEndMin, schedule, scheduleHours)
 
-    if (sched.workDays.includes(dow)) {
-      const dayOff = schedule[dev.id]?.[dateStr]
-      // A public holiday counts as a day off unless the schedule explicitly says 'work'.
-      // Without this, a deadline over the New Year break charged eight hours a day for a
-      // week nobody worked, and the issue came out days late.
-      const holiday = isAmHoliday(dateStr) && dayOff !== 'work'
-      if ((!dayOff || dayOff === 'work') && !holiday) {
-        const winStart = midnightMs + winStartMin * 60_000
-        const winEnd = midnightMs + winEndMin * 60_000
-        if (winEnd > winStart) {
-          let rawH = 0
-          for (const [s, e] of valid) {
-            const overlap = Math.min(e, winEnd) - Math.max(s, winStart)
-            if (overlap > 0) rawH += overlap / 3_600_000
-          }
-          if (rawH > 0) out.set(dateStr, { raw: rawH, cap: effectiveDailyHours(dev, dateStr, scheduleHours, sched) })
-        }
+    if (day) {
+      let rawH = 0
+      for (const [s, e] of valid) {
+        const overlap = Math.min(e, day.winEnd) - Math.max(s, day.winStart)
+        if (overlap > 0) rawH += overlap / 3_600_000
       }
+      if (rawH > 0) out.set(dateStr, { raw: rawH, cap: day.cap })
     }
 
     cursorUtc.setUTCDate(cursorUtc.getUTCDate() + 1)
@@ -546,6 +576,7 @@ function rangeWeeks(range: PerfRange, issues: IssuePerf[], nowMs: number): numbe
 }
 
 export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}): TeamPerf {
+  dayCache.clear()
   const nowMs = Date.now()
   const devById = new Map(input.developers.map((d) => [d.id, d]))
 
