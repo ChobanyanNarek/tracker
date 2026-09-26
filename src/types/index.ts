@@ -101,6 +101,12 @@ export interface StatusHistoryEntry {
   at: string  // ISO timestamp
 }
 
+export interface DeadlineHistoryEntry {
+  deadline: string      // YYYY-MM-DD
+  deadlineTime?: string // HH:MM, when one was given
+  at: string            // ISO instant the deadline was set to this value
+}
+
 export interface JiraIssue {
   issueId?: string   // stable identity — same across all days this issue appears on
   boardId?: number   // board this issue was synced from (set when conn uses board mode)
@@ -118,6 +124,12 @@ export interface JiraIssue {
   parentKey?: string      // Jira key of this issue's parent, when it is a subtask — drives nesting in the UI
   manualStatus?: Status  // set when user manually changes status; overrides Jira sync
   statusHistory?: StatusHistoryEntry[]
+  /*
+   * Every deadline this issue has had, oldest first, appended whenever it changes (by hand
+   * or from a Jira sync). Without it "on time" is unfalsifiable: an issue whose due date
+   * was moved on the last day is indistinguishable from one delivered comfortably early.
+   */
+  deadlineHistory?: DeadlineHistoryEntry[]
   storyPoints?: number              // from Jira customfield_10016 or customfield_10028
   timeOriginalEstimate?: number     // seconds, from Jira fields.timeoriginalestimate
   timeSpent?: number                // seconds, from Jira fields.timespent

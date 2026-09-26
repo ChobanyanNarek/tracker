@@ -57,6 +57,19 @@ export interface IssuePerf {
   startMs: number | null
   deliveryMs: number | null
   deliverySource: 'pr' | 'status' | null
+  /** Working hours spent in each status between first In Progress and done/now. */
+  byStatus: Partial<Record<Status, number>>
+  /*
+   * Working hours the issue was in flight but not accounted for by any status — the run
+   * past the stale cut-off, and the share of a day that went to the developer's other
+   * issues. Naming it keeps the split adding up to the flow-efficiency figure instead of
+   * quietly disagreeing with it.
+   */
+  untouchedH: number
+  /** Working hours left before the deadline, for something still in flight. */
+  hoursToDeadline: number | null
+  /** Still in flight and unlikely to make its deadline, judged against the team's own p85. */
+  atRisk: boolean
   /** Raw work-window hours per calendar day, before the developer's day is shared out. */
   effortByDay: Map<string, { raw: number; cap: number }>
   effortH: number
@@ -71,6 +84,9 @@ export interface IssuePerf {
   flowSpanH: number | null
   reworkCount: number // times it went back to In Progress after Review/Done
   timing: Timing | null
+  /** Against the FIRST deadline the issue ever had, when that differs from the current one. */
+  timingVsOriginal: Timing | null
+  deadlineMovedDays: number | null // how far the due date was pushed out (+) or pulled in (−)
   deliveryDeltaH: number | null // signed working hours vs deadline: + late, − early, 0 on time
   verdict: Verdict
   suspect: boolean // PR pushed before the first In Progress
@@ -100,6 +116,11 @@ export interface DevPerf {
   throughputWk: number | null // delivered issues per week in range
   reworkIssues: number
   reworkRatePct: number | null
+  /** Issues in flight right now — the cause of long cycle times more often than not. */
+  wipCount: number
+  atRiskCount: number
+  byStatus: Partial<Record<Status, number>>
+  untouchedH: number
   profile: string
 }
 
@@ -115,6 +136,12 @@ export interface TeamPerf {
   reworkRatePct: number | null
   ongoingCount: number
   overdueCount: number
+  atRiskCount: number
+  untouchedH: number
+  /** On-time measured against each issue's FIRST deadline, when any were moved. */
+  onTimeVsOriginalPct: number | null
+  movedDeadlineCount: number
+  byStatus: Partial<Record<Status, number>>
   weeks: number
 }
 
@@ -412,6 +439,16 @@ function computeIssue(
     }
   }
 
+  /*
+   * The issue's original deadline, when it has been moved. Measuring against the current
+   * one only says whether the last promise was kept; measuring against the first says
+   * whether the work landed when it was first said it would.
+   */
+  const firstDue = issue.deadlineHistory?.[0]
+  const originalMs = firstDue && firstDue.deadline !== issue.deadline
+    ? tzWallClockMs(firstDue.deadline, firstDue.deadlineTime || sched.endTime, tz)
+    : null
+
   const deadlineAssumed = !!issue.deadline && !issue.deadlineTime
   // No deadline is not the same as no work: the issue still has effort, cycle time and
   // flow efficiency. It is only the on-time verdict that cannot be formed.
@@ -480,6 +517,38 @@ function computeIssue(
     verdict = deadlineMs != null && nowMs > deadlineMs + ON_TIME_TOLERANCE_MS ? 'overdue' : 'ongoing'
   }
 
+  /*
+   * Where the time went, by status. Built from the same clamped segments the other numbers
+   * use, not from the raw intervals -- otherwise a forgotten issue's open In Progress run
+   * counts every one of its untouched days and the split says 91% working when flow
+   * efficiency says 31%. 'done' is left out: it is the end state, not time spent.
+   */
+  const byStatus: Partial<Record<Status, number>> = {}
+  if (startMs != null) {
+    for (const status of ['todo', 'inprogress', 'review', 'blocked'] as const) {
+      const clamped = status === 'inprogress' ? inProgress
+        : status === 'blocked' ? blocked
+        : clampStaleTail(seg(status), nowMs, dev, schedule, scheduleHours)
+      const h = cappedWorkHours(clamped.segments, dev, schedule, scheduleHours)
+      if (h > 1e-9) byStatus[status] = h
+    }
+  }
+
+  const hoursToDeadline = deliveryMs == null && deadlineMs != null && deadlineMs > nowMs
+    ? cappedWorkHours([[nowMs, deadlineMs]], dev, schedule, scheduleHours)
+    : null
+
+  let timingVsOriginal: Timing | null = null
+  let deadlineMovedDays: number | null = null
+  if (originalMs != null && deadlineMs != null) {
+    deadlineMovedDays = Math.round((deadlineMs - originalMs) / 86_400_000)
+    if (deliveryMs != null) {
+      timingVsOriginal = Math.abs(deliveryMs - originalMs) <= ON_TIME_TOLERANCE_MS
+        ? 'onTime'
+        : deliveryMs < originalMs ? 'early' : 'late'
+    }
+  }
+
   return {
     taskId,
     issueId: issue.issueId,
@@ -499,6 +568,12 @@ function computeIssue(
     flowSpanH,
     reworkCount,
     timing,
+    timingVsOriginal,
+    deadlineMovedDays,
+    byStatus,
+    hoursToDeadline,
+    untouchedH: 0, // filled once the developer's day has been shared out
+    atRisk: false, // filled once the team's p85 is known
     deliveryDeltaH,
     verdict,
     suspect,
@@ -526,6 +601,11 @@ function finalizeDevIssues(issues: IssuePerf[]): void {
       effortH += claimed > cap ? (raw / claimed) * cap : Math.min(raw, cap)
     }
     ip.effortH = effortH
+    // The In Progress slice is the developer's shared day, same as effort itself, so the
+    // split and the flow-efficiency figure tell the same story.
+    if (ip.byStatus.inprogress != null) ip.byStatus = { ...ip.byStatus, inprogress: effortH }
+    const accounted = Object.values(ip.byStatus).reduce((sum, h) => sum + h, 0)
+    ip.untouchedH = Math.max(0, (ip.flowSpanH ?? 0) - accounted)
 
     /*
      * Flow efficiency the way the rest of the industry means it: active work over the whole
@@ -623,6 +703,29 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
   // Effort, flow efficiency and the verdict need every issue of a developer at once.
   for (const issues of perDev.values()) finalizeDevIssues(issues)
 
+  /*
+   * Which unfinished issues are unlikely to make their date. Judged against the team's own
+   * p85 cycle time -- the duration about six in seven issues finish within -- rather than
+   * against a guess: if an issue has already been open that long, or there are not enough
+   * working hours left before the deadline to cover what usually remains, it is at risk.
+   */
+  const everyIssue = [...perDev.values()].flat()
+  const deliveredCycles = everyIssue
+    .filter((i) => DELIVERED.includes(i.verdict) && i.cycleH != null)
+    .map((i) => i.cycleH!)
+  const p85 = percentile(deliveredCycles, 0.85)
+  for (const ip of everyIssue) {
+    if (ip.verdict === 'overdue') { ip.atRisk = true; continue }
+    if (ip.verdict !== 'ongoing' || p85 == null) continue
+    const age = ip.cycleH ?? 0
+    // Already taken longer than about six in seven issues ever take: whatever is holding it
+    // up is not the usual amount of work, so it is at risk whatever the deadline says.
+    if (age > p85) { ip.atRisk = true; continue }
+    // Otherwise: is there time left before the deadline for what usually remains?
+    if (ip.deadlineMs == null) continue
+    ip.atRisk = (ip.hoursToDeadline ?? 0) < p85 - age
+  }
+
   const allIssues = [...perDev.values()].flat()
   const weeks = rangeWeeks(range, allIssues, nowMs)
 
@@ -646,6 +749,12 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
       // issue does not weigh the same as a three-week one.
       const flowSpanTotalH = measured.reduce((s, i) => s + (i.flowSpanH ?? 0), 0)
       const reworkIssues = measured.filter((i) => i.reworkCount > 0).length
+      const byStatus: Partial<Record<Status, number>> = {}
+      for (const i of measured) {
+        for (const [st, h] of Object.entries(i.byStatus)) {
+          byStatus[st as Status] = (byStatus[st as Status] ?? 0) + h
+        }
+      }
       const base = {
         deliveredCount: n,
         onTimePct: judged.length ? (onTimeCount / judged.length) * 100 : null,
@@ -670,13 +779,26 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
         throughputWk: n ? n / weeks : null,
         reworkIssues,
         reworkRatePct: measured.length ? (reworkIssues / measured.length) * 100 : null,
+        wipCount: issues.filter((i) => i.verdict === 'ongoing' || i.verdict === 'overdue').length,
+        atRiskCount: issues.filter((i) => i.atRisk).length,
+        byStatus,
+        untouchedH: measured.reduce((sum, i) => sum + i.untouchedH, 0),
         profile: profileOf(base),
       }
     })
-    .sort((a, b) => (b.onTimePct ?? -1) - (a.onTimePct ?? -1))
+    // By name, not by score. Sorting people by on-time percentage made the list read as a
+    // league table, which is not what flow metrics can honestly support.
+    .sort((a, b) => a.dev.name.localeCompare(b.dev.name))
 
   const allDelivered = devs.flatMap((d) => d.issues.filter((i) => DELIVERED.includes(i.verdict)))
   const allJudged = allDelivered.filter((i) => i.timing != null)
+  const movedAndJudged = allDelivered.filter((i) => i.timingVsOriginal != null)
+  const teamByStatus: Partial<Record<Status, number>> = {}
+  for (const d of devs) {
+    for (const [st, h] of Object.entries(d.byStatus)) {
+      teamByStatus[st as Status] = (teamByStatus[st as Status] ?? 0) + h
+    }
+  }
   const teamEffort = devs.reduce((s, d) => s + d.effortTotalH, 0)
   const teamSpan = devs.reduce((s, d) => s + d.flowSpanTotalH, 0)
   const teamMeasured = devs.reduce((s, d) => s + (d.issues.length - d.insufficientCount), 0)
@@ -695,6 +817,14 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
     reworkRatePct: teamMeasured ? (teamRework / teamMeasured) * 100 : null,
     ongoingCount: devs.reduce((s, d) => s + d.ongoingCount, 0),
     overdueCount: devs.reduce((s, d) => s + d.overdueCount, 0),
+    atRiskCount: devs.reduce((s, d) => s + d.atRiskCount, 0),
+    // Against the deadline each issue started with, where that is not the one it ended with.
+    onTimeVsOriginalPct: movedAndJudged.length
+      ? (movedAndJudged.filter((i) => i.timingVsOriginal !== 'late').length / movedAndJudged.length) * 100
+      : null,
+    movedDeadlineCount: everyIssue.filter((i) => i.deadlineMovedDays != null && i.deadlineMovedDays !== 0).length,
+    byStatus: teamByStatus,
+    untouchedH: devs.reduce((sum, d) => sum + d.untouchedH, 0),
     weeks,
   }
 }

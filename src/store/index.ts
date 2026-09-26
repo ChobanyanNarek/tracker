@@ -10,6 +10,7 @@ import { fetchBoardIssueKeys } from '../utils/jira-api'
 import { browserTransport } from '../utils/browser-transport'
 import { applyJiraSync, computeJiraSync } from '../sync-core/jira-sync'
 import { makeId, sortJiraIssues } from '../sync-core/util'
+import { mergeDeadlineHistory } from '../sync-core/jira-api'
 import { applyGithubSync, applyGitlabSync, computeGithubSync, computeGitlabSync } from '../sync-core/pr-sync'
 import { resolveTrackerTz } from '../utils/working-hours'
 import { groupForJiraStatus, isClosedGroup, legacyStatusToGroupId, repointOrphanMappings } from '../sync-core/status-groups'
@@ -1266,6 +1267,7 @@ export const useStore = create<Store>((set, get) => {
                 next.manualStatus = patch.status
                 next.statusHistory = [...history, { status: patch.status, at: now }]
               }
+              next.deadlineHistory = mergeDeadlineHistory(j.deadlineHistory, next.deadline, next.deadlineTime)
               return next
             })
             const jiras = patch.status ? sortJiraIssues(updated) : updated

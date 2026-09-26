@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard } from '../../store'
 import { computeTeamPerformance } from '../../utils/performance'
 import type { IssuePerf, DevPerf, Verdict, PerfRange } from '../../utils/performance'
-import type { Developer } from '../../types'
+import type { Developer, Status } from '../../types'
 import { fmtWorkHours, tzDateTimeLabel } from '../../utils/working-hours'
 import { hexRgb, initials } from '../../utils/format'
 import { STATUS_LABEL, STATUS_COLOR } from '../../constants'
@@ -22,9 +22,9 @@ const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 const VERDICT_CONF: Record<Verdict, { label: string; color: string; dim: string }> = {
   great:        { label: 'Great',             color: 'var(--green)',  dim: 'var(--green-dim)' },
-  onTimeBlocky: { label: 'On time · blocked', color: 'var(--teal)',   dim: 'var(--teal-dim)' },
+  onTimeBlocky: { label: 'On time · mostly waiting', color: 'var(--teal)', dim: 'var(--teal-dim)' },
   lateSolid:    { label: 'Late · solid work', color: 'var(--amber)',  dim: 'var(--amber-dim)' },
-  lateBlocky:   { label: 'Late · blocked',    color: 'var(--red)',    dim: 'var(--red-dim)' },
+  lateBlocky:   { label: 'Late · mostly waiting', color: 'var(--red)', dim: 'var(--red-dim)' },
   ongoing:      { label: 'In progress',       color: 'var(--accent)', dim: 'var(--accent-dim)' },
   overdue:      { label: 'Overdue',           color: 'var(--red)',    dim: 'var(--red-dim)' },
   deliveredNoDue: { label: 'Delivered · no due date', color: 'var(--text2)', dim: 'var(--surface3)' },
@@ -101,6 +101,95 @@ function HBars({ rows, color, labelWidth = 84 }: { rows: BarRowDatum[]; color: s
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+const STATUS_SPLIT: Array<{ status: Status; label: string; color: string }> = [
+  { status: 'todo', label: 'Waiting to start', color: 'var(--text4)' },
+  { status: 'inprogress', label: 'In progress', color: GREEN },
+  { status: 'review', label: 'In review', color: BLUE },
+  { status: 'blocked', label: 'Blocked', color: AMBER },
+]
+
+/*
+ * Where an issue's life actually went. Flow efficiency says how much of the span was work;
+ * this says where the rest of it sat, which is the part anyone can act on.
+ */
+function StatusSplit({ byStatus, untouchedH = 0 }: { byStatus: Partial<Record<Status, number>>; untouchedH?: number }) {
+  const parts = [
+    ...STATUS_SPLIT.map((p) => ({ ...p, hours: byStatus[p.status] ?? 0 })),
+    { status: 'untouched' as const, label: 'Untouched', color: 'var(--red-dim)', hours: untouchedH },
+  ].filter((p) => p.hours > 1e-9)
+  const total = parts.reduce((sum, p) => sum + p.hours, 0)
+  if (total <= 1e-9) return <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>No tracked time</div>
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', height: 16, borderRadius: 4, overflow: 'hidden' }}>
+        {parts.map((p) => (
+          <div key={p.status} title={`${p.label}: ${fmtWorkHours(p.hours)} (${Math.round((p.hours / total) * 100)}%)`}
+            style={{ width: `${(p.hours / total) * 100}%`, background: p.color }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        {parts.map((p) => (
+          <span key={p.status} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text3)' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color }} />
+            {p.label} <b style={{ color: 'var(--text2)', fontFamily: 'var(--mono)' }}>{Math.round((p.hours / total) * 100)}%</b>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/*
+ * Everything unfinished, oldest first, with how long it has been open and what that means
+ * for its deadline. The rest of this tab is a post-mortem; this is the part that can still
+ * be acted on.
+ */
+function AgingWip({ issues, devName, onOpen }: {
+  issues: IssuePerf[]
+  devName: (taskId: string) => string
+  onOpen: (i: IssuePerf) => void
+}) {
+  const open = issues.filter((i) => i.verdict === 'ongoing' || i.verdict === 'overdue')
+    .sort((a, b) => (b.cycleH ?? 0) - (a.cycleH ?? 0))
+  if (!open.length) return <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>Nothing in flight</div>
+  const max = Math.max(...open.map((i) => i.cycleH ?? 0), 1)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      {open.map((i) => {
+        const overdue = i.verdict === 'overdue'
+        const color = overdue ? RED : i.atRisk ? AMBER : BLUE
+        const note = overdue ? 'overdue'
+          : i.atRisk ? 'at risk'
+          : i.deadlineMs == null ? 'no due date'
+          : `${fmtWorkHours(i.hoursToDeadline ?? 0)} left`
+        return (
+          <button key={i.taskId + (i.issueId ?? i.url)} onClick={() => onOpen(i)}
+            title={`${i.name} — open ${fmtWorkHours(i.cycleH ?? 0)}${i.stale ? ', untouched' : ''}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'none', border: 0, padding: '2px 0', cursor: 'pointer', textAlign: 'left', font: 'inherit' }}>
+            <span style={{ width: 120, flexShrink: 0, fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {i.name}
+            </span>
+            <span style={{ width: 62, flexShrink: 0, fontSize: 9, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {devName(i.taskId)}
+            </span>
+            <span style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: `${((i.cycleH ?? 0) / max) * 100}%`, height: 11, background: color, borderRadius: 3, flexShrink: 0, minWidth: 2 }} />
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text2)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtWorkHours(i.cycleH ?? 0)}
+              </span>
+            </span>
+            <span style={{ width: 74, flexShrink: 0, paddingLeft: 8, textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 9, color, whiteSpace: 'nowrap' }}>
+              {i.stale ? 'untouched' : note}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -252,6 +341,12 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
                 {issue.flowSpanH != null && <span style={{ color: 'var(--text3)' }}> · {fmtWorkHours(issue.effortH)} worked of {fmtWorkHours(issue.flowSpanH)} in flight</span>}
               </span>)}
             {issue.stale && row('Stale', <span style={{ color: AMBER }}>untouched — effort stopped counting</span>)}
+            {issue.deadlineMovedDays != null && issue.deadlineMovedDays !== 0 && row('Original due date',
+              <span style={{ color: AMBER }}>
+                moved {issue.deadlineMovedDays > 0 ? 'out' : 'in'} {Math.abs(issue.deadlineMovedDays)}d
+                {issue.timingVsOriginal && <span style={{ color: issue.timingVsOriginal === 'late' ? RED : GREEN }}> · {issue.timingVsOriginal === 'late' ? 'late' : 'on time'} against it</span>}
+              </span>)}
+            {Object.keys(issue.byStatus).length > 0 && row('Where the time went', <StatusSplit byStatus={issue.byStatus} untouchedH={issue.untouchedH} />)}
             {issue.cycleH != null && row('Cycle (start → delivery)', fmtWorkHours(issue.cycleH))}
             {issue.reworkCount > 0 && row('Rework rounds', String(issue.reworkCount))}
           </div>
@@ -446,11 +541,30 @@ export default function PerformanceView() {
             team.overdueCount > 0 ? RED : BLUE,
             team.overdueCount > 0 ? `${team.overdueCount} overdue` : undefined,
           )}
+          {team.atRiskCount > 0 && summaryCard(
+            'At risk',
+            String(team.atRiskCount),
+            AMBER,
+            'unlikely to make the date',
+          )}
+          {team.movedDeadlineCount > 0 && summaryCard(
+            'Vs original date',
+            pct(team.onTimeVsOriginalPct),
+            scoreColor(team.onTimeVsOriginalPct),
+            `${team.movedDeadlineCount} deadline${team.movedDeadlineCount === 1 ? '' : 's'} moved`,
+          )}
         </div>
 
         {/* team comparison charts */}
         {selectedDev === 'ALL' && chartDevs.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10, flexShrink: 0 }}>
+            <ChartCard title="Work in progress — oldest first">
+              <AgingWip
+                issues={team.devs.flatMap((d) => d.issues)}
+                devName={(taskId) => team.devs.find((d) => d.issues.some((i) => i.taskId === taskId))?.dev.name ?? ''}
+                onOpen={(i) => setSelected({ issue: i, dev: team.devs.find((d) => d.issues.includes(i))!.dev })}
+              />
+            </ChartCard>
             <ChartCard title="Throughput — issues/week">
               <HBars
                 color={BLUE}
@@ -468,6 +582,9 @@ export default function PerformanceView() {
                   display: fmtWorkHours(d.cycleP50H!),
                 }))}
               />
+            </ChartCard>
+            <ChartCard title="Where the time goes">
+              <StatusSplit byStatus={team.byStatus} untouchedH={team.untouchedH} />
             </ChartCard>
             <ChartCard title="Productive vs blocked time">
               <FlowBars rows={chartDevs.map((d) => ({ key: d.dev.id, label: d.dev.name, effortH: d.effortTotalH, blockedH: d.blockedTotalH }))} />
@@ -531,6 +648,12 @@ export default function PerformanceView() {
                   <span>On-time <b style={{ color: 'var(--text)' }}>{d.onTimeCount}/{d.deliveredCount}</b> <span style={{ color: 'var(--text3)' }}>({pct(d.onTimePct)})</span></span>
                   <span style={{ color: 'var(--border)' }}>·</span>
                   <span>Flow <b style={{ color: d.flowEffPct != null && d.flowEffPct < 40 ? AMBER : 'var(--text)' }}>{pct(d.flowEffPct)}</b></span>
+                  {d.wipCount > 0 && (
+                    <span title="Issues open at once — the usual reason cycle times grow">
+                      WIP <b style={{ color: d.wipCount > 3 ? AMBER : 'var(--text)' }}>{d.wipCount}</b>
+                      {d.atRiskCount > 0 && <b style={{ color: AMBER }}> · {d.atRiskCount} at risk</b>}
+                    </span>
+                  )}
                   {d.throughputWk != null && <>
                     <span style={{ color: 'var(--border)' }}>·</span>
                     <span>{Math.round(d.throughputWk * 10) / 10}/wk</span>

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Developer, JiraIssue, Task } from '../types'
 import { computeTeamPerformance } from './performance'
 
@@ -222,5 +222,96 @@ describe('the team figure matches the issues under it', () => {
 
     expect(team.flowEffPct!).toBeLessThan(40)
     expect(team.flowEffPct!).toBeCloseTo(team.devs[0]!.flowEffPct!, 5)
+  })
+})
+
+describe('a deadline that moved', () => {
+  it('is judged against the date it started with as well as the one it ended with', () => {
+    // Due the 10th, pushed to the 25th on the 24th, delivered the 25th.
+    const pushed = issue('COM-60', '2026-09-25', '2026-09-25T17:00:00+04:00', {
+      deadlineHistory: [
+        { deadline: '2026-09-10', at: '2026-09-01T10:00:00+04:00' },
+        { deadline: '2026-09-25', at: '2026-09-24T10:00:00+04:00' },
+      ],
+    })
+    const team = computeTeamPerformance(input([pushed]), { from: '2026-09-01', to: '2026-09-30' })
+    const ip = team.devs[0]!.issues[0]!
+
+    expect(ip.timing).toBe('early')               // against the date it ended with
+    expect(ip.timingVsOriginal).toBe('late')      // against the date it started with
+    expect(ip.deadlineMovedDays).toBe(15)
+    expect(team.onTimePct).toBe(100)
+    expect(team.onTimeVsOriginalPct).toBe(0)
+    expect(team.movedDeadlineCount).toBe(1)
+  })
+})
+
+describe('what is in flight', () => {
+  it('flags an unfinished issue that will not make its date, and counts WIP', () => {
+    const now = new Date('2026-09-22T12:00:00+04:00')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+
+    // Three issues that each took about two weeks, so p85 is high...
+    const slow = (key: string) => issue(key, '2026-09-18', '2026-09-18T17:00:00+04:00', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-04T10:00:00+04:00' },
+        { status: 'done', at: '2026-09-18T17:00:00+04:00' },
+      ],
+    })
+    // ...and one still open since last week that is due tomorrow.
+    const open = issue('COM-70', '2026-09-23', null, {
+      statusHistory: [{ status: 'inprogress', at: '2026-09-16T10:00:00+04:00' }],
+    })
+
+    const team = computeTeamPerformance(input([slow('COM-71'), slow('COM-72'), slow('COM-73'), open]),
+      { from: '2026-09-01', to: '2026-09-30' })
+
+    expect(team.devs[0]!.wipCount).toBe(1)
+    expect(team.atRiskCount).toBe(1)
+    vi.useRealTimers()
+  })
+})
+
+describe('an issue that has already run long', () => {
+  it('is at risk even when its deadline is still comfortably ahead', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-22T12:00:00+04:00'))
+
+    // Typical issues take about half a day...
+    const quick = (key: string) => issue(key, '2026-09-04', '2026-09-04T14:00:00+04:00', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-04T10:00:00+04:00' },
+        { status: 'done', at: '2026-09-04T14:00:00+04:00' },
+      ],
+    })
+    // ...and this one has been open three weeks, but is not due for another month.
+    const dragging = issue('COM-90', '2026-10-30', null, {
+      statusHistory: [{ status: 'inprogress', at: '2026-09-01T10:00:00+04:00' }],
+    })
+
+    const team = computeTeamPerformance(input([quick('COM-91'), quick('COM-92'), quick('COM-93'), dragging]),
+      { from: '2026-09-01', to: '2026-10-31' })
+
+    // The old rule asked "is there time left before the deadline" and said no risk at all.
+    expect(team.atRiskCount).toBe(1)
+    vi.useRealTimers()
+  })
+})
+
+describe('where the time went', () => {
+  it('splits the span by status and leaves Done out of it', () => {
+    const reviewed = issue('COM-80', '2026-09-04', '2026-09-04T18:00:00+04:00', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-02T10:00:00+04:00' },
+        { status: 'review', at: '2026-09-02T12:00:00+04:00' },
+        { status: 'done', at: '2026-09-04T18:00:00+04:00' },
+      ],
+    })
+    const team = computeTeamPerformance(input([reviewed]))
+
+    expect(team.byStatus.inprogress).toBeCloseTo(2, 1)
+    expect(team.byStatus.review!).toBeGreaterThan(5) // two days sitting in review
+    expect(team.byStatus.done).toBeUndefined()       // finished is not time spent
   })
 })
