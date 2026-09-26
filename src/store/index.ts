@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
-import { commitRecords, getServerSyncStatus, loadRecords, markUnloading, runServerSync, type RecordsResponse, type ServerSyncStatus, type SyncKind } from '../utils/cloud-api'
+import { commitRecords, commitRecordsOnUnload, getServerSyncStatus, loadRecords, markRestored, markUnloading, runServerSync, type RecordsResponse, type ServerSyncStatus, type SyncKind } from '../utils/cloud-api'
 import { cloudToState, DOC_KEYS, normalizeTask, RecordTracker, recordsToCloud, type PersistedState } from '../sync-core/records'
 import { listVault, removeFromVault, storeInVault, type Credentialed } from '../utils/credentials'
 import { reportError } from '../utils/error-reporter'
@@ -219,7 +219,7 @@ function forceFlushOnUnload(): void {
   syncLog('unload', { note: batch ? `sending ${batch.size} records` : 'nothing pending' })
   if (!batch) return
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-  void commitRecords(batch.body)
+  commitRecordsOnUnload(batch.body)
 }
 
 function persistState(immediate = false): void {
@@ -252,6 +252,9 @@ if (typeof window !== 'undefined') {
   // A sync writes state repeatedly, so a save is usually still uploading when the page
   // closes; waiting for it would lose everything queued behind it. Send it now instead.
   window.addEventListener('pagehide', () => { markUnloading(); forceFlushOnUnload() })
+  // Coming back from the back/forward cache (switching apps on a phone does this): the
+  // page is alive again, so saves must behave normally rather than stay in unload mode.
+  window.addEventListener('pageshow', (e) => { if (e.persisted) markRestored() })
   // Retry immediately once connectivity returns, instead of waiting out the backoff.
   window.addEventListener('online', () => {
     if (dirty) { retryAttempt = 0; scheduleFlush(0) }

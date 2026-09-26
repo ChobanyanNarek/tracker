@@ -246,10 +246,19 @@ async function gzipJson(data: Record<string, unknown>): Promise<{ body: BodyInit
 
 export type SaveFailReason = 'unauthorized' | 'network' | 'tooLarge' | 'server'
 
-// Set on pagehide so the final save switches to a keepalive request, which the browser
-// allows to outlive the document instead of killing it mid-flight.
+/*
+ * True only while the document is actually going away, so the last save can switch to a
+ * keepalive request that outlives it.
+ *
+ * It MUST be cleared again on return. pagehide fires every time a phone user switches
+ * apps, and the page is then kept in the back/forward cache with this module's state
+ * intact -- so a flag that was never reset left the tab permanently in "unloading" mode:
+ * an expired token skipped the silent refresh below and signed the user out, and saves
+ * ran with no timeout, so one hung request blocked the save queue for good.
+ */
 let unloading = false
 export function markUnloading(): void { unloading = true }
+export function markRestored(): void { unloading = false }
 
 // A save that never settles would block the save queue forever (nothing else can
 // flush while one is in flight), so give it a hard ceiling and let the retry take over.
@@ -259,6 +268,37 @@ const SAVE_TIMEOUT_MS = 45_000
 const KEEPALIVE_MAX_BYTES = 60_000
 
 export type CommitResult = { ok: true; result: CommitResponse } | { ok: false; reason: SaveFailReason }
+
+/*
+ * The last save as the tab closes. Everything here runs synchronously inside the pagehide
+ * handler: the moment this function awaits anything, the browser is free to tear the
+ * document down before the request is even created. That is what happened while the body
+ * was gzipped first -- compression is stream work, so the await usually lost the race and
+ * the "last chance" save was never sent at all.
+ *
+ * So the body goes out uncompressed, which keepalive only allows up to 64KB. A bigger
+ * batch falls back to the normal path: it may not survive, but it is the best available.
+ */
+export function commitRecordsOnUnload(body: CommitBody): void {
+  if (!getToken()) return
+  const json = JSON.stringify(body)
+
+  if (new Blob([json]).size > KEEPALIVE_MAX_BYTES) {
+    void commitRecords(body)
+    return
+  }
+
+  try {
+    void fetch(`${API_URL}/pm-tracker/records/commit`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: json,
+      keepalive: true,
+    })
+  } catch {
+    // Nothing useful to do: the page is going away.
+  }
+}
 
 export async function commitRecords(body: CommitBody): Promise<CommitResult> {
   if (!getToken()) return { ok: false, reason: 'unauthorized' }

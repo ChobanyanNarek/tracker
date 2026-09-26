@@ -48,8 +48,9 @@ async function bodyOf(init: RequestInit): Promise<CommitBody> {
 }
 
 type Route = (url: string, init?: RequestInit) => Response | Promise<Response>
-function serve(routes: { load?: Route; changes?: Route; commit?: Route; sync?: Route; syncStatus?: Route; jiraSearch?: Route }) {
+function serve(routes: { load?: Route; changes?: Route; commit?: Route; sync?: Route; syncStatus?: Route; jiraSearch?: Route; refresh?: Route }) {
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    if (url.endsWith('/auth/refresh')) return Promise.resolve(routes.refresh ? routes.refresh(url, init) : json({ accessToken: { token: 'fresh' } }))
     if (url.endsWith('/pm-tracker/records/commit')) return Promise.resolve(routes.commit!(url, init))
     if (url.endsWith('/pm-tracker/sync')) {
       const route = init?.method === 'POST' ? routes.sync : routes.syncStatus
@@ -85,6 +86,7 @@ beforeEach(async () => {
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
   localStorage.setItem('pm_tracker_token', 'session')
+  localStorage.setItem('pm_tracker_refresh', 'refresh-token')
   serve({ load: () => json(snapshot), commit: acceptAll(), changes: () => json({ ...snapshot, full: false, docs: [], tasks: [] }) })
   await syncCloudToStore()
   await settle()
@@ -255,6 +257,53 @@ describe('syncing on the server', () => {
     await expect(useStore.getState().syncJira({ background: true })).resolves.toEqual({ added: 0, updated: 0, removed: 0 })
     expect(syncs()).toHaveLength(0)
     expect(jiraCalls()).toHaveLength(0)
+  })
+})
+
+describe('the last save as the tab goes away', () => {
+  it('sends it synchronously with keepalive, without waiting on compression', async () => {
+    // Awaiting gzip first lost the race with the document being torn down, so the
+    // "last chance" save was usually never issued at all.
+    serve({ commit: acceptAll() })
+    useStore.getState().updateTask('t1', { comment: 'typed then closed the tab' })
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    // No await: the request must already exist by the time the handler returns.
+    const sent = commits()
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.keepalive).toBe(true)
+    expect(typeof sent[0]!.body).toBe('string') // plain JSON, not a compressed Blob
+    const body = JSON.parse(sent[0]!.body as string) as CommitBody
+    expect(body.tasks[0]).toMatchObject({ id: 't1', data: { comment: 'typed then closed the tab' } })
+  })
+
+  it('goes back to normal saves after the page is restored from the back/forward cache', async () => {
+    // Switching apps on a phone fires pagehide; coming back must not leave the tab stuck
+    // in unload mode, where an expired token skipped the refresh and signed the user out.
+    window.dispatchEvent(new Event('pagehide'))
+    const restored = new Event('pageshow') as Event & { persisted: boolean }
+    Object.defineProperty(restored, 'persisted', { value: true })
+    window.dispatchEvent(restored)
+
+    let attempt = 0
+    serve({
+      commit: async (_url, init) => {
+        attempt++
+        if (attempt === 1) return new Response(null, { status: 401 })
+        const body = await bodyOf(init!)
+        return json({ applied: body.tasks.map((t) => ({ kind: 'task', id: t.id, revision: 99 })), conflicts: [], rejected: [] })
+      },
+      refresh: () => json({ accessToken: { token: 'fresh' }, refreshToken: { token: 'fresh-r' } }),
+    })
+
+    useStore.getState().updateTask('t2', { comment: 'after coming back' })
+    persistNow()
+    await settle()
+
+    // The 401 was refreshed and the save replayed, rather than ending the session.
+    expect(attempt).toBeGreaterThan(1)
+    expect(useStore.getState().saveError).not.toBe('unauthorized')
   })
 })
 
