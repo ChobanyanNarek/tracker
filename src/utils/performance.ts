@@ -71,8 +71,12 @@ export interface IssuePerf {
   hoursToDeadline: number | null
   /** Still in flight and unlikely to make its deadline, judged against the team's own p85. */
   atRisk: boolean
-  /** Raw work-window hours per calendar day, before the developer's day is shared out. */
-  effortByDay: Map<string, { raw: number; cap: number }>
+  /*
+   * Per calendar day: the raw In Progress hours, that day's productive capacity, and the
+   * total hours this issue held of that day across all its statuses. The last is what other
+   * issues compete against when the day has to be shared.
+   */
+  effortByDay: Map<string, { raw: number; cap: number; dayTotal: number }>
   /** This issue's own In Progress working hours — what the status timeline adds up to. */
   effortH: number
   /*
@@ -182,6 +186,8 @@ const ON_TIME_TOLERANCE_MS = 5 * 60_000
  * sat near 100% for everyone and so never told anyone anything.
  */
 const LOW_FLOW_EFF_PCT = 40
+/** The statuses that represent time spent; 'done' is the end state, not a duration. */
+const TRACKED_STATUSES = ['todo', 'inprogress', 'review', 'blocked'] as const
 /*
  * An issue nobody has touched for this many working days has stopped being work in
  * progress and started being forgotten. Its open interval stops accruing effort at that
@@ -470,10 +476,41 @@ function computeIssue(
    * phantom work also ate the capacity of the issues they were genuinely working on.
    */
   const accrualEndMs = deliveryMs ?? nowMs
-  const clip = (segments: Array<[number, number]>): Array<[number, number]> =>
+
+  /*
+   * In flight until it was Done. Failing a Done entry, until it was delivered -- there is
+   * no evidence of anything happening after that, and letting it run to "now" made the
+   * flow efficiency of a delivered issue decay a little further every day.
+   */
+  const lastEntry = sortedHistory[sortedHistory.length - 1]
+  const doneMs = lastEntry?.status === 'done' ? atMs(lastEntry) : null
+  /*
+   * The LATER of the two, not whichever happened to be checked first. A follow-up MR
+   * pushed after the ticket was closed put delivery past the end of the span, so the
+   * statuses were measured over a longer window than the span they are meant to divide
+   * and the split came to more than the whole — which pushed the In Progress slice below
+   * the flow-efficiency figure standing right beside it.
+   */
+  const flowEndMs = doneMs != null && deliveryMs != null ? Math.max(doneMs, deliveryMs)
+    : doneMs ?? deliveryMs ?? nowMs
+
+  /*
+   * Both ends. The span being divided starts at the first In Progress, so anything before
+   * that -- the days a ticket sat in To Do before anyone picked it up -- is outside it.
+   * Counting that time in the split made the parts add up to more than the whole, which
+   * dragged the In Progress slice below the flow-efficiency figure beside it.
+   */
+  const clipTo = (segments: Array<[number, number]>, end: number): Array<[number, number]> =>
     segments
-      .map(([a, b]) => [a, Math.min(b, accrualEndMs)] as [number, number])
+      .map(([a, b]) => [Math.max(a, startMs ?? a), Math.min(b, end)] as [number, number])
       .filter(([a, b]) => b > a)
+  /*
+   * Work stops at delivery; waiting does not. Clipping review at delivery erased the very
+   * days an issue spent waiting to be reviewed -- which is the largest part of most spans,
+   * and the thing flow efficiency exists to show.
+   */
+  const clip = (segments: Array<[number, number]>) => clipTo(segments, accrualEndMs)
+  const clipSpan = (segments: Array<[number, number]>) => clipTo(segments, flowEndMs)
 
   const intervals = buildIntervals(sortedHistory, nowMs, accrualEndMs, dev, schedule, scheduleHours)
 
@@ -484,10 +521,56 @@ function computeIssue(
   const inProgress = clampStaleTail(clip(seg('inprogress')), accrualEndMs, dev, schedule, scheduleHours)
   const blocked = clampStaleTail(clip(seg('blocked')), accrualEndMs, dev, schedule, scheduleHours)
   const stale = deliveryMs == null && (inProgress.stale || blocked.stale)
-  // Raw per-day hours, not yet capped: the cap belongs to the developer's day as a whole,
-  // and is applied across all of their issues together once they are all computed.
-  const effortByDay = workHoursByDay(inProgress.segments, dev, schedule, scheduleHours)
-  const blockedH = cappedWorkHours(blocked.segments, dev, schedule, scheduleHours)
+
+  /*
+   * A day holds the developer's productive hours and no more, and the statuses of one issue
+   * divide that day between them. Capping each status on its own let them overrun it: two
+   * hours In Progress plus seven Blocked inside a nine-hour window both fitted under an
+   * eight-hour cap, so the split came to nine hours of an eight-hour day and no longer
+   * matched the span it is supposed to describe.
+   */
+  const dayRaw = new Map<string, { cap: number; total: number; byStatus: Map<Status, number> }>()
+  for (const status of TRACKED_STATUSES) {
+    const segments = status === 'inprogress' ? inProgress.segments
+      : status === 'blocked' ? blocked.segments
+      : clipSpan(seg(status))
+    for (const [date, { raw, cap }] of workHoursByDay(segments, dev, schedule, scheduleHours)) {
+      let d = dayRaw.get(date)
+      if (!d) { d = { cap, total: 0, byStatus: new Map() }; dayRaw.set(date, d) }
+      d.total += raw
+      d.byStatus.set(status, (d.byStatus.get(status) ?? 0) + raw)
+    }
+  }
+  /*
+   * A nine-hour window holds eight productive hours, so a day's statuses can ask for more
+   * than the day has. Work is served first and keeps the hours the timeline shows -- two
+   * hours In Progress reads as two hours -- and the shortfall comes off the waiting, which
+   * is where breaks actually fall. The parts still add up to exactly the day's capacity.
+   */
+  const dayByStatus = (d: { cap: number; total: number; byStatus: Map<Status, number> }) => {
+    const out = new Map<Status, number>()
+    const workRaw = d.byStatus.get('inprogress') ?? 0
+    const workH = Math.min(workRaw, d.cap)
+    if (workRaw > 0) out.set('inprogress', workH)
+
+    const waitRaw = d.total - workRaw
+    if (waitRaw > 1e-9) {
+      const factor = Math.min(1, Math.max(0, d.cap - workH) / waitRaw)
+      for (const [status, raw] of d.byStatus) {
+        if (status !== 'inprogress') out.set(status, raw * factor)
+      }
+    }
+    return out
+  }
+
+  const effortByDay = new Map<string, { raw: number; cap: number; dayTotal: number }>()
+  let blockedH = 0
+  for (const [date, d] of dayRaw) {
+    const shared = dayByStatus(d)
+    const ip = d.byStatus.get('inprogress')
+    if (ip != null) effortByDay.set(date, { raw: ip, cap: d.cap, dayTotal: d.total })
+    blockedH += shared.get('blocked') ?? 0
+  }
 
   // Rework: In Progress again after having reached Review/Done
   let reworkCount = 0
@@ -511,17 +594,6 @@ function computeIssue(
     : null
 
   const suspect = startMs != null && prInstants.length > 0 && Math.min(...prInstants) < startMs
-
-  /*
-   * In flight until it was Done. Failing a Done entry, until it was delivered -- there is
-   * no evidence of anything happening after that, and letting it run to "now" made the
-   * flow efficiency of a delivered issue decay a little further every day.
-   */
-  const lastEntry = sortedHistory[sortedHistory.length - 1]
-  const flowEndMs = lastEntry?.status === 'done' ? atMs(lastEntry) : (deliveryMs ?? nowMs)
-  const flowSpanH = startMs != null
-    ? cappedWorkHours([[startMs, Math.max(flowEndMs, startMs)]], dev, schedule, scheduleHours)
-    : null
 
   let timing: Timing | null = null
   let deliveryDeltaH: number | null = null
@@ -554,21 +626,22 @@ function computeIssue(
   }
 
   /*
-   * Where the time went, by status. Built from the same clamped segments the other numbers
-   * use, not from the raw intervals -- otherwise a forgotten issue's open In Progress run
-   * counts every one of its untouched days and the split says 91% working when flow
-   * efficiency says 31%. 'done' is left out: it is the end state, not time spent.
+   * Where the time went, by status, sharing each day between the statuses that claimed it
+   * so the split adds up to the span rather than overrunning it. 'done' is left out: it is
+   * the end state, not time spent.
    */
   const byStatus: Partial<Record<Status, number>> = {}
   if (startMs != null) {
-    for (const status of ['todo', 'inprogress', 'review', 'blocked'] as const) {
-      const clamped = status === 'inprogress' ? inProgress
-        : status === 'blocked' ? blocked
-        : clampStaleTail(seg(status), nowMs, dev, schedule, scheduleHours)
-      const h = cappedWorkHours(clamped.segments, dev, schedule, scheduleHours)
-      if (h > 1e-9) byStatus[status] = h
+    for (const d of dayRaw.values()) {
+      for (const [status, hours] of dayByStatus(d)) {
+        if (hours > 1e-9) byStatus[status] = (byStatus[status] ?? 0) + hours
+      }
     }
   }
+
+  const flowSpanH = startMs != null
+    ? cappedWorkHours([[startMs, Math.max(flowEndMs, startMs)]], dev, schedule, scheduleHours)
+    : null
 
   const hoursToDeadline = deliveryMs == null && deadlineMs != null && deadlineMs > nowMs
     ? cappedWorkHours([[nowMs, deadlineMs]], dev, schedule, scheduleHours)
@@ -626,18 +699,26 @@ function computeIssue(
  * anyone who multitasks. Share each day out in proportion to the raw time on each issue.
  */
 function finalizeDevIssues(issues: IssuePerf[]): void {
+  // Claims on each day are the whole time an issue held the developer's attention, not
+  // only its In Progress part — an issue blocked all afternoon still occupied that day.
   const dayTotals = new Map<string, number>()
   for (const ip of issues) {
-    for (const [date, { raw }] of ip.effortByDay) dayTotals.set(date, (dayTotals.get(date) ?? 0) + raw)
+    for (const [date, { dayTotal }] of ip.effortByDay) dayTotals.set(date, (dayTotals.get(date) ?? 0) + dayTotal)
   }
 
   for (const ip of issues) {
     let soloH = 0
     let shareH = 0
-    for (const [date, { raw, cap }] of ip.effortByDay) {
-      soloH += Math.min(raw, cap)
-      const claimed = dayTotals.get(date) ?? raw
-      shareH += claimed > cap ? (raw / claimed) * cap : Math.min(raw, cap)
+    for (const [date, { raw, cap, dayTotal }] of ip.effortByDay) {
+      // Work first, as within the issue: In Progress keeps the hours its timeline shows.
+      const own = Math.min(raw, cap)
+      soloH += own
+      // Across issues the day is divided by how much of it each one occupied; this issue's
+      // work then shrinks by the same factor its day did.
+      const claimed = dayTotals.get(date) ?? dayTotal
+      const mine = Math.min(dayTotal, cap)
+      const allotted = claimed > cap ? (dayTotal / claimed) * cap : mine
+      shareH += mine > 1e-9 ? own * (allotted / mine) : 0
     }
     ip.effortH = soloH
     ip.effortShareH = shareH

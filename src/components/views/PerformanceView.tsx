@@ -106,7 +106,9 @@ function HBars({ rows, color, labelWidth = 84 }: { rows: BarRowDatum[]; color: s
 }
 
 const STATUS_SPLIT: Array<{ status: Status; label: string; color: string }> = [
-  { status: 'todo', label: 'Waiting to start', color: 'var(--text4)' },
+  // Not "waiting to start": the span begins when work started, so this is time the issue
+  // was pushed back to To Do after that.
+  { status: 'todo', label: 'Parked in To Do', color: 'var(--text4)' },
   { status: 'inprogress', label: 'In progress', color: GREEN },
   { status: 'review', label: 'In review', color: BLUE },
   { status: 'blocked', label: 'Blocked', color: AMBER },
