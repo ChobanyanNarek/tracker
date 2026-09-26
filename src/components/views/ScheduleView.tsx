@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useStore, joinedByDate } from '../../store'
 import { hexRgb, initials } from '../../utils/format'
-import { daysInMonth, padDate, isAmHoliday, formatDate } from '../../utils/dates'
+import { daysInMonth, padDate, isAmHoliday, formatDate, todayStr, isoDate } from '../../utils/dates'
 import Icon, { type IconName } from '../ui/Icon'
 import type { EmploymentPeriod, ScheduleType } from '../../types'
 
@@ -105,6 +105,26 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
     return () => document.removeEventListener('click', close)
   }, [onClose])
 
+  /*
+   * Opened with Enter from a grid cell, the menu sits after the table in the DOM, so Tab
+   * walked the rest of the rows before reaching it. Move focus in, keep Tab inside, and
+   * let Escape back out -- ScheduleView puts focus back on the cell.
+   */
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>('button')?.focus()
+  }, [])
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') { e.stopPropagation(); onClose(); return }
+    if (e.key !== 'Tab' || !ref.current) return
+    const items = [...ref.current.querySelectorAll<HTMLElement>('button')]
+    if (!items.length) return
+    const first = items[0]!
+    const last = items[items.length - 1]!
+    if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+  }
+
   // The rows were divs with onClick, so the menu could be opened but not used from a
   // keyboard. They are buttons now; this undoes the UA chrome they come with.
   const row: React.CSSProperties = {
@@ -116,7 +136,7 @@ function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, 
   const left = Math.min(anchorRect.left, window.innerWidth - 210)
 
   return (
-    <div ref={ref} style={{ position: 'fixed', top, left, zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', boxShadow: '0 8px 32px rgba(0,0,0,.25)', minWidth: 200, overflow: 'hidden' }}>
+    <div ref={ref} role="menu" aria-label={label} onKeyDown={onKeyDown} style={{ position: 'fixed', top, left, zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', boxShadow: '0 8px 32px rgba(0,0,0,.25)', minWidth: 200, overflow: 'hidden' }}>
       <div style={{ padding: '7px 12px', fontSize: 11, fontWeight: 600, color: 'var(--text3)', borderBottom: '1px solid var(--border)', fontFamily: 'var(--mono)' }}>{label}</div>
       {(['work', 'dayoff', 'sick', 'holiday'] as const).map((k) => (
         <button type="button" key={k} onClick={() => onSelect(k)} aria-pressed={current === k} style={{ ...row, background: current === k ? 'var(--accent-dim)' : 'none', borderLeft: current === k ? '3px solid var(--accent)' : '3px solid transparent', transition: 'background .1s' }} onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface2)' }} onMouseLeave={(e) => { e.currentTarget.style.background = current === k ? 'var(--accent-dim)' : '' }}>
@@ -159,6 +179,14 @@ export default function ScheduleView() {
   const [menu, setMenu] = useState<{ devId: string; dateStr: string; rect: DOMRect } | null>(null)
   const [rangeStart, setRangeStart] = useState<{ devId: string; date: string } | null>(null)
   const [empModal, setEmpModal] = useState<string | null>(null) // devId
+  /*
+   * One tab stop for the whole grid. A month of cells per developer would otherwise be
+   * hundreds of stops between the toolbar and whatever follows the table, so the grid
+   * takes a single stop and the arrow keys move within it, as a grid is meant to work.
+   */
+  const [cursor, setCursor] = useState<{ row: number; col: number }>({ row: 0, col: 0 })
+  const gridRef = useRef<HTMLTableElement>(null)
+  const movedByKey = useRef(false)
 
   const allDevelopers = useStore((s) => s.developers.filter((d) => !d.archivedAt))
   const selectedProject = useStore((s) => s.selectedProject)
@@ -172,7 +200,7 @@ export default function ScheduleView() {
   const days = daysInMonth(year, month)
   const daysList: string[] = []
   for (let d = 1; d <= days; d++) daysList.push(padDate(year, month, d))
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayStr()  // the user's calendar day, not UTC's
 
   const getEntry = (devId: string, dateStr: string) => schedule[devId]?.[dateStr] ?? null
 
@@ -186,7 +214,7 @@ export default function ScheduleView() {
         const cur = new Date(a + 'T12:00:00')
         const end = new Date(b + 'T12:00:00')
         while (cur <= end) {
-          const ds = cur.toISOString().split('T')[0]
+          const ds = isoDate(cur)
           if (!isWeekend(ds)) setScheduleDay(clickedDevId, ds, 'vacation')
           cur.setDate(cur.getDate() + 1)
         }
@@ -195,6 +223,56 @@ export default function ScheduleView() {
       return
     }
     setMenu({ devId: clickedDevId, dateStr, rect })
+  }
+
+  // Keep the tab stop on a cell that still exists when the month or the team changes.
+  const clamped = {
+    row: Math.min(cursor.row, Math.max(developers.length - 1, 0)),
+    col: Math.min(cursor.col, Math.max(daysList.length - 1, 0)),
+  }
+
+  useEffect(() => {
+    if (!movedByKey.current) return
+    movedByKey.current = false
+    gridRef.current?.querySelector<HTMLElement>(`[data-cell="${clamped.row}-${clamped.col}"]`)?.focus()
+  }, [clamped.row, clamped.col])
+
+  const moveCursor = (dRow: number, dCol: number) => {
+    movedByKey.current = true
+    setCursor((c) => ({
+      row: Math.max(0, Math.min(developers.length - 1, Math.min(c.row, developers.length - 1) + dRow)),
+      col: Math.max(0, Math.min(daysList.length - 1, Math.min(c.col, daysList.length - 1) + dCol)),
+    }))
+  }
+
+  // Closing the menu hands focus back to the cell it came from, so a keyboard user does
+  // not land back at the top of the page.
+  const closeMenu = () => {
+    const open = menu
+    setMenu(null)
+    if (!open) return
+    const row = developers.findIndex((d) => d.id === open.devId)
+    const col = daysList.indexOf(open.dateStr)
+    if (row < 0 || col < 0) return
+    requestAnimationFrame(() => {
+      gridRef.current?.querySelector<HTMLElement>(`[data-cell="${row}-${col}"]`)?.focus()
+    })
+  }
+
+  const onCellKeyDown = (e: React.KeyboardEvent<HTMLTableCellElement>, editable: boolean) => {
+    switch (e.key) {
+      case 'ArrowLeft': e.preventDefault(); moveCursor(0, -1); return
+      case 'ArrowRight': e.preventDefault(); moveCursor(0, 1); return
+      case 'ArrowUp': e.preventDefault(); moveCursor(-1, 0); return
+      case 'ArrowDown': e.preventDefault(); moveCursor(1, 0); return
+      case 'Home': e.preventDefault(); movedByKey.current = true; setCursor((c) => ({ ...c, col: 0 })); return
+      case 'End': e.preventDefault(); movedByKey.current = true; setCursor((c) => ({ ...c, col: daysList.length - 1 })); return
+      case 'Enter':
+      case ' ':
+        if (!editable) return
+        e.preventDefault()
+        handleCellClick(developers[clamped.row]!.id, daysList[clamped.col]!, e.currentTarget.getBoundingClientRect())
+    }
   }
 
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -230,7 +308,7 @@ export default function ScheduleView() {
 
       {/* grid */}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 900 }}>
+        <table ref={gridRef} role="grid" aria-label="Team schedule" style={{ borderCollapse: 'collapse', width: '100%', minWidth: 900 }}>
           <colgroup>
             <col style={{ width: 160 }} />
             {daysList.map((d) => <col key={d} />)}
@@ -330,7 +408,7 @@ export default function ScheduleView() {
                       </div>
                     </div>
                   </td>
-                  {daysList.map((ds) => {
+                  {daysList.map((ds, ci) => {
                     const isWe = isWeekend(ds)
                     const amHol = isAmHoliday(ds)
                     const entry = getEntry(dev.id, ds)
@@ -352,27 +430,35 @@ export default function ScheduleView() {
                       : isTodayCol ? 'var(--accent-dim)'
                       : undefined
 
+                    const cellLabel = preJoin ? 'Before this developer joined' : (amHol || dt?.label || (isPartial && !isWe ? `${hours}h / part-time` : 'Full day'))
+                    const editable = !isWe && !preJoin
+
                     return (
                       <td
                         key={ds}
+                        data-cell={`${di}-${ci}`}
+                        tabIndex={di === clamped.row && ci === clamped.col ? 0 : -1}
+                        onFocus={() => setCursor({ row: di, col: ci })}
+                        onKeyDown={(e) => onCellKeyDown(e, editable)}
+                        aria-label={`${dev.name}, ${formatDate(ds)} — ${cellLabel}`}
                         onClick={(e) => {
-                          if (isWe || preJoin) return
+                          if (!editable) return
                           e.stopPropagation()
                           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                           handleCellClick(dev.id, ds, rect)
                         }}
-                        title={preJoin ? 'Before this developer joined' : (amHol || dt?.label || (isPartial && !isWe ? `${hours}h / part-time` : 'Full day'))}
+                        title={cellLabel}
                         style={{
                           padding: 2, borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)', textAlign: 'center',
                           borderLeft: isTodayCol ? '2px solid var(--accent)' : undefined,
-                          cursor: (isWe || preJoin) ? 'default' : 'pointer',
+                          cursor: editable ? 'pointer' : 'default',
                           background: cellBg,
                           opacity: preJoin ? 0.45 : undefined,
                           transition: 'filter .1s',
                           height: 30,
                           verticalAlign: 'middle',
                         }}
-                        onMouseEnter={(e) => { if (!isWe && !preJoin) e.currentTarget.style.filter = 'brightness(0.93)' }}
+                        onMouseEnter={(e) => { if (editable) e.currentTarget.style.filter = 'brightness(0.93)' }}
                         onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
                       >
                         {dt && (
@@ -409,10 +495,10 @@ export default function ScheduleView() {
           current={getEntry(menu.devId, menu.dateStr)}
           amHoliday={isAmHoliday(menu.dateStr)}
           anchorRect={menu.rect}
-          onSelect={(type) => { setScheduleDay(menu.devId, menu.dateStr, type); setMenu(null) }}
-          onRange={() => { setRangeStart({ devId: menu.devId, date: menu.dateStr }); setMenu(null) }}
-          onClear={() => { setScheduleDay(menu.devId, menu.dateStr, null); setMenu(null) }}
-          onClose={() => setMenu(null)}
+          onSelect={(type) => { setScheduleDay(menu.devId, menu.dateStr, type); closeMenu() }}
+          onRange={() => { setRangeStart({ devId: menu.devId, date: menu.dateStr }); closeMenu() }}
+          onClear={() => { setScheduleDay(menu.devId, menu.dateStr, null); closeMenu() }}
+          onClose={closeMenu}
         />
       )}
 

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react'
 import { useEscapeKey } from '../../hooks/useEscapeKey'
+import { captureFocusOrigin, restoreFocusOrigin } from '../../utils/focus-return'
 
 interface Props {
   title: React.ReactNode
@@ -27,7 +28,7 @@ export default function Modal({ title, subtitle, width, zIndex, headerExtra, foo
   // page underneath, and Tab walked the hidden content. Move focus in, keep it in, and
   // hand it back to whatever opened the modal.
   useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null
+    const opener = captureFocusOrigin()
     const box = boxRef.current
     // The box, not its first control: that first control is the close button, and landing
     // on it means a stray Enter shuts the dialog. A screen reader reads the title here,
@@ -46,7 +47,7 @@ export default function Modal({ title, subtitle, width, zIndex, headerExtra, foo
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      opener?.focus?.()
+      restoreFocusOrigin(opener)
     }
   }, [])
 
