@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from 'react'
 import { isAuthenticated, isSuperAdmin, isSubscriptionActive, clearToken, AUTH_CHANGED } from './utils/auth'
 import { getSubscriptionStatus, confirmPayment } from './utils/payment-api'
 import LoginPage from './components/auth/LoginPage'
@@ -236,10 +236,14 @@ function AuthedApp() {
   const togglePanel = (which: 'proj' | 'team') => setOpenPanel((p) => (p === which ? null : which))
 
   const urgentProj = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
-  const filteredTasks = urgentProj ? tasks.filter((t) => t.projectId === selectedProject) : tasks
-  const filteredDevs = urgentProj ? developers.filter((d) => urgentProj.members.includes(d.id)) : developers
-  const urgentState = useStore.getState()
-  const urgentCount = countUrgentDeadlines(filteredTasks, filteredDevs, getBoardScope(urgentState))
+  // This scans every task for a deadline badge on one tab. It used to re-run on every
+  // store write, which includes every keystroke in the search box.
+  const boardScope = getBoardScope(useStore.getState())
+  const urgentCount = useMemo(() => {
+    const filteredTasks = urgentProj ? tasks.filter((t) => t.projectId === selectedProject) : tasks
+    const filteredDevs = urgentProj ? developers.filter((d) => urgentProj.members.includes(d.id)) : developers
+    return countUrgentDeadlines(filteredTasks, filteredDevs, boardScope)
+  }, [tasks, developers, urgentProj, selectedProject, boardScope])
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showToast = useCallback((msg: string) => {

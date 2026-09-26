@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchQuery } from '../../hooks/useSearchQuery'
 import { useStore, jiraConnectionForProject } from '../../store'
 import { STATUS_LABEL } from '../../constants'
 import { resolveIssueDisplay } from '../ui/StatusBadge'
@@ -93,11 +94,12 @@ export default function SearchView() {
   const state = useStore()
   const {
     developers, projects, selectedProject,
-    searchQuery, setSearchQuery,
     setSelectedDate, setSelectedDev, setSelectedProject, setHighlightedTaskId, setView,
   } = state
 
-  const q = searchQuery.trim()
+  // The box keeps its own value and debounces into the store; `q` is what to search for.
+  const [searchQuery, setSearchQuery] = useSearchQuery()
+  const q = state.searchQuery.trim()
 
   // Reset to page 1 whenever the query/filters change, then fetch that page.
   useEffect(() => { setPage(1) }, [q, statusFilter, selectedProject])

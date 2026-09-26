@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, jiraConnectionForProject } from '../../store'
 import { dlInfo, latestWorkday, formatDate, isoDate } from '../../utils/dates'
 import DatePicker from '../ui/DatePicker'
@@ -97,14 +97,23 @@ export default function DeadlinesView() {
   // Greenwich late in the evening.
   const yesterday = isoDate(new Date(new Date(today + 'T12:00:00').getTime() - 86_400_000))
 
-  const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
+  const archivedIds = useMemo(
+    () => new Set(developers.filter((d) => d.archivedAt).map((d) => d.id)),
+    [developers],
+  )
 
+  /*
+   * Both passes below walk the whole task history, regex included. Built inline they ran
+   * again on every store write -- the minute pull, a background sync, any save-status
+   * change -- and on every sort or range tweak, before anything could paint.
+   */
   // Pre-pass: find the earliest date each issue had each status, scanning ALL history
   // (no dev/project filter — filtering here causes the since-date to fall back to today
   // whenever the task lived in a different project at the time).
   // Key: "${devId}|${dedupeKey}|${status}" → earliest date with that status
-  const statusSince = new Map<string, string>()
-  tasks.forEach((task) => {
+  const statusSince = useMemo(() => {
+    const out = new Map<string, string>()
+    tasks.forEach((task) => {
     if (archivedIds.has(task.devId)) return
     const jiras = getJiras(task)
     if (jiras.length) {
@@ -112,17 +121,21 @@ export default function DeadlinesView() {
         const dk = jiraDedupeKey(j.url, j.name)
         if (!dk) return
         const k = `${task.devId}|${dk}|${j.status}`
-        const ex = statusSince.get(k)
-        if (!ex || task.date < ex) statusSince.set(k, task.date)
+        const ex = out.get(k)
+        if (!ex || task.date < ex) out.set(k, task.date)
       })
     } else if (task.deadline) {
       const k = `${task.devId}|task-title:${task.title}|${task.status}`
-      const ex = statusSince.get(k)
-      if (!ex || task.date < ex) statusSince.set(k, task.date)
+      const ex = out.get(k)
+      if (!ex || task.date < ex) out.set(k, task.date)
     }
-  })
+    })
+    return out
+  }, [tasks, archivedIds])
 
   type JiraEntry = { latestItem: DeadlineItem; minDate: string }
+
+  const deduped = useMemo(() => {
   const jiraMap = new Map<string, JiraEntry>()
 
   tasks.forEach((task) => {
@@ -178,24 +191,29 @@ export default function DeadlinesView() {
     }
   })
 
-  const deduped: DeadlineItem[] = []
+  const out: DeadlineItem[] = []
   jiraMap.forEach(({ latestItem, minDate }, jKey) => {
     if (latestItem.status === 'done') return
     const realSince = statusSince.get(`${jKey}|${latestItem.status}`) ?? minDate
     const daysStuck = Math.max(0, Math.round(
       (new Date(today).getTime() - new Date(realSince + 'T12:00:00').getTime()) / 86_400_000,
     ))
-    deduped.push({ ...latestItem, _daysStuck: daysStuck, _sinceDate: realSince })
+    out.push({ ...latestItem, _daysStuck: daysStuck, _sinceDate: realSince })
   })
+  return out
+  }, [tasks, archivedIds, statusSince, today, rangeStart, rangeEnd, selectedDev, selectedProject, boardScope])
 
   // Items without a deadline sort to the end
   const dlDate = (item: DeadlineItem) =>
     item.deadline ? new Date(item.deadline + 'T' + (item.deadlineTime || '23:59')).getTime() : Infinity
+  // Names resolved once, not with a linear scan inside every comparison.
+  const devName = new Map(developers.map((d) => [d.id, d.name]))
+  const projName2 = new Map(projects.map((p) => [p.id, p.name]))
   const sorted = [...deduped]
   if (sortKey === 'date-asc' || sortKey === 'urgency') sorted.sort((a, b) => dlDate(a) - dlDate(b))
   else if (sortKey === 'date-desc') sorted.sort((a, b) => dlDate(b) - dlDate(a))
-  else if (sortKey === 'assignee') sorted.sort((a, b) => (developers.find((d) => d.id === a.task.devId)?.name ?? '').localeCompare(developers.find((d) => d.id === b.task.devId)?.name ?? '') || dlDate(a) - dlDate(b))
-  else if (sortKey === 'project') sorted.sort((a, b) => (projects.find((p) => p.id === a.task.projectId)?.name ?? '').localeCompare(projects.find((p) => p.id === b.task.projectId)?.name ?? '') || dlDate(a) - dlDate(b))
+  else if (sortKey === 'assignee') sorted.sort((a, b) => (devName.get(a.task.devId) ?? '').localeCompare(devName.get(b.task.devId) ?? '') || dlDate(a) - dlDate(b))
+  else if (sortKey === 'project') sorted.sort((a, b) => (projName2.get(a.task.projectId ?? '') ?? '').localeCompare(projName2.get(b.task.projectId ?? '') ?? '') || dlDate(a) - dlDate(b))
   else if (sortKey === 'status') { const o: Record<string, number> = { blocked: 0, inprogress: 1, review: 2, todo: 3 }; sorted.sort((a, b) => (o[a.status] ?? 3) - (o[b.status] ?? 3) || dlDate(a) - dlDate(b)) }
 
   const jumpTo = (item: DeadlineItem) => {

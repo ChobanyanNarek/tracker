@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useSearchQuery } from '../../hooks/useSearchQuery'
 import { useStore } from '../../store'
 import { clearToken, getUserInfo } from '../../utils/auth'
 
@@ -103,7 +104,8 @@ function DevSelector({ onManageTeam }: { onManageTeam: () => void }) {
 }
 
 export default function TopBar({ urgentCount, onFeedback, onProjPanel, onTeamPanel, projPanelOpen, onAdminOpen }: TopBarProps) {
-  const { setNotifsEnabled, notifsEnabled, setView, setSelectedDate, searchQuery, setSearchQuery } = useStore()
+  const { setNotifsEnabled, notifsEnabled, setView, setSelectedDate } = useStore()
+  const [searchQuery, setSearchQuery] = useSearchQuery()
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [billingOpen, setBillingOpen] = useState(() => new URLSearchParams(window.location.search).get('billing') === '1')
