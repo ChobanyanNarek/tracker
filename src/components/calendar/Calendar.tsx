@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../../store'
-import { todayStr, dlInfo, daysInMonth, padDate, isAmHoliday } from '../../utils/dates'
+import { todayStr, dlInfo, daysInMonth, padDate, isAmHoliday, formatDate } from '../../utils/dates'
 import { getJiras } from '../../utils/format'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -85,11 +85,14 @@ export default function Calendar() {
           else if (weekend) { bg = 'var(--surface3)'; textColor = 'var(--text3)'; opacity = 0.7 }
 
           return (
-            <div
+            <button
+              type="button"
               key={ds}
               data-date={ds}
               onClick={() => setSelectedDate(ds)}
               title={holiday ?? ''}
+              aria-pressed={isActive}
+              aria-label={formatDate(ds)}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, padding: '4px 7px', borderRadius: 'var(--r)', border, cursor: 'pointer', background: bg, transition: 'all .15s', minWidth: 38, flexShrink: 0, position: 'relative', opacity }}
             >
               {alertType && (
@@ -100,7 +103,7 @@ export default function Calendar() {
                 {day}
                 {isToday && !isActive && <div style={{ width: 4, height: 4, background: 'var(--green)', borderRadius: '50%', margin: '1px auto 0' }} />}
               </div>
-            </div>
+            </button>
           )
         })}
       </div>

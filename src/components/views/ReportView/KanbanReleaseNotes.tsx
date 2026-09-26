@@ -298,7 +298,7 @@ export default function KanbanReleaseNotes() {
             onClick={() => setShowHidden((v) => !v)}
             style={{ ...btnBase, border: `1px solid ${showHidden ? 'var(--amber-border)' : 'var(--border)'}`, background: showHidden ? 'var(--amber-dim)' : 'var(--surface2)', color: showHidden ? 'var(--amber)' : 'var(--text2)' }}
           >
-            <Icon name="eye" size={12} /> {showHidden ? 'Hide hidden' : `Show hidden (${hiddenCount})`}
+            <Icon name={showHidden ? 'eye-off' : 'eye'} size={12} /> {showHidden ? 'Hide hidden' : `Show hidden (${hiddenCount})`}
           </button>
         )}
 
@@ -482,7 +482,7 @@ function GroupTable({
                     </td>
                   ))}
                   <td style={{ ...tdStyle, width: 36 }}>
-                    <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: true })} title="Hide" style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name="eye" size={12} /></button>
+                    <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: true })} title="Hide" className="tap" style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name="eye-off" size={12} /></button>
                   </td>
                 </tr>
               )

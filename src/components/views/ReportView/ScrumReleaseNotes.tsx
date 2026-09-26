@@ -358,7 +358,7 @@ export default function ScrumReleaseNotes() {
                       {isHidden ? (
                         <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: false })} title="Restore" style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--amber)', display: 'flex', alignItems: 'center' }}><Icon name="restore" size={12} /></button>
                       ) : (
-                        <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: true })} title="Hide issue" style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name="eye" size={12} /></button>
+                        <button onClick={() => updateReleaseNoteIssue(issueKey, { hidden: true })} title="Hide issue" className="tap" style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--text3)', display: 'flex', alignItems: 'center' }}><Icon name="eye-off" size={12} /></button>
                       )}
                     </td>
                   </tr>
@@ -397,7 +397,7 @@ export default function ScrumReleaseNotes() {
             onClick={() => setShowHidden((v) => !v)}
             style={{ ...btnBase, border: `1px solid ${showHidden ? 'var(--amber-border)' : 'var(--border)'}`, background: showHidden ? 'var(--amber-dim)' : 'var(--surface2)', color: showHidden ? 'var(--amber)' : 'var(--text2)' }}
           >
-            <Icon name="eye" size={12} /> {showHidden ? 'Hide hidden' : `Show hidden (${allHiddenCount})`}
+            <Icon name={showHidden ? 'eye-off' : 'eye'} size={12} /> {showHidden ? 'Hide hidden' : `Show hidden (${allHiddenCount})`}
           </button>
         )}
 

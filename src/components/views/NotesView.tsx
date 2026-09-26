@@ -254,9 +254,11 @@ function NoteItem({ note, selected, onClick, onSnooze, projName, projColor }: {
     set: { background: 'var(--accent-dim)', color: 'var(--accent)' },
   }
   return (
-    <div onClick={onClick} style={{
+    <div onClick={onClick} role="button" tabIndex={0} aria-current={selected}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+      style={{
       position: 'relative', padding: '9px 10px 9px 14px', borderRadius: 9, cursor: 'pointer',
-      display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 1,
+      display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 1, textAlign: 'left',
       background: selected ? 'var(--surface)' : 'transparent',
       border: `1px solid ${selected ? 'var(--border)' : 'transparent'}`,
       boxShadow: selected ? 'var(--shadow-xs)' : 'none',

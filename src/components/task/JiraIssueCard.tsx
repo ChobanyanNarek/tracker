@@ -115,6 +115,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
         <button
           onClick={() => onHide(issue.issueId, issue.url ?? '')}
           title="Show issue"
+          className="tap"
           style={{ ...iconBtn, opacity: 0.7 }}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.opacity = '1' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.opacity = '0.7' }}

@@ -1755,12 +1755,24 @@ export function getActiveBoardId(state: AppState): number | undefined {
 // The Jira project-key prefixes the selected board covers, resolved & stored on the
 // project when the board was saved. undefined = no board selected (no filtering).
 // [] = board resolved but has zero issues (show nothing jira-related).
+/*
+ * These two used to rebuild an array and a Set of every board key on every call, and
+ * getBoardScope handed out a fresh object each time. Eight views call it on every render,
+ * and each one feeds it to a useMemo that therefore never hit. The results are cached
+ * against the stored arrays, so the identity only changes when the keys do.
+ */
+const normalizedKeys = new WeakMap<string[], string[]>()
+const keySets = new WeakMap<string[], Set<string>>()
+
 export function getActiveBoardProjectKeys(state: AppState): string[] | undefined {
   if (state.selectedProject === 'ALL') return undefined
   const proj = state.projects.find((p) => p.id === state.selectedProject)
   if (!proj?.jiraBoardId) return undefined
-  if (proj.boardProjectKeys === undefined) return undefined  // not resolved yet
-  return proj.boardProjectKeys.map((k) => k.trim().toUpperCase())  // may be [] (resolved, empty)
+  const raw = proj.boardProjectKeys
+  if (raw === undefined) return undefined  // not resolved yet
+  let out = normalizedKeys.get(raw)
+  if (!out) { out = raw.map((k) => k.trim().toUpperCase()); normalizedKeys.set(raw, out) }  // may be [] (resolved, empty)
+  return out
 }
 
 // The EXACT set of Jira issue keys on the selected scrum board — the accurate
@@ -1770,13 +1782,16 @@ export function getActiveBoardIssueKeys(state: AppState): Set<string> | undefine
   if (state.selectedProject === 'ALL') return undefined
   const proj = state.projects.find((p) => p.id === state.selectedProject)
   if (!proj?.jiraBoardId) return undefined
-  if (proj.boardIssueKeys === undefined) return undefined  // not resolved yet
+  const raw = proj.boardIssueKeys
+  if (raw === undefined) return undefined  // not resolved yet
   // An EMPTY key set means the board lookup came back with nothing -- a token that can't
   // read the board, a stale board id, a transient API failure. Treating that as the
   // authoritative membership list hides every issue in the project, which looked like the
   // tracker had lost them. Fall back to the coarser filters instead.
-  if (proj.boardIssueKeys.length === 0) return undefined
-  return new Set(proj.boardIssueKeys.map((k) => k.trim().toUpperCase()))
+  if (raw.length === 0) return undefined
+  let out = keySets.get(raw)
+  if (!out) { out = new Set(raw.map((k) => k.trim().toUpperCase())); keySets.set(raw, out) }
+  return out
 }
 
 // The Jira connection that owns the status-group mappings used for display.
@@ -1870,15 +1885,18 @@ export interface BoardScope {
   prefixes?: string[]           // prefix fallback, when exact keys unavailable
 }
 
+const INACTIVE_SCOPE: BoardScope = { active: false }
+let lastScope: BoardScope | null = null
+
 export function getBoardScope(state: AppState): BoardScope {
   const activeBoardId = getActiveBoardId(state)
-  if (!activeBoardId) return { active: false }
-  return {
-    active: true,
-    boardId: activeBoardId,
-    issueKeys: getActiveBoardIssueKeys(state),
-    prefixes: getActiveBoardProjectKeys(state),
-  }
+  if (!activeBoardId) return INACTIVE_SCOPE
+  const issueKeys = getActiveBoardIssueKeys(state)
+  const prefixes = getActiveBoardProjectKeys(state)
+  if (lastScope?.active && lastScope.boardId === activeBoardId
+    && lastScope.issueKeys === issueKeys && lastScope.prefixes === prefixes) return lastScope
+  lastScope = { active: true, boardId: activeBoardId, issueKeys, prefixes }
+  return lastScope
 }
 
 // Is a single jira issue on the selected board?
