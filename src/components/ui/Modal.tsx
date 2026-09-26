@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEscapeKey } from '../../hooks/useEscapeKey'
 
 interface Props {
   title: React.ReactNode
@@ -15,11 +15,8 @@ interface Props {
 /** Shared modal shell — overlay, box, header with close button, body, optional footer.
  *  Closes on Escape and on overlay click. */
 export default function Modal({ title, subtitle, width, zIndex, headerExtra, footer, bodyStyle, onClose, children }: Props) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  // Shared with the side panels so one Escape closes only the overlay on top.
+  useEscapeKey(true, onClose)
 
   return (
     <div className="modal-ov" style={zIndex ? { zIndex } : undefined} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>

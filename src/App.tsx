@@ -344,7 +344,7 @@ function AuthedApp() {
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div className="tabs-bar" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 14px 0', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <div className="tabs-bar" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '8px 14px 0', backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
             {(Object.keys(VIEW_LABELS) as Array<keyof typeof VIEW_LABELS>).map((v) => (
               <button
                 key={v}

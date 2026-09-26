@@ -341,30 +341,43 @@ input:focus, select:focus, textarea:focus {
 .navseg.open .navseg-caret { transform: rotate(180deg); color: var(--accent); }
 .navseg.compact { padding: 0 10px; }
 
-/* ── Scrollable tab bar (mobile) ── */
-.tabs-bar {
+/* ── Scrollable strips (tabs, day strip) ────────────────────────────────────
+ * Both hide their scrollbar, so without a cue the content just ends at the screen
+ * edge and the tabs past it (Schedule, Timeline, Report, Notes) look as though they
+ * do not exist.
+ *
+ * The four layers below are the classic scroll-shadow trick: two "cover" gradients
+ * painted in the surface colour that scroll WITH the content (background-attachment:
+ * local), and two shadows pinned to the element (scroll). At the far left the cover
+ * sits exactly over the left shadow and hides it; once content scrolls past, the cover
+ * moves away and the shadow shows. So each edge is marked only while there is more to
+ * see, with no JavaScript.
+ *
+ * The element's own background-color must be set with `background-color` (not the
+ * `background` shorthand), or it resets these layers — which is exactly what happened
+ * the first time this was written, leaving the cue invisible.
+ */
+.tabs-bar,
+.day-strip {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  /*
-   * A fade at the right edge, only while there is more to scroll to. Without it the bar
-   * ends flush at the screen edge on a phone and the later tabs (Schedule, Timeline,
-   * Report, Notes) look as if they do not exist.
-   */
-  background-image: linear-gradient(to left, var(--surface), rgba(0, 0, 0, 0) 28px);
-  background-position: right center;
+  background-image:
+    linear-gradient(to right, var(--surface), rgba(255, 255, 255, 0)),
+    linear-gradient(to left, var(--surface), rgba(255, 255, 255, 0)),
+    linear-gradient(to right, rgba(10, 14, 35, 0.13), rgba(10, 14, 35, 0)),
+    linear-gradient(to left, rgba(10, 14, 35, 0.13), rgba(10, 14, 35, 0));
+  background-position: left center, right center, left center, right center;
   background-repeat: no-repeat;
-  background-size: 28px 100%;
-  background-attachment: local, scroll;
+  background-size: 26px 100%, 26px 100%, 13px 100%, 13px 100%;
+  background-attachment: local, local, scroll, scroll;
 }
-.tabs-bar::-webkit-scrollbar { display: none; }
+.tabs-bar::-webkit-scrollbar,
+.day-strip::-webkit-scrollbar { display: none; }
 
-/* Same for the day strip and any other horizontal scroller that can run past the edge. */
-.day-strip {
-  scroll-behavior: smooth;
-  overscroll-behavior-x: contain;
-}
+.day-strip { scroll-behavior: smooth; overscroll-behavior-x: contain; }
+
 
 /* ── Phones ─────────────────────────────────────────────────────────────────
  * The app is laid out for a wide screen; these adjust the few places where that

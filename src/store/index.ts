@@ -1928,13 +1928,31 @@ export function taskPassesBoardFilter(t: Task, scope: BoardScope): boolean {
 export function getVisibleTasks(state: AppState, devId?: string): Task[] {
   const selectedDayOfWeek = new Date(state.selectedDate + 'T12:00:00').getDay()
   const boardScope = getBoardScope(state)
+
+  /*
+   * When a project marks a day non-working, the tasks already on that day are copied to
+   * the next working day (carriedOverNwd, see updateProject). The originals stay behind,
+   * and showing both would read as duplicated work -- so those superseded originals are
+   * hidden here, keyed by the day they were carried from.
+   *
+   * Only those. Hiding EVERY task on a non-working day meant a checkpoint added on a
+   * Saturday vanished the instant it was created (it still saved to the server), a
+   * deadline falling at a weekend opened an empty board, and "Go to task" from Deadlines
+   * jumped to a day that claimed to have nothing on it.
+   */
+  const supersededOn = new Set(
+    state.tasks
+      .filter((t) => t.carriedOverNwd && t.carriedFrom)
+      .map((t) => `${t.devId}|${t.projectId ?? ''}|${t.carriedFrom}`),
+  )
+
   const base = state.tasks.filter((t) => {
     const dv = devId ? t.devId === devId : state.selectedDev === 'ALL' || t.devId === state.selectedDev
     const pj = state.selectedProject === 'ALL' || t.projectId === state.selectedProject
     if (!dv || !pj || t.date !== state.selectedDate) return false
     const proj = state.projects.find((p) => p.id === t.projectId)
     const nwd = proj?.nonWorkingDays ?? [0, 6]
-    if (nwd.includes(selectedDayOfWeek)) return false
+    if (nwd.includes(selectedDayOfWeek) && supersededOn.has(`${t.devId}|${t.projectId ?? ''}|${t.date}`)) return false
     if (!taskPassesBoardFilter(t, boardScope)) return false
     return true
   })
