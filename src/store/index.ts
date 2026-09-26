@@ -4,7 +4,7 @@ import { commitRecords, commitRecordsOnUnload, getServerSyncStatus, loadRecords,
 import { cloudToState, DOC_KEYS, normalizeTask, RecordTracker, recordsToCloud, type PersistedState } from '../sync-core/records'
 import { listVault, removeFromVault, storeInVault, type Credentialed } from '../utils/credentials'
 import { reportError } from '../utils/error-reporter'
-import { todayStr, nextWorkDay, prevWorkDay, latestWorkday } from '../utils/dates'
+import { todayStr, nextWorkDay, prevWorkDay, latestWorkday, isoDate } from '../utils/dates'
 import { getJiras, identityList, jiraDedupeKey } from '../utils/format'
 import { fetchBoardIssueKeys } from '../utils/jira-api'
 import { browserTransport } from '../utils/browser-transport'
@@ -1142,7 +1142,7 @@ export const useStore = create<Store>((set, get) => {
       // Cutoff = 90 days ago as a YYYY-MM-DD string (well past the ~40d carry-over window).
       const cut = new Date()
       cut.setDate(cut.getDate() - 90)
-      const cutoff = cut.toISOString().slice(0, 10)
+      const cutoff = isoDate(cut)
 
       const { tasks } = get()
       let changed = false

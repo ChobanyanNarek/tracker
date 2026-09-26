@@ -420,6 +420,14 @@ input:focus, select:focus, textarea:focus {
    * anything, so the row keeps its density.
    */
   .hide-mobile { display: none !important; }
+
+  /*
+   * The issue header packed a title, a priority pill and four controls into one row, so
+   * on a phone the title was squeezed into a five-line column. Give it the full width and
+   * let the controls sit underneath.
+   */
+  .issue-head { flex-wrap: wrap; }
+  .issue-head > .issue-title { flex: 1 1 100% !important; order: -1; }
   .tap { padding: 12px 8px !important; margin: -9px -2px !important; display: inline-flex; align-items: center; justify-content: center; }
 }
 

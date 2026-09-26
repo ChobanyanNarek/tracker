@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useCallback } from 'react'
 import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, getVisibleDevIds } from '../../store'
 import { jiraDedupeKey, initials, hexRgb } from '../../utils/format'
-import { todayStr, formatDate } from '../../utils/dates'
+import { todayStr, formatDate, isoDate } from '../../utils/dates'
 import type { Developer, Project, JiraIssue } from '../../types'
 import DatePicker from '../ui/DatePicker'
 import { resolveGroups } from '../../sync-core/status-groups'
@@ -12,7 +12,7 @@ import Icon from '../ui/Icon'
 function addDays(dateStr: string, n: number): string {
   const d = new Date(dateStr + 'T12:00:00')
   d.setDate(d.getDate() + n)
-  return d.toISOString().slice(0, 10)
+  return isoDate(d)  // toISOString is UTC and shifts the day past UTC+12
 }
 
 function diffDays(a: string, b: string): number {
@@ -24,7 +24,7 @@ function diffDays(a: string, b: string): number {
 function startOfWeek(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00')
   d.setDate(d.getDate() - d.getDay() + 1) // Monday
-  return d.toISOString().slice(0, 10)
+  return isoDate(d)
 }
 
 function monthLabel(dateStr: string): string {

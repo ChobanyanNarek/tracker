@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, jiraConnectionForProject } from '../../store'
-import { dlInfo, todayStr, formatDate } from '../../utils/dates'
+import { dlInfo, latestWorkday, formatDate, isoDate } from '../../utils/dates'
 import DatePicker from '../ui/DatePicker'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
 import { STATUS_COLOR } from '../../constants'
@@ -80,7 +80,11 @@ function DeadlineCard({ item, developers, projects, yesterday, conn, onJump }: {
 
 export default function DeadlinesView() {
   const [sortKey, setSortKey] = useState<SortKey>('urgency')
-  const today = todayStr()
+  // The range picks which day's board to read, so it has to line up with the Daily board
+  // -- which opens on the latest workday. Anchoring it on the calendar day meant every
+  // weekend and public holiday opened Deadlines on "All clear" while Friday's board was
+  // still full of open issues.
+  const today = latestWorkday()
   const [rangeStart, setRangeStart] = useState(today)
   const [rangeEnd, setRangeEnd] = useState(today)
   const store = useStore()
@@ -89,7 +93,9 @@ export default function DeadlinesView() {
   // Each deadline is labelled with its own task's project settings, not the view's.
   const connFor = (projectId: string | undefined) => jiraConnectionForProject(store.jiraConnections, projectId)
 
-  const yesterday = new Date(new Date(today + 'T12:00:00').getTime() - 86_400_000).toISOString().slice(0, 10)
+  // isoDate, not toISOString: the latter is UTC and lands on the wrong day east of
+  // Greenwich late in the evening.
+  const yesterday = isoDate(new Date(new Date(today + 'T12:00:00').getTime() - 86_400_000))
 
   const archivedIds = new Set(developers.filter((d) => d.archivedAt).map((d) => d.id))
 

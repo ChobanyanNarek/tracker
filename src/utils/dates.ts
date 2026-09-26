@@ -111,3 +111,8 @@ export function daysInMonth(year: number, month: number): number {
 export function padDate(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
+
+/** A Date as the local YYYY-MM-DD. `toISOString().slice(0,10)` is UTC and gets this wrong. */
+export function isoDate(d: Date): string {
+  return padDate(d.getFullYear(), d.getMonth(), d.getDate())
+}

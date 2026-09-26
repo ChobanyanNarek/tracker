@@ -148,9 +148,9 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
       onMouseLeave={(e) => { if (!isDragging) (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--shadow-xs)' }}
     >
       {/* header row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+      <div className="issue-head" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         <span {...attributes} {...listeners} style={{ cursor: 'grab', color: 'var(--text3)', fontSize: 14, lineHeight: 1, padding: '2px 3px', borderRadius: 3, userSelect: 'none' }} className="tap" title="Drag to reorder">⠿</span>
-        <div style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>
+        <div className="issue-title" style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>
           {issue.name || jiraLbl || 'Jira Issue'}
         </div>
         {perfBadge}
