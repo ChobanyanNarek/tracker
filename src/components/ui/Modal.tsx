@@ -29,8 +29,10 @@ export default function Modal({ title, subtitle, width, zIndex, headerExtra, foo
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
     const box = boxRef.current
-    const first = box?.querySelector<HTMLElement>(FOCUSABLE)
-    ;(first ?? box)?.focus()
+    // The box, not its first control: that first control is the close button, and landing
+    // on it means a stray Enter shuts the dialog. A screen reader reads the title here,
+    // and Tab moves on to the fields.
+    box?.focus()
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Tab' || !box) return

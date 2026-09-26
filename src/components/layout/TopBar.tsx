@@ -358,7 +358,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, onTeamPan
             style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, color: 'var(--text)', background: 'transparent', fontFamily: 'var(--mono)' }}
           />
           {searchQuery && (
-            <button onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>
+            <button onClick={() => setSearchQuery('')} aria-label="Clear search" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>
           )}
         </div>
 

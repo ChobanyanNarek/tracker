@@ -461,7 +461,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
             <button onClick={() => { setShowForm(s => !s); setEditingProjId(null) }}
               style={{ background: showForm ? 'var(--accent-dim)' : 'none', border: `1.5px solid ${showForm ? 'var(--accent)' : 'var(--border2)'}`, color: 'var(--accent)', fontSize: 16, width: 28, height: 28, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
               title="Add project">+</button>
-            <button onClick={onClose} className="icon-btn" style={{ fontSize: 14 }}>✕</button>
+            <button onClick={onClose} aria-label="Close projects" className="icon-btn" style={{ fontSize: 14 }}>✕</button>
           </div>
         </div>
 
@@ -655,7 +655,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{d.name}</div>
                           <div style={{ fontSize: 11, color: 'var(--text3)' }}>{d.role}</div>
                         </div>
-                        <button onClick={() => useStore.getState().toggleMember(editingProj.id, d.id)} style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14 }}
+                        <button onClick={() => useStore.getState().toggleMember(editingProj.id, d.id)} title={`Remove ${d.name} from this project`} aria-label={`Remove ${d.name} from this project`} style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14 }}
                           onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--red)'; e.currentTarget.style.color = 'var(--red)' }}
                           onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text3)' }}
                         >✕</button>

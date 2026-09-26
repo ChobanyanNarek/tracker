@@ -250,7 +250,7 @@ export default function SearchView() {
         />
         {loading && <LoadingSpinner size={14} />}
         {q && (
-          <button onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 14, padding: '2px 4px' }}>✕</button>
+          <button onClick={() => setSearchQuery('')} aria-label="Clear search" style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 14, padding: '2px 4px' }}>✕</button>
         )}
       </div>
 

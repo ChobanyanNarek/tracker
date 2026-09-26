@@ -52,7 +52,7 @@ function EmploymentModal({ dev, onClose, onSave }: {
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', width: 620, maxWidth: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '13px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>{dev.name} — Employment periods</div>
-          <button onClick={onClose} className="icon-btn" style={{ fontSize: 16 }}>✕</button>
+          <button onClick={onClose} aria-label="Close" className="icon-btn" style={{ fontSize: 16 }}>✕</button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {periods.length === 0 && (
@@ -73,7 +73,7 @@ function EmploymentModal({ dev, onClose, onSave }: {
               <input type="date" value={p.from} onChange={(e) => updatePeriod(i, 'from', e.target.value)} title="From" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 6px', borderRadius: 5, width: 130, maxWidth: '100%' }} />
               <span style={{ color: 'var(--text3)', fontSize: 12, flexShrink: 0 }}>→</span>
               <input type="date" value={p.to ?? ''} onChange={(e) => updatePeriod(i, 'to', e.target.value || null)} title="To (leave empty for ongoing)" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 6px', borderRadius: 5, width: 130, maxWidth: '100%' }} />
-              <button onClick={() => removePeriod(i)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '2px 6px', fontSize: 14 }}>✕</button>
+              <button onClick={() => removePeriod(i)} aria-label="Remove this period" title="Remove this period" style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '2px 6px', fontSize: 14 }}>✕</button>
             </div>
           ))}
         </div>

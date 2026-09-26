@@ -215,7 +215,7 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
               {issue.suspect && <span style={{ ...chip(AMBER, 'rgba(217,119,6,.12)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="info" size={9} /> MR before In Progress</span>}
             </div>
           </div>
-          <button onClick={onClose} className="icon-btn" style={{ fontSize: 16 }}>✕</button>
+          <button onClick={onClose} aria-label="Close" className="icon-btn" style={{ fontSize: 16 }}>✕</button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
