@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
-import { isAuthenticated, isSuperAdmin, isSubscriptionActive, clearToken } from './utils/auth'
+import { isAuthenticated, isSuperAdmin, isSubscriptionActive, clearToken, AUTH_CHANGED } from './utils/auth'
 import { getSubscriptionStatus, confirmPayment } from './utils/payment-api'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
@@ -8,6 +8,7 @@ import { useStore, countUrgentDeadlines, syncCloudToStore, pullRemoteChanges, sp
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useNoteReminders } from './hooks/useNoteReminders'
 import { useAutoSync } from './hooks/useAutoSync'
+import { useIsMobile } from './hooks/useIsMobile'
 import TopBar from './components/layout/TopBar'
 import ConnectivityBanner from './components/layout/ConnectivityBanner'
 import Icon from './components/ui/Icon'
@@ -121,6 +122,14 @@ export default function App() {
 
 function AuthApp() {
   const [authed, setAuthed] = useState(isAuthenticated)
+
+  // The session can end far from any click — a load or a save gets a 401 and clears the
+  // token. Follow that here so the login form replaces the (now empty) board.
+  useEffect(() => {
+    const onAuthChange = () => setAuthed(isAuthenticated())
+    window.addEventListener(AUTH_CHANGED, onAuthChange)
+    return () => window.removeEventListener(AUTH_CHANGED, onAuthChange)
+  }, [])
   const [adminOpen, setAdminOpen] = useState(false)
   const [subscribed, setSubscribed] = useState<boolean | null>(null)
 
@@ -221,12 +230,7 @@ function AuthedApp() {
   useEffect(() => {
     if (!cloudSyncing && selectedProject !== 'ALL' && selBoardId) void refreshBoardIssueKeys(selectedProject)
   }, [cloudSyncing, selectedProject, selBoardId, refreshBoardIssueKeys])
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 640)
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
+  const isMobile = useIsMobile()
   const [toast, setToast] = useState<string | null>(null)
   const [openPanel, setOpenPanel] = useState<'proj' | 'team' | null>(null)
   const togglePanel = (which: 'proj' | 'team') => setOpenPanel((p) => (p === which ? null : which))
@@ -372,7 +376,7 @@ function AuthedApp() {
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6 }}>
               {cloudSyncing && (
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', opacity: 0.7 }}>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', opacity: 0.7 }}>
                   ↻ syncing…
                 </span>
               )}

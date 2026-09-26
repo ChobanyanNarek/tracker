@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { JiraIssue, PrEntry, Status, Priority, StatusHistoryEntry } from '../../types'
 import { useStore } from '../../store'
+import { deepEqual } from '../../sync-core/merge'
 import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
 import { todayStr } from '../../utils/dates'
 import { loadPresets, savePresets, loadJiraPresets, saveJiraPresets, subscribePresets } from '../../utils/format'
@@ -193,12 +194,32 @@ export default function TaskForm({ taskId, forDevId, onCancel }: Props) {
     return [makeBlankJira()]
   })
 
+  // What the issues looked like when the form opened. A sync running while the form is
+  // up would otherwise be undone on save: the untouched rows would write back the old
+  // status, PRs and history. Rows the user never edited defer to the synced copy.
+  const openedWith = useRef(jiraRows)
+
   const handleSave = () => {
     if (!devId) return
+
+    const liveIssues = new Map<string, JiraIssue>()
+    for (const j of tasks.find((t) => t.id === taskId)?.jiras ?? []) {
+      if (j.issueId) liveIssues.set(j.issueId, j)
+      if (j.url) liveIssues.set(j.url, j)
+    }
+    const openedAs = new Map<string, JiraFormRow>()
+    for (const r of openedWith.current) {
+      if (r.issueId) openedAs.set(r.issueId, r)
+      if (r.url) openedAs.set(r.url, r)
+    }
 
     const finalJiras: JiraIssue[] = jiraRows
       .filter((r) => r.url || r.name)
       .map((r, i) => {
+        const key = r.issueId ?? r.url
+        const before = key ? openedAs.get(key) : undefined
+        const live = key ? liveIssues.get(key) : undefined
+        if (before && live && deepEqual(before as never, r as never)) return { ...live, _srcIdx: i }
         const hasPr = r.prs.length > 0
         return {
           url: r.url,

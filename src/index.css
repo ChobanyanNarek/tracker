@@ -413,6 +413,14 @@ input:focus, select:focus, textarea:focus {
   .issue-detail-row { grid-template-columns: 1fr 1fr !important; align-items: start !important; }
   .issue-detail-row > *:first-child { grid-column: 1 / -1; }
   .form-two-col { grid-template-columns: 1fr !important; }
+
+  /*
+   * The per-issue controls are 8–17px icons: precise with a mouse, a coin toss with a
+   * thumb. The invisible ::after grows the touch target to about 40px without moving
+   * anything, so the row keeps its density.
+   */
+  .hide-mobile { display: none !important; }
+  .tap { padding: 12px 8px !important; margin: -9px -2px !important; display: inline-flex; align-items: center; justify-content: center; }
 }
 
 /* ── Notes markdown ─────────────────────────────────────────────────────────── */

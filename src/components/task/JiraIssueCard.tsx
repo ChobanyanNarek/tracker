@@ -41,6 +41,7 @@ function PrHistoryPopover({ p }: { p: PrEntry }) {
           onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', color: 'var(--text3)', fontSize: 9, lineHeight: 1, display: 'flex', alignItems: 'center' }}
           title="State history"
+          className="tap"
         >
           <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1a4 4 0 1 0 0 8A4 4 0 0 0 5 1Zm0 1.2a2.8 2.8 0 1 1 0 5.6A2.8 2.8 0 0 1 5 2.2Zm-.5 1v2.1l1.5 1-.4.6L4 5.5V3.2h.5Z"/></svg>
         </button>
@@ -147,7 +148,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
     >
       {/* header row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        <span {...attributes} {...listeners} style={{ cursor: 'grab', color: 'var(--text3)', fontSize: 14, lineHeight: 1, padding: '2px 3px', borderRadius: 3, userSelect: 'none' }} title="Drag to reorder">⠿</span>
+        <span {...attributes} {...listeners} style={{ cursor: 'grab', color: 'var(--text3)', fontSize: 14, lineHeight: 1, padding: '2px 3px', borderRadius: 3, userSelect: 'none' }} className="tap" title="Drag to reorder">⠿</span>
         <div style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>
           {issue.name || jiraLbl || 'Jira Issue'}
         </div>
@@ -165,6 +166,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
         <button
           onClick={() => onEdit(issue.issueId, issue.url ?? '')}
           title="Edit issue"
+          className="tap"
           style={iconBtn}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.opacity = '1' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.opacity = '0.5' }}
@@ -174,6 +176,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
         <button
           onClick={() => onHide(issue.issueId, issue.url ?? '')}
           title="Hide issue (keeps syncing)"
+          className="tap"
           style={iconBtn}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text2)'; e.currentTarget.style.opacity = '1' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.opacity = '0.5' }}
@@ -183,6 +186,7 @@ export default function JiraIssueCard({ issue, taskId, index, conn, onStatusChan
         <button
           onClick={() => onDelete(issue.issueId, issue.url ?? '')}
           style={iconBtn}
+          className="tap"
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.opacity = '1' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.opacity = '0.5' }}
           title="Delete issue"

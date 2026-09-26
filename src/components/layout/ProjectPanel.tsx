@@ -1,5 +1,6 @@
 import { hasCredential } from '../../utils/credentials'
 import { useEscapeKey } from '../../hooks/useEscapeKey'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import { useState, useEffect, useMemo } from 'react'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
@@ -269,6 +270,11 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
 
 export default function ProjectPanel({ open, onClose, topOffset, onToast }: Props) {
   useEscapeKey(open, onClose)
+  // On a phone the two drawers cannot sit side by side: 280 + 320 runs off a 375px
+  // screen and the edit form was all but invisible. Each one takes the full width there.
+  const isMobile = useIsMobile()
+  const panelW = isMobile ? '100vw' : PANEL_W
+  const editW = isMobile ? '100vw' : EDIT_W
 
   // Project add form
   const [showForm, setShowForm] = useState(false)
@@ -435,13 +441,17 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
 
       {/* Project list panel */}
       <div style={{
-        position: 'fixed', top: topOffset, left: 0, width: PANEL_W,
+        position: 'fixed', top: topOffset, left: 0, width: panelW, maxWidth: '100vw',
         height: `calc(100vh - ${topOffset}px)`,
         background: 'var(--surface)', borderRight: '1px solid var(--border)',
         boxShadow: open ? '8px 0 40px rgba(25,35,90,.13)' : 'none',
         zIndex: 200, display: 'flex', flexDirection: 'column',
         transform: open ? 'translateX(0)' : 'translateX(-100%)',
-        transition: 'transform .24s cubic-bezier(.4,0,.2,1), box-shadow .24s',
+        // A closed panel is off-screen but still in the tab order, so Tab used to walk
+        // into invisible buttons. visibility takes it out; the delayed transition lets
+        // the slide-out still play.
+        visibility: open ? 'visible' : 'hidden',
+        transition: 'transform .24s cubic-bezier(.4,0,.2,1), box-shadow .24s, visibility .24s',
         overflow: 'hidden',
       }}>
         {/* Header */}
@@ -518,15 +528,16 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
 
       {/* Edit drawer — slides in next to the panel */}
       <div style={{
-        position: 'fixed', top: topOffset, left: PANEL_W, width: EDIT_W,
+        position: 'fixed', top: topOffset, left: isMobile ? 0 : PANEL_W, width: editW, maxWidth: '100vw',
         height: `calc(100vh - ${topOffset}px)`,
         zIndex: 210, pointerEvents: editDrawerOpen ? 'all' : 'none',
-        transform: editDrawerOpen ? 'translateX(0)' : `translateX(-${PANEL_W + EDIT_W}px)`,
-        transition: 'transform .24s cubic-bezier(.4,0,.2,1)',
+        visibility: editDrawerOpen ? 'visible' : 'hidden',
+        transform: editDrawerOpen ? 'translateX(0)' : `translateX(-${isMobile ? '100%' : `${PANEL_W + EDIT_W}px`})`,
+        transition: 'transform .24s cubic-bezier(.4,0,.2,1), visibility .24s',
       }}>
         {/* Drawer body */}
         <div style={{
-          width: EDIT_W, height: '100%', background: 'var(--surface)',
+          width: editW, maxWidth: '100vw', height: '100%', background: 'var(--surface)',
           borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)',
           boxShadow: '8px 0 40px rgba(25,35,90,.15)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',

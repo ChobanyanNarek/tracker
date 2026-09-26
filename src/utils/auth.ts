@@ -42,10 +42,16 @@ export function setRefreshToken(token: string): void {
   localStorage.setItem(REFRESH_KEY, token)
 }
 
+/** Fired whenever the session is dropped, so the app can show the login screen. */
+export const AUTH_CHANGED = 'pm-auth-changed'
+
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
   localStorage.removeItem(REFRESH_KEY)
+  // An expired session used to leave the board mounted and empty: the token was gone but
+  // nothing told React, so the user stared at no data instead of a login form.
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(AUTH_CHANGED))
 }
 
 /*

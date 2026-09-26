@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import { useStore } from '../../store'
 import { clearToken, getUserInfo } from '../../utils/auth'
 
@@ -108,13 +109,7 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, onTeamPan
   const [billingOpen, setBillingOpen] = useState(() => new URLSearchParams(window.location.search).get('billing') === '1')
   const profileRef = useRef<HTMLDivElement>(null)
   const user = getUserInfo()
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false)
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 640)
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     if (!profileOpen) return

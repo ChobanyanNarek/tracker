@@ -419,21 +419,25 @@ const MAX_TAKE = 50
 // Release Notes needs every task in the range, not one server page — this
 // loops through pages to build the complete set. Bounded to 40 pages
 // (2000 tasks) as a hard safety cap against a runaway date range.
+const RELEASE_NOTE_PAGE_CAP = 40
+
 export async function getAllReleaseNoteTasks(params: {
   projectId?: string
   dateFrom?: string
   dateTo?: string
 }): Promise<RemoteTask[] | null> {
   const all: RemoteTask[] = []
-  let page = 1
-  for (let i = 0; i < 40; i++) {
+  // A page that fails, or a range so large it runs past the page cap, used to return
+  // whatever had arrived so far. Release notes then looked complete while quietly
+  // missing issues, so anything short of the whole list now reports failure and the
+  // caller falls back to the tasks it already has, with a notice.
+  for (let page = 1; page <= RELEASE_NOTE_PAGE_CAP; page++) {
     const result = await getReleaseNoteTasks({ ...params, page, take: MAX_TAKE })
-    if (!result) return all.length ? all : null
+    if (!result) return null
     all.push(...result.data)
-    if (!result.meta.hasNextPage) break
-    page++
+    if (!result.meta.hasNextPage) return all
   }
-  return all
+  return null
 }
 
 // ── Browser errors (built-in error tracking) ────────────────────────────────

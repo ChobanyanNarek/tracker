@@ -142,7 +142,11 @@ export default function TeamPanel({ open, onClose, topOffset }: PanelProps) {
         boxShadow: open ? '8px 0 40px rgba(25,35,90,.13)' : 'none',
         zIndex: 200, display: 'flex', flexDirection: 'column',
         transform: open ? 'translateX(0)' : 'translateX(-100%)',
-        transition: 'transform .24s cubic-bezier(.4,0,.2,1), box-shadow .24s',
+        // A closed panel is off-screen but still in the tab order, so Tab used to walk
+        // into invisible buttons. visibility takes it out; the delayed transition lets
+        // the slide-out still play.
+        visibility: open ? 'visible' : 'hidden',
+        transition: 'transform .24s cubic-bezier(.4,0,.2,1), box-shadow .24s, visibility .24s',
         overflow: 'hidden',
       }}>
         {/* Header */}

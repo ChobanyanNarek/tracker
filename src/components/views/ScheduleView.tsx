@@ -48,8 +48,8 @@ function EmploymentModal({ dev, onClose, onSave }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', width: 620, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rl)', width: 620, maxWidth: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '13px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>{dev.name} — Employment periods</div>
           <button onClick={onClose} className="icon-btn" style={{ fontSize: 16 }}>✕</button>
@@ -59,7 +59,7 @@ function EmploymentModal({ dev, onClose, onSave }: {
             <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic', padding: '6px 0' }}>Full time — no periods set</div>
           )}
           {periods.map((p, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', background: 'var(--surface2)', borderRadius: 'var(--r)', border: '1px solid var(--border)', flexWrap: 'nowrap' }}>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', background: 'var(--surface2)', borderRadius: 'var(--r)', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
               <select value={p.type} onChange={(e) => updatePeriod(i, 'type', e.target.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 6px', borderRadius: 5 }}>
                 <option value="full">Full time</option>
                 <option value="part">Part time</option>
@@ -70,9 +70,9 @@ function EmploymentModal({ dev, onClose, onSave }: {
                 </select>
               )}
               {p.type === 'full' && <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>8h/day</span>}
-              <input type="date" value={p.from} onChange={(e) => updatePeriod(i, 'from', e.target.value)} title="From" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 6px', borderRadius: 5, width: 130 }} />
+              <input type="date" value={p.from} onChange={(e) => updatePeriod(i, 'from', e.target.value)} title="From" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 6px', borderRadius: 5, width: 130, maxWidth: '100%' }} />
               <span style={{ color: 'var(--text3)', fontSize: 12, flexShrink: 0 }}>→</span>
-              <input type="date" value={p.to ?? ''} onChange={(e) => updatePeriod(i, 'to', e.target.value || null)} title="To (leave empty for ongoing)" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 6px', borderRadius: 5, width: 130 }} />
+              <input type="date" value={p.to ?? ''} onChange={(e) => updatePeriod(i, 'to', e.target.value || null)} title="To (leave empty for ongoing)" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 6px', borderRadius: 5, width: 130, maxWidth: '100%' }} />
               <button onClick={() => removePeriod(i)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '2px 6px', fontSize: 14 }}>✕</button>
             </div>
           ))}

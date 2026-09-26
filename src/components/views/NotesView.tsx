@@ -4,6 +4,7 @@ import type { Note, Project } from '../../types'
 import Icon from '../ui/Icon'
 import DatePicker from '../ui/DatePicker'
 import TimePicker from '../ui/TimePicker'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import EmptyState from '../ui/EmptyState'
 import ConfirmDialog from '../ui/ConfirmDialog'
 
@@ -112,6 +113,9 @@ export default function NotesView() {
   }, [filtered])
 
   const selected = (notes ?? []).find((n) => n.id === selectedId) ?? null
+  // A phone has no room for a list beside an editor: the note ends up a 60px strip. Show
+  // one at a time, with a back arrow from the note to the list.
+  const isMobile = useIsMobile()
 
   const [autoEdit, setAutoEdit] = useState(false)
   // Tracked here (not inside the editor) because switching notes REMOUNTS the editor —
@@ -153,14 +157,14 @@ export default function NotesView() {
   })
 
   return (
-    <div style={{ flex: 1, minHeight: 0, padding: '16px 20px', display: 'flex' }}>
+    <div style={{ flex: 1, minHeight: 0, padding: isMobile ? '10px 10px 0' : '16px 20px', display: 'flex' }}>
       <div style={{
-        display: 'grid', gridTemplateColumns: '300px 1fr', flex: 1, minHeight: 0,
+        display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '300px 1fr', flex: 1, minHeight: 0,
         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rx)',
         boxShadow: 'var(--shadow)', overflow: 'hidden',
       }}>
         {/* ── LEFT RAIL ── */}
-        <aside style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface2)' }}>
+        <aside style={{ borderRight: isMobile ? 'none' : '1px solid var(--border)', display: isMobile && selected ? 'none' : 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: 'var(--surface2)' }}>
           <div style={{ padding: '12px 12px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 9 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="notes" size={15} color="var(--accent)" />
@@ -223,8 +227,8 @@ export default function NotesView() {
 
         {/* ── RIGHT DETAIL ── */}
         {selected
-          ? <NoteEditor key={selected.id} note={selected} projects={projects} initialEdit={autoEdit} onEditStart={() => setAutoEdit(false)} onDirtyChange={(d) => { dirtyRef.current = d }} onChange={(c) => updateNote(selected.id, c)} onDelete={() => { dirtyRef.current = false; deleteNote(selected.id); setSelectedId(null) }} />
-          : (
+          ? <NoteEditor key={selected.id} note={selected} projects={projects} initialEdit={autoEdit} onEditStart={() => setAutoEdit(false)} onBack={isMobile ? () => { if (confirmDiscard()) setSelectedId(null) } : undefined} onDirtyChange={(d) => { dirtyRef.current = d }} onChange={(c) => updateNote(selected.id, c)} onDelete={() => { dirtyRef.current = false; deleteNote(selected.id); setSelectedId(null) }} />
+          : isMobile ? null : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <EmptyState icon="notes" title="Select a note" hint="Or create a new one with the + button" />
             </div>
@@ -421,10 +425,12 @@ function htmlToMd(html: string): string {
     .replace(/\n+$/, '')
 }
 
-function NoteEditor({ note, projects, initialEdit, onEditStart, onDirtyChange, onChange, onDelete }: {
+function NoteEditor({ note, projects, initialEdit, onEditStart, onDirtyChange, onChange, onDelete, onBack }: {
   note: Note; projects: Project[]; initialEdit?: boolean
   onChange: (c: Partial<Note>) => void; onDelete: () => void; onEditStart?: () => void
   onDirtyChange?: (dirty: boolean) => void
+  /** Only on a phone, where the list and the note share the screen. */
+  onBack?: () => void
 }) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -583,15 +589,21 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onDirtyChange, o
   )
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <section style={{ display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
       {/* header */}
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          {onBack && (
+            <button onClick={onBack} title="Back to notes" aria-label="Back to notes"
+              style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)' }}>
+              <Icon name="chevron-left" size={16} />
+            </button>
+          )}
           <input
             value={draft.title}
             onChange={(e) => patchDraft({ title: e.target.value })}
             placeholder="Note title"
-            style={{ flex: 1, fontSize: 20, fontWeight: 700, letterSpacing: '-.3px', lineHeight: 1.25, border: 'none', background: 'transparent', color: 'var(--text)', outline: 'none', fontFamily: 'var(--sans)' }}
+            style={{ flex: 1, minWidth: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-.3px', lineHeight: 1.25, border: 'none', background: 'transparent', color: 'var(--text)', outline: 'none', fontFamily: 'var(--sans)' }}
           />
           <button
             onClick={save}
@@ -652,7 +664,8 @@ function NoteEditor({ note, projects, initialEdit, onEditStart, onDirtyChange, o
       {/* formatting toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
         {FMT_ACTIONS.map(fmtBtn)}
-        <span style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold · Ctrl+I italic · Ctrl+U underline · Ctrl+H heading</span>
+        {/* Keyboard shortcuts mean nothing on a phone, where they only ate four lines. */}
+        <span className="hide-mobile" style={{ marginLeft: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text4)' }}>Ctrl+B bold · Ctrl+I italic · Ctrl+U underline · Ctrl+H heading</span>
         <span style={{ marginLeft: 'auto', fontFamily: 'var(--mono)', fontSize: 10, color: dirty ? 'var(--amber)' : 'var(--text4)' }}>{dirty ? 'Unsaved changes' : 'Saved'}</span>
       </div>
 
