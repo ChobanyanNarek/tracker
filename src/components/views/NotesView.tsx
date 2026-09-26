@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { isoDate } from '../../utils/dates'
 import { useStore } from '../../store'
 import type { Note, Project } from '../../types'
 import Icon from '../ui/Icon'
@@ -80,7 +81,14 @@ export default function NotesView() {
   const notifsBlocked = typeof Notification !== 'undefined' && Notification.permission === 'denied' && hasActiveReminders
   const overdueNotes = (notes ?? []).filter((n) => !n.archivedAt && n.reminderAt && new Date(n.reminderAt).getTime() <= Date.now())
   const clearAllOverdue = () => overdueNotes.forEach((n) => updateNote(n.id, { reminderAt: undefined }))
-  const snoozeOneHour = (id: string) => updateNote(id, { reminderAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() })
+  // The same zone-less "YYYY-MM-DDTHH:MM" every other writer uses. toISOString() put a
+  // UTC instant in a field the editor reads as local time, so opening the note afterwards
+  // and touching either picker moved the reminder by the whole UTC offset.
+  const snoozeOneHour = (id: string) => {
+    const t = new Date(Date.now() + 60 * 60 * 1000)
+    const hhmm = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
+    updateNote(id, { reminderAt: `${isoDate(t)}T${hhmm}` })
+  }
 
   // React to a reminder-notification click routing here
   useEffect(() => {

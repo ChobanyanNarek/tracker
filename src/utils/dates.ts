@@ -40,16 +40,21 @@ export interface DlInfo {
   diff: number
 }
 
-/** Count Mon–Fri days from `from` to `to`, both inclusive. */
-function workdays(from: string, to: string): number {
-  const f = new Date(from + 'T12:00:00')
+/*
+ * Working days strictly after `from`, up to and including `to` — i.e. how many working
+ * days there are between the two. It used to count both ends, so a deadline two days out
+ * was reported as "3d left" (and two days overdue as "3d ago"). Holidays are skipped here
+ * for the same reason nextWorkDay skips them: nobody works through them.
+ */
+function workdaysBetween(from: string, to: string): number {
   const t = new Date(to + 'T12:00:00')
-  if (f.getTime() > t.getTime()) return 0
+  const d = new Date(from + 'T12:00:00')
+  if (d.getTime() > t.getTime()) return 0
   let count = 0
-  const d = new Date(f)
+  d.setDate(d.getDate() + 1)
   while (d <= t) {
     const day = d.getDay()
-    if (day !== 0 && day !== 6) count++
+    if (day !== 0 && day !== 6 && !isAmHoliday(isoDate(d))) count++
     d.setDate(d.getDate() + 1)
   }
   return count
@@ -69,10 +74,10 @@ export function dlInfo(deadline: string, time?: string): DlInfo {
   else if (diff === 1) text = 'Tomorrow' + ts
   else if (diff === -1) text = 'Yesterday' + ts
   else if (diff < 0) {
-    const wd = workdays(deadline, today)
+    const wd = workdaysBetween(deadline, today)
     text = label + ' (' + wd + 'd ago)'
   } else {
-    const wd = workdays(today, deadline)
+    const wd = workdaysBetween(today, deadline)
     text = label + ' (' + wd + 'd left' + ts + ')'
   }
   return { cls: diff < 0 ? 'dl-over' : diff <= 2 ? 'dl-warn' : 'dl-ok', text, diff }

@@ -3,6 +3,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from 
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useStore, jiraConnectionForProject } from '../../store'
+import { useCollapsedIssues, toggleCollapsedIssue } from '../../hooks/useCollapsedIssues'
 import type { Task, JiraIssue } from '../../types'
 import { getJiras, jiraLabel, nestByParent } from '../../utils/format'
 import JiraIssueCard from './JiraIssueCard'
@@ -29,23 +30,10 @@ export default function TaskCard({ task, onToast }: Props) {
   const jiras = getJiras(task)
   const issueKey = (j: JiraIssue) => j.issueId ?? j.url ?? ''
 
-  // Subtasks render underneath their parent. Collapsed parents are remembered per issue
-  // in localStorage: it is a per-viewer display preference, so it must not travel into the
-  // synced state where it would follow the user onto other devices and other people.
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem('pm_collapsed_issues')
-      return new Set<string>(raw ? JSON.parse(raw) as string[] : [])
-    } catch { return new Set<string>() }
-  })
-  const toggleCollapsed = (key: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      try { localStorage.setItem('pm_collapsed_issues', JSON.stringify([...next])) } catch { /* private mode */ }
-      return next
-    })
-  }
+  // Subtasks render underneath their parent; which parents are folded is shared by every
+  // card on the page. See useCollapsedIssues.
+  const collapsed = useCollapsedIssues()
+  const toggleCollapsed = toggleCollapsedIssue
 
   const nested = nestByParent(jiras)
   // Hide any row whose parent — or any ancestor — is collapsed.
@@ -93,7 +81,7 @@ export default function TaskCard({ task, onToast }: Props) {
                 const k = issueKey(j)
                 const isCollapsed = collapsed.has(k)
                 return (
-                <div key={`${task.id}-${i}-row`} style={{ display: 'flex', alignItems: 'stretch', gap: 0, width: '100%', minWidth: 0 }}>
+                <div key={k || `${task.id}-${i}-row`} style={{ display: 'flex', alignItems: 'stretch', gap: 0, width: '100%', minWidth: 0 }}>
                   {/* indent rail + connector, one per level of depth */}
                   {depth > 0 && (
                     <div style={{ display: 'flex', flexShrink: 0 }} aria-hidden>
@@ -128,7 +116,9 @@ export default function TaskCard({ task, onToast }: Props) {
                   <div style={{ flex: 1, minWidth: 0, ...(depth > 0 ? { opacity: 0.94 } : {}) }}>
                 {editingIssueKey && editingIssueKey === issueKey(j) ? (
                   <IssueEditForm
-                    key={`${task.id}-${i}-edit`}
+                    // Keyed by the issue, not its position: a sync that reorders the list
+                    // used to remount the editor and throw away what was being typed.
+                    key={k || `${task.id}-${i}-edit`}
                     issue={j}
                     onSave={(patch) => {
                       updateJira(task.id, j.issueId, j.url ?? '', patch)

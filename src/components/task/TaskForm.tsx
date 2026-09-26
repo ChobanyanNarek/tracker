@@ -3,7 +3,7 @@ import type { JiraIssue, PrEntry, Status, Priority, StatusHistoryEntry } from '.
 import { useStore } from '../../store'
 import { deepEqual } from '../../sync-core/merge'
 import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
-import { todayStr } from '../../utils/dates'
+import { todayStr, isoDate } from '../../utils/dates'
 import { loadPresets, savePresets, loadJiraPresets, saveJiraPresets, subscribePresets } from '../../utils/format'
 import DatePicker from '../ui/DatePicker'
 import TimePicker from '../ui/TimePicker'
@@ -33,7 +33,7 @@ function PrRow({ value, onChange, onRemove }: { value: PrEntry; onChange: (v: Pr
       const n = new Date()
       onChange({
         url,
-        date: n.toISOString().split('T')[0],
+        date: isoDate(n),  // local: the time beside it is local too
         time: String(n.getHours()).padStart(2, '0') + ':' + String(n.getMinutes()).padStart(2, '0'),
       })
     } else {

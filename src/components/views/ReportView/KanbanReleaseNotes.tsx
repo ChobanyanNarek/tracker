@@ -3,7 +3,7 @@ import { useStore, getBoardScope, jiraOnBoard, getActiveJiraConn } from '../../.
 import { resolveIssueDisplay } from '../../ui/StatusBadge'
 import { getJiras, jiraLabel, jiraDedupeKey } from '../../../utils/format'
 import { copyText } from '../../../utils/clipboard'
-import { formatDate } from '../../../utils/dates'
+import { formatDate, todayStr, isoDate } from '../../../utils/dates'
 import { getAllReleaseNoteTasks, type RemoteTask } from '../../../utils/cloud-api'
 import { localReleaseNoteTasks } from '../../../utils/remote-tasks'
 import Icon from '../../ui/Icon'
@@ -56,8 +56,8 @@ export default function KanbanReleaseNotes() {
     return p?.members?.length ? new Set<string>(p.members) : new Set<string>()
   }, [projects, selectedProject])
 
-  const today = new Date().toISOString().split('T')[0]
-  const defaultStart = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+  const today = todayStr()
+  const defaultStart = isoDate(new Date(Date.now() - 30 * 86400000))
   const [startDate, setStartDate] = useState(defaultStart)
   const [endDate, setEndDate] = useState(today)
   const [copied, setCopied] = useState(false)

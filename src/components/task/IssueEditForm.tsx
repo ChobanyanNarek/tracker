@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { JiraIssue, PrEntry, Status, Priority } from '../../types'
 import { PRIORITY_CONF, STATUS_LABEL } from '../../constants'
-import { todayStr } from '../../utils/dates'
+import { todayStr, isoDate } from '../../utils/dates'
 import DatePicker from '../ui/DatePicker'
 import TimePicker from '../ui/TimePicker'
 
@@ -30,7 +30,9 @@ export default function IssueEditForm({ issue, onSave, onCancel }: Props) {
     const cur = prs[i]
     if (prUrl && !cur.date) {
       const n = new Date()
-      setPr(i, { url: prUrl, date: n.toISOString().split('T')[0], time: `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}` })
+      // isoDate, not toISOString: the time beside it is local, and pairing a UTC date
+      // with a local clock put the PR a day before it existed.
+      setPr(i, { url: prUrl, date: isoDate(n), time: `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}` })
     } else {
       setPr(i, { ...cur, url: prUrl })
     }

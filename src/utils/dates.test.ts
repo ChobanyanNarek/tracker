@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { latestWorkday, nextWorkDay, prevWorkDay, todayStr } from './dates'
+import { dlInfo, latestWorkday, nextWorkDay, prevWorkDay, todayStr } from './dates'
 
 /*
  * "Today" must be the user's own calendar day. Several screens used
@@ -22,6 +22,25 @@ describe('todayStr', () => {
 
     expect(new Date().toISOString().slice(0, 10)).toBe('2026-09-24') // what the bug used
     expect(todayStr()).toBe(new Intl.DateTimeFormat('en-CA').format(new Date()))
+  })
+})
+
+describe('dlInfo countdown', () => {
+  it('counts the working days between now and the deadline, not both ends', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-28T09:00:00')) // Monday
+    // Wednesday is two working days away; the old count included today and said 3.
+    expect(dlInfo('2026-09-30').text).toContain('2d left')
+    // And two working days overdue, not three.
+    vi.setSystemTime(new Date('2026-09-30T09:00:00'))
+    expect(dlInfo('2026-09-28').text).toContain('2d ago')
+  })
+
+  it('does not count public holidays as days anyone can work', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-12-30T09:00:00'))
+    // 31 Dec and 1-7 Jan are holidays, so 8 Jan is the only working day in between.
+    expect(dlInfo('2027-01-08').text).toContain('1d left')
   })
 })
 

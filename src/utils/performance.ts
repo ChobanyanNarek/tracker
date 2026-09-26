@@ -1,5 +1,6 @@
 import type { Developer, JiraIssue, Status, StatusHistoryEntry, Task } from '../types'
 import { jiraDedupeKey } from './format'
+import { isAmHoliday } from './dates'
 import { getSchedule, effectiveDailyHours, resolveTrackerTz, tzDateStr, tzDow, tzMidnightUtcMs, tzWallClockToUtcMs } from './working-hours'
 
 /**
@@ -200,7 +201,11 @@ function cappedWorkHours(
 
     if (sched.workDays.includes(dow)) {
       const dayOff = schedule[dev.id]?.[dateStr]
-      if (!dayOff || dayOff === 'work') {
+      // A public holiday counts as a day off unless the schedule explicitly says 'work'.
+      // Without this, a deadline over the New Year break charged eight hours a day for a
+      // week nobody worked, and the issue came out days late.
+      const holiday = isAmHoliday(dateStr) && dayOff !== 'work'
+      if ((!dayOff || dayOff === 'work') && !holiday) {
         const winStart = midnightMs + winStartMin * 60_000
         const winEnd = midnightMs + winEndMin * 60_000
         if (winEnd > winStart) {

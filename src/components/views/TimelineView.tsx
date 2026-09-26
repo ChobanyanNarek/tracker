@@ -54,6 +54,8 @@ interface BarItem {
   issue: JiraIssue
   start: string   // YYYY-MM-DD
   end: string     // YYYY-MM-DD (= deadline)
+  /** The day the kept `issue` snapshot came from — not the bar's start. */
+  snapshot: string
 }
 
 interface Tooltip {
@@ -130,12 +132,15 @@ export default function TimelineView() {
             issue: j,
             start: taskStart,
             end: j.deadline || taskStart,
+            snapshot: taskStart,
           })
         } else {
-          // take min start
+          // The snapshot has to be compared against the newest day seen, not against the
+          // bar's start -- start had just been lowered to taskStart, so the test was
+          // always true and an older copy encountered later replaced the current one,
+          // showing a stale status and deadline in the bar and the tooltip.
+          if (taskStart >= existing.snapshot) { existing.issue = j; existing.snapshot = taskStart }
           if (taskStart < existing.start) existing.start = taskStart
-          // update to latest task copy so tooltip shows current status/deadline
-          if (taskStart >= existing.start) existing.issue = j
           // keep the latest deadline for bar end
           if (j.deadline && (!existing.end || j.deadline > existing.end)) existing.end = j.deadline
         }

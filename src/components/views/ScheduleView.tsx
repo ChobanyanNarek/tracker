@@ -215,7 +215,8 @@ export default function ScheduleView() {
         const end = new Date(b + 'T12:00:00')
         while (cur <= end) {
           const ds = isoDate(cur)
-          if (!isWeekend(ds)) setScheduleDay(clickedDevId, ds, 'vacation')
+          // Public holidays are not leave; charging them cost people days off the balance.
+          if (!isWeekend(ds) && !isAmHoliday(ds)) setScheduleDay(clickedDevId, ds, 'vacation')
           cur.setDate(cur.getDate() + 1)
         }
       }
