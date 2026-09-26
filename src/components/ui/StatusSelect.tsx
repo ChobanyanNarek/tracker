@@ -47,7 +47,10 @@ export default function StatusSelect({ value, groupId, conn, onChange, style, la
         backgroundRepeat: 'no-repeat',
         backgroundPosition: 'right 8px center',
         transition: 'all .15s',
-        background: tokens.bg,
+        // backgroundColor, not the `background` shorthand: the shorthand resets
+        // background-image and wiped the chevron above, leaving a dropdown that looked
+        // like a plain pill (appearance:none had already removed the native arrow).
+        backgroundColor: tokens.bg,
         color: tokens.text,
         borderColor: tokens.border,
         ...style,

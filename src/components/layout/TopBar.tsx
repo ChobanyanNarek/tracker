@@ -284,6 +284,20 @@ export default function TopBar({ urgentCount, onFeedback, onProjPanel, onTeamPan
               {urgentCount}!
             </span>
           )}
+          {/*
+           * Search and Backup/Restore used to exist only in the desktop bar, and there is
+           * no Search tab, so on a phone neither could be reached at all. The Search view
+           * carries its own input, so this button only has to get the user there.
+           */}
+          <button
+            onClick={() => setView('search')}
+            title="Search"
+            aria-label="Search"
+            style={{ ...iconBtn, border: `1.5px solid ${searchQuery ? 'var(--accent)' : 'var(--border)'}`, background: searchQuery ? 'var(--accent-dim)' : 'var(--surface)', color: searchQuery ? 'var(--accent)' : 'var(--text4)' }}
+          >
+            <Icon name="search" size={14} />
+          </button>
+          <DataDropdown onFeedback={onFeedback} compact />
           <button
             onClick={toggleNotifs}
             title={notifOn ? 'Notifications ON' : 'Enable notifications'}
