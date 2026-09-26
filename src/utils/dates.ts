@@ -100,10 +100,6 @@ export function formatDateTime(value: Date | number | string): string {
 }
 
 /** Format a Date object as dd.mm.yyyy */
-export function formatDateObj(d: Date): string {
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
-}
-
 export function daysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate()
 }

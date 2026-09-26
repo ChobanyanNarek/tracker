@@ -3,7 +3,7 @@ import { useStore, joinedByDate } from '../../store'
 import { hexRgb, initials } from '../../utils/format'
 import { daysInMonth, padDate, isAmHoliday, formatDate } from '../../utils/dates'
 import Icon, { type IconName } from '../ui/Icon'
-import type { EmploymentPeriod } from '../../types'
+import type { EmploymentPeriod, ScheduleType } from '../../types'
 
 const DAY_TYPES: Record<string, { label: string; color: string; bg: string; icon: IconName; border: string }> = {
   work:    { label: 'Work',           color: 'var(--green)',  bg: 'var(--green-dim)',  icon: 'briefcase',    border: 'var(--green-border)' },
@@ -91,7 +91,7 @@ function EmploymentModal({ dev, onClose, onSave }: {
 // Context menu for a cell click
 function DayCellMenu({ dateStr, current, amHoliday, onSelect, onRange, onClear, onClose, anchorRect }: {
   devId?: string; dateStr: string; current: string | null; amHoliday: string | null
-  onSelect: (type: string) => void; onRange: () => void; onClear: () => void; onClose: () => void
+  onSelect: (type: ScheduleType) => void; onRange: () => void; onClear: () => void; onClose: () => void
   anchorRect: DOMRect
 }) {
   const ref = useRef<HTMLDivElement>(null)

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData } from '../types'
+import type { AppState, Developer, Project, Sprint, Task, Note, JiraIssue, JiraConfig, GitLabConfig, GitHubConfig, View, EmploymentPeriod, PrEntry, ReleaseNoteColumn, ReleaseNoteIssueData, ScheduleType } from '../types'
 import { commitRecords, commitRecordsOnUnload, getServerSyncStatus, loadRecords, markRestored, markUnloading, runServerSync, type RecordsResponse, type ServerSyncStatus, type SyncKind } from '../utils/cloud-api'
 import { cloudToState, DOC_KEYS, normalizeTask, RecordTracker, recordsToCloud, type PersistedState } from '../sync-core/records'
 import { listVault, removeFromVault, storeInVault, type Credentialed } from '../utils/credentials'
@@ -311,7 +311,7 @@ interface StoreActions {
   deleteJira: (taskId: string, issueId: string | undefined, url: string) => void
   toggleJiraHidden: (taskId: string, issueId: string | undefined, url: string) => void
 
-  setScheduleDay: (devId: string, date: string, type: string | null) => void
+  setScheduleDay: (devId: string, date: string, type: ScheduleType | null) => void
   setScheduleHours: (devId: string, date: string, hours: number) => void
 
   setNotifsEnabled: (v: boolean) => void
