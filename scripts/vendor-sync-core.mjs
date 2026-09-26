@@ -35,6 +35,13 @@ for (const name of readdirSync(join(root, 'src/sync-core'))) {
 files.set('types.ts', HEADER + readFileSync(join(root, 'src/types/index.ts'), 'utf8'))
 
 if (check) {
+  // CI checks out this repo alone, so there is no backend copy to compare against. That is
+  // not a drift failure -- say so and pass, and let the developer's own run (where the two
+  // repos sit side by side) be the thing that catches a stale copy.
+  if (!existsSync(backend)) {
+    console.log(`No backend checkout at ${backend} — skipping the sync-core drift check.`)
+    process.exit(0)
+  }
   const present = existsSync(target) ? readdirSync(target).filter((n) => n.endsWith('.ts')) : []
   const stale = [
     ...[...files].filter(([name, text]) => !existsSync(join(target, name)) || readFileSync(join(target, name), 'utf8') !== text).map(([n]) => n),

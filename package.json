@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
+    "typecheck:sync-core": "tsc -p tsconfig.sync-core.json --noEmit",
+    "check:sync-core": "node scripts/vendor-sync-core.mjs --check",
+    "gate": "pnpm run typecheck && pnpm run typecheck:sync-core && pnpm run check:sync-core && pnpm test && pnpm run build",
     "preview": "vite preview",
     "deploy": "npm run build && gh-pages -d dist --repo https://github.com/ChobanyanNarek/tracker.git",
     "test": "vitest run",
