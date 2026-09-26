@@ -18,8 +18,11 @@ export default function ConnectivityBanner() {
   // edits get silently lost. Say so plainly and offer the only thing that works.
   const expired = online && saveError === 'unauthorized'
 
+  // Nothing is written to this device: the only local storage is the session, a
+  // diagnostics log and display preferences. Promising "saved locally" is how a day of
+  // offline edits gets lost when the tab is closed, so say what is actually true.
   const message = !online
-    ? "You're offline — changes are saved locally and will sync once you're back online."
+    ? "You're offline — keep this tab open. Your changes are not saved yet and will sync when you're back online."
     : expired
       ? 'Your session expired, so changes are not being saved. Sign in again to save them.'
       : saveError === 'tooLarge'

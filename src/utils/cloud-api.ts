@@ -220,12 +220,18 @@ export async function adminRevokeSubscription(userId: string): Promise<boolean> 
 }
 
 export async function adminRefundPayment(paymentId: string): Promise<{ ok: boolean; message?: string }> {
-  const res = await fetch(`${API_URL}/payment/refund/${paymentId}`, {
-    method: 'POST',
-    headers: authHeaders(),
-  })
-  const body = await res.json().catch(() => ({})) as { ok?: boolean; message?: string }
-  return { ok: res.ok && body.ok !== false, message: body.message }
+  // Every other admin helper reports failure rather than throwing. This one threw, and the
+  // caller's `finally`-less onClick left the refund button disabled on "…" for good.
+  try {
+    const res = await fetch(`${API_URL}/payment/refund/${paymentId}`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+    const body = await res.json().catch(() => ({})) as { ok?: boolean; message?: string }
+    return { ok: res.ok && body.ok !== false, message: body.message }
+  } catch {
+    return { ok: false, message: 'Could not reach the server' }
+  }
 }
 
 // Gzip the JSON body before sending when the browser supports it (all current browsers do).

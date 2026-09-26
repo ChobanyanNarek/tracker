@@ -53,7 +53,10 @@ export async function getSubscriptionStatus(): Promise<PaymentStatus | null> {
   try {
     const res = await fetch(`${API_URL}/payment/status`, { headers: authHeaders() })
     if (!res.ok) return null
-    return res.json() as Promise<PaymentStatus>
+    // `return await`, not `return`: a bare return adopts the promise after the try block
+    // has exited, so a non-JSON body (a proxy error page, a captive portal) rejected past
+    // this catch and left the app stuck on its loading screen.
+    return await res.json() as PaymentStatus
   } catch { return null }
 }
 
@@ -75,6 +78,6 @@ export async function getPaymentHistory(): Promise<PaymentRecord[]> {
   try {
     const res = await fetch(`${API_URL}/payment/history`, { headers: authHeaders() })
     if (!res.ok) return []
-    return res.json() as Promise<PaymentRecord[]>
+    return await res.json() as PaymentRecord[]
   } catch { return [] }
 }

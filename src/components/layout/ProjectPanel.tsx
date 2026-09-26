@@ -761,7 +761,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                     <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: gitlabEnabled ? BRAND.gitlab : 'var(--text2)' }}>GitLab</span>
                     {gitlabEnabled && <span style={badge(BRAND.gitlab)}>on</span>}
                     <button style={iconBtnStyle} title="GitLab settings" onClick={() => setGitlabModalOpen(true)}><Icon name="gear" size={12} /></button>
-                    <button style={{ ...iconBtnStyle, color: gitlabEnabled ? BRAND.gitlab : 'var(--text3)', borderColor: gitlabEnabled ? `${BRAND.gitlab}50` : 'var(--border)', opacity: glSyncing ? 0.5 : 1 }} title="Sync MRs" disabled={glSyncing} onClick={async () => { setGlSyncing(true); try { await syncGitlab() } catch {} finally { setGlSyncing(false) } }}><Icon name="sync" size={12} spinning={glSyncing} /></button>
+                    <button style={{ ...iconBtnStyle, color: gitlabEnabled ? BRAND.gitlab : 'var(--text3)', borderColor: gitlabEnabled ? `${BRAND.gitlab}50` : 'var(--border)', opacity: glSyncing ? 0.5 : 1 }} title="Sync MRs" disabled={glSyncing} onClick={async () => { setGlSyncing(true); try { const { linked, updated } = await syncGitlab(); onToast?.(linked || updated ? `GitLab synced — ${linked} MR(s) linked${updated ? `, ${updated} updated` : ''}` : 'GitLab — already up to date') } catch (e) { console.error('[sync] manual GitLab sync failed:', e); onToast?.(`GitLab sync failed — ${e instanceof Error ? e.message : 'see console'}`) } finally { setGlSyncing(false) } }}><Icon name="sync" size={12} spinning={glSyncing} /></button>
                   </div>
                   {/* GitHub */}
                   <div style={{ ...rowStyle, borderBottom: 'none' }}>
@@ -769,7 +769,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                     <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: githubEnabled ? BRAND.github : 'var(--text2)' }}>GitHub</span>
                     {githubEnabled && <span style={badge(BRAND.github)}>on</span>}
                     <button style={iconBtnStyle} title="GitHub settings" onClick={() => setGithubModalOpen(true)}><Icon name="gear" size={12} /></button>
-                    <button style={{ ...iconBtnStyle, color: githubEnabled ? BRAND.github : 'var(--text3)', borderColor: githubEnabled ? `${BRAND.github}50` : 'var(--border)', opacity: ghSyncing ? 0.5 : 1 }} title="Sync PRs" disabled={ghSyncing} onClick={async () => { setGhSyncing(true); try { await syncGithub() } catch {} finally { setGhSyncing(false) } }}><Icon name="sync" size={12} spinning={ghSyncing} /></button>
+                    <button style={{ ...iconBtnStyle, color: githubEnabled ? BRAND.github : 'var(--text3)', borderColor: githubEnabled ? `${BRAND.github}50` : 'var(--border)', opacity: ghSyncing ? 0.5 : 1 }} title="Sync PRs" disabled={ghSyncing} onClick={async () => { setGhSyncing(true); try { const { linked, updated } = await syncGithub(); onToast?.(linked || updated ? `GitHub synced — ${linked} PR(s) linked${updated ? `, ${updated} updated` : ''}` : 'GitHub — already up to date') } catch (e) { console.error('[sync] manual GitHub sync failed:', e); onToast?.(`GitHub sync failed — ${e instanceof Error ? e.message : 'see console'}`) } finally { setGhSyncing(false) } }}><Icon name="sync" size={12} spinning={ghSyncing} /></button>
                   </div>
                 </div>
               )

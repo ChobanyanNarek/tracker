@@ -486,8 +486,15 @@ export default function AdminPage({ onBack: _onBack }: Props) {
                                                 onClick={async () => {
                                                   if (!p.paymentId) return
                                                   setRefunding(p.paymentId)
-                                                  const res = await adminRefundPayment(p.paymentId)
-                                                  setRefunding(null)
+                                                  let res: { ok: boolean; message?: string }
+                                                  // finally, so a throw can never leave the button disabled on "…" forever.
+                                                  try {
+                                                    res = await adminRefundPayment(p.paymentId)
+                                                  } catch {
+                                                    res = { ok: false, message: 'Refund failed' }
+                                                  } finally {
+                                                    setRefunding(null)
+                                                  }
                                                   setRefundConfirm(null)
                                                   setToast({ msg: res.ok ? 'Refunded' : (res.message ?? 'Refund failed'), ok: res.ok })
                                                   if (res.ok) {
