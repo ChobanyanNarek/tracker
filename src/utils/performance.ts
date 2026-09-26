@@ -73,7 +73,15 @@ export interface IssuePerf {
   atRisk: boolean
   /** Raw work-window hours per calendar day, before the developer's day is shared out. */
   effortByDay: Map<string, { raw: number; cap: number }>
+  /** This issue's own In Progress working hours — what the status timeline adds up to. */
   effortH: number
+  /*
+   * The same work after a shared day is divided between the issues open in it. Used for a
+   * developer's totals, where hours are a claim on a finite day. NOT used for flow
+   * efficiency: dividing the work but not the span made an issue that never waited for
+   * anything report 23% "flow efficiency" purely because other issues were open too.
+   */
+  effortShareH: number
   blockedH: number
   flowEffPct: number | null // active work ÷ cycle time — the share of the span actually worked
   cycleH: number | null // working hours start → delivery (or → now while ongoing)
@@ -105,6 +113,8 @@ export interface DevPerf {
   overdueCount: number
   insufficientCount: number
   effortTotalH: number
+  /** Same work without the shared-day division — the flow-efficiency numerator. */
+  effortSoloTotalH: number
   blockedTotalH: number
   /** Total working hours the developer's issues were in flight — the flow-efficiency base. */
   flowSpanTotalH: number
@@ -588,6 +598,7 @@ function computeIssue(
     deliverySource,
     effortByDay,
     effortH: 0,
+    effortShareH: 0,
     blockedH,
     flowEffPct: null,
     cycleH,
@@ -621,15 +632,21 @@ function finalizeDevIssues(issues: IssuePerf[]): void {
   }
 
   for (const ip of issues) {
-    let effortH = 0
+    let soloH = 0
+    let shareH = 0
     for (const [date, { raw, cap }] of ip.effortByDay) {
+      soloH += Math.min(raw, cap)
       const claimed = dayTotals.get(date) ?? raw
-      effortH += claimed > cap ? (raw / claimed) * cap : Math.min(raw, cap)
+      shareH += claimed > cap ? (raw / claimed) * cap : Math.min(raw, cap)
     }
-    ip.effortH = effortH
-    // The In Progress slice is the developer's shared day, same as effort itself, so the
-    // split and the flow-efficiency figure tell the same story.
-    if (ip.byStatus.inprogress != null) ip.byStatus = { ...ip.byStatus, inprogress: effortH }
+    ip.effortH = soloH
+    ip.effortShareH = shareH
+    /*
+     * The breakdown has to add up to the span the issue was in flight, so it uses the
+     * issue's own hours. Putting the shared figure here invented waiting that never
+     * happened: an issue that sat in In Progress from start to finish still showed hours
+     * as "untouched", purely because other issues were open on the same days.
+     */
     const accounted = Object.values(ip.byStatus).reduce((sum, h) => sum + h, 0)
     ip.untouchedH = Math.max(0, (ip.flowSpanH ?? 0) - accounted)
 
@@ -641,7 +658,7 @@ function finalizeDevIssues(issues: IssuePerf[]): void {
      * Blocked status at all.
      */
     ip.flowEffPct = ip.flowSpanH != null && ip.flowSpanH > 1e-9
-      ? Math.min(100, (effortH / ip.flowSpanH) * 100)
+      ? Math.min(100, (soloH / ip.flowSpanH) * 100)
       : null
 
     const lowFlow = ip.flowEffPct != null && ip.flowEffPct < LOW_FLOW_EFF_PCT
@@ -768,7 +785,8 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
       // Only issues that actually had a deadline can be on time or late.
       const judged = delivered.filter((i) => i.timing != null)
       const onTimeCount = judged.filter((i) => i.timing !== 'late').length
-      const effortTotalH = measured.reduce((s, i) => s + i.effortH, 0)
+      const effortTotalH = measured.reduce((s, i) => s + i.effortShareH, 0)
+      const effortSoloTotalH = measured.reduce((s, i) => s + i.effortH, 0)
       const blockedTotalH = measured.reduce((s, i) => s + i.blockedH, 0)
       // Aggregate flow efficiency is total work over total time in flight, to match the
       // per-issue figure. Summing the spans, not averaging the percentages, so a one-hour
@@ -784,7 +802,7 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
       const base = {
         deliveredCount: n,
         onTimePct: judged.length ? (onTimeCount / judged.length) * 100 : null,
-        flowEffPct: flowSpanTotalH > 1e-9 ? Math.min(100, (effortTotalH / flowSpanTotalH) * 100) : null,
+        flowEffPct: flowSpanTotalH > 1e-9 ? Math.min(100, (effortSoloTotalH / flowSpanTotalH) * 100) : null,
         medDeliveryDeltaH: median(delivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
       }
       return {
@@ -796,6 +814,7 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
         overdueCount: issues.filter((i) => i.verdict === 'overdue').length,
         insufficientCount: issues.filter((i) => i.verdict === 'insufficient').length,
         effortTotalH,
+        effortSoloTotalH,
         blockedTotalH,
         flowSpanTotalH,
         medEffortH: median(delivered.map((i) => i.effortH)),
@@ -825,7 +844,7 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
       teamByStatus[st as Status] = (teamByStatus[st as Status] ?? 0) + h
     }
   }
-  const teamEffort = devs.reduce((s, d) => s + d.effortTotalH, 0)
+  const teamEffort = devs.reduce((s, d) => s + d.effortSoloTotalH, 0)
   const teamSpan = devs.reduce((s, d) => s + d.flowSpanTotalH, 0)
   const teamMeasured = devs.reduce((s, d) => s + (d.issues.length - d.insufficientCount), 0)
   const teamRework = devs.reduce((s, d) => s + d.reworkIssues, 0)

@@ -332,7 +332,15 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
 
           <div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>Work</div>
-            {row('Actual work (In Progress)', fmtWorkHours(issue.effortH))}
+            {row('Actual work (In Progress)', <>
+              {fmtWorkHours(issue.effortH)}
+              {/* Only when the day was genuinely shared — otherwise the two are the same. */}
+              {issue.effortShareH < issue.effortH - 0.05 && (
+                <span style={{ color: 'var(--text3)' }}>
+                  {' '}· {fmtWorkHours(issue.effortShareH)} towards the day's capacity, shared with other issues open then
+                </span>
+              )}
+            </>)}
             {row('Blocked (excluded from work)', trackedH > 1e-9
               ? `${fmtWorkHours(issue.blockedH)} (${Math.round((issue.blockedH / trackedH) * 100)}% of tracked)`
               : fmtWorkHours(issue.blockedH))}

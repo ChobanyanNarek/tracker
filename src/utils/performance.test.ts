@@ -141,7 +141,9 @@ describe('effort is bounded by the day, not by the issue', () => {
     ]))
     expect(three.devs[0]!.effortTotalH).toBeCloseTo(8, 1)
     // and it is split between them rather than given to one
-    for (const i of three.devs[0]!.issues) expect(i.effortH).toBeCloseTo(8 / 3, 1)
+    for (const i of three.devs[0]!.issues) expect(i.effortShareH).toBeCloseTo(8 / 3, 1)
+    // The issue's own hours are untouched: that is what its status timeline shows.
+    for (const i of three.devs[0]!.issues) expect(i.effortH).toBeCloseTo(8, 1)
   })
 })
 
@@ -364,5 +366,35 @@ describe('work stops when the work is delivered', () => {
 
     expect(ip.stale).toBe(true)
     expect(ip.effortH).toBeLessThanOrEqual(41.5) // five working days, not seventeen
+  })
+})
+
+/*
+ * Reported from the app: an issue that was In Progress from the first moment to delivery,
+ * with no other status anywhere in its timeline, still read "0.9h worked of 5h in flight".
+ * Dividing the work between concurrent issues but not the span turned flow efficiency into
+ * "this issue's share of the day" and invented waiting that never happened.
+ */
+describe('an issue that never waited for anything', () => {
+  const straightThrough = (key: string): JiraIssue => ({
+    ...issue(key, '', null),
+    prs: [{ url: `https://gl/${key}`, date: '2026-09-09', time: '17:00' }],
+    statusHistory: [{ status: 'inprogress', at: '2026-09-09T12:00:00+04:00' }],
+  })
+
+  it('reports 100%, however many other issues were open at the same time', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-26T22:23:00+04:00'))
+
+    for (const others of [0, 2, 6]) {
+      const jiras = [straightThrough('MAIN'), ...Array.from({ length: others }, (_, i) => straightThrough(`O${i}`))]
+      const team = computeTeamPerformance(input(jiras))
+      const ip = team.devs[0]!.issues.find((i) => i.issueId === 'MAIN')!
+
+      expect(ip.flowEffPct).toBe(100)
+      expect(ip.effortH).toBeCloseTo(ip.flowSpanH!, 1) // worked == in flight
+      expect(ip.untouchedH).toBeCloseTo(0, 1)          // and nothing is "untouched"
+    }
+    vi.useRealTimers()
   })
 })
