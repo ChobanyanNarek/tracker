@@ -243,7 +243,12 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
             {row('Blocked (excluded from work)', trackedH > 1e-9
               ? `${fmtWorkHours(issue.blockedH)} (${Math.round((issue.blockedH / trackedH) * 100)}% of tracked)`
               : fmtWorkHours(issue.blockedH))}
-            {issue.flowEffPct != null && row('Productive share', <span style={{ color: issue.flowEffPct >= 70 ? GREEN : AMBER }}>{pct(issue.flowEffPct)}</span>)}
+            {issue.flowEffPct != null && row('Flow efficiency',
+              <span style={{ color: issue.flowEffPct >= 40 ? GREEN : AMBER }}>
+                {pct(issue.flowEffPct)}
+                {issue.flowSpanH != null && <span style={{ color: 'var(--text3)' }}> · {fmtWorkHours(issue.effortH)} worked of {fmtWorkHours(issue.flowSpanH)} in flight</span>}
+              </span>)}
+            {issue.stale && row('Stale', <span style={{ color: AMBER }}>untouched — effort stopped counting</span>)}
             {issue.cycleH != null && row('Cycle (start → delivery)', fmtWorkHours(issue.cycleH))}
             {issue.reworkCount > 0 && row('Rework rounds', String(issue.reworkCount))}
           </div>
@@ -427,8 +432,9 @@ export default function PerformanceView() {
         <div style={{ display: 'flex', gap: 7, overflowX: 'auto', paddingBottom: 4, flexShrink: 0 }}>
           {summaryCard('Delivered', String(team.deliveredCount))}
           {summaryCard('On-time', pct(team.onTimePct), scoreColor(team.onTimePct))}
-          {summaryCard('Productive share', pct(team.flowEffPct), team.flowEffPct != null && team.flowEffPct < 70 ? AMBER : GREEN)}
-          {summaryCard('Avg cycle', team.avgCycleH != null ? fmtWorkHours(team.avgCycleH) : '—')}
+          {summaryCard('Flow efficiency', pct(team.flowEffPct), team.flowEffPct != null && team.flowEffPct < 40 ? AMBER : GREEN, 'work vs waiting')}
+          {summaryCard('Cycle p50', team.cycleP50H != null ? fmtWorkHours(team.cycleP50H) : '—', undefined,
+            team.cycleP85H != null ? `p85 ${fmtWorkHours(team.cycleP85H)}` : undefined)}
           {summaryCard('Throughput', team.throughputWk != null ? `${(Math.round(team.throughputWk * 10) / 10)}/wk` : '—')}
           {summaryCard('Rework', pct(team.reworkRatePct), team.reworkRatePct != null && team.reworkRatePct > 25 ? AMBER : undefined)}
           {inProgressTotal > 0 && summaryCard(
@@ -451,12 +457,12 @@ export default function PerformanceView() {
                 }))}
               />
             </ChartCard>
-            <ChartCard title="Avg cycle time">
+            <ChartCard title="Cycle time — median">
               <HBars
                 color={BLUE}
-                rows={chartDevs.filter((d) => d.avgCycleH != null).map((d) => ({
-                  key: d.dev.id, label: d.dev.name, value: d.avgCycleH!,
-                  display: fmtWorkHours(d.avgCycleH!),
+                rows={chartDevs.filter((d) => d.cycleP50H != null).map((d) => ({
+                  key: d.dev.id, label: d.dev.name, value: d.cycleP50H!,
+                  display: fmtWorkHours(d.cycleP50H!),
                 }))}
               />
             </ChartCard>
@@ -521,7 +527,7 @@ export default function PerformanceView() {
                   <span style={{ color: 'var(--border)' }}>·</span>
                   <span>On-time <b style={{ color: 'var(--text)' }}>{d.onTimeCount}/{d.deliveredCount}</b> <span style={{ color: 'var(--text3)' }}>({pct(d.onTimePct)})</span></span>
                   <span style={{ color: 'var(--border)' }}>·</span>
-                  <span>Productive <b style={{ color: d.flowEffPct != null && d.flowEffPct < 70 ? AMBER : 'var(--text)' }}>{pct(d.flowEffPct)}</b></span>
+                  <span>Flow <b style={{ color: d.flowEffPct != null && d.flowEffPct < 40 ? AMBER : 'var(--text)' }}>{pct(d.flowEffPct)}</b></span>
                   {d.throughputWk != null && <>
                     <span style={{ color: 'var(--border)' }}>·</span>
                     <span>{Math.round(d.throughputWk * 10) / 10}/wk</span>
@@ -544,10 +550,11 @@ export default function PerformanceView() {
                 {/* stats — row 2: averages (only when delivered data exists) */}
                 {d.deliveredCount > 0 && (
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>
-                    {d.avgEffortH != null && <span>avg work <b style={{ color: 'var(--text2)' }}>{fmtWorkHours(d.avgEffortH)}</b></span>}
-                    {d.avgDeliveryDeltaH != null && <span>avg delivery <b style={{ color: d.avgDeliveryDeltaH <= 0 ? GREEN : RED }}>{fmtDelta(d.avgDeliveryDeltaH)}</b></span>}
-                    {d.avgCycleH != null && <span>avg cycle <b style={{ color: 'var(--text2)' }}>{fmtWorkHours(d.avgCycleH)}</b></span>}
-                    {d.avgBlockedH != null && d.avgBlockedH > 0.05 && <span>avg blocked <b style={{ color: AMBER }}>{fmtWorkHours(d.avgBlockedH)}</b></span>}
+                    {d.medEffortH != null && <span>median work <b style={{ color: 'var(--text2)' }}>{fmtWorkHours(d.medEffortH)}</b></span>}
+                    {d.medDeliveryDeltaH != null && <span>median delivery <b style={{ color: d.medDeliveryDeltaH <= 0 ? GREEN : RED }}>{fmtDelta(d.medDeliveryDeltaH)}</b></span>}
+                    {d.cycleP50H != null && <span>cycle p50 <b style={{ color: 'var(--text2)' }}>{fmtWorkHours(d.cycleP50H)}</b></span>}
+                    {d.cycleP85H != null && <span>p85 <b style={{ color: 'var(--text3)' }}>{fmtWorkHours(d.cycleP85H)}</b></span>}
+                    {d.medBlockedH != null && d.medBlockedH > 0.05 && <span>median blocked <b style={{ color: AMBER }}>{fmtWorkHours(d.medBlockedH)}</b></span>}
                   </div>
                 )}
               </div>

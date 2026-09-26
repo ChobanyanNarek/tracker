@@ -101,3 +101,108 @@ describe('computeTeamPerformance ranges', () => {
     expect(team.devs).toEqual([])
   })
 })
+
+/* A developer has one working day however many issues they touch in it. */
+describe('effort is bounded by the day, not by the issue', () => {
+  const inProgressAllWednesday = (key: string): JiraIssue => issue(key, '2026-09-02', '2026-09-02T19:00:00+04:00', {
+    statusHistory: [
+      { status: 'inprogress', at: '2026-09-02T10:00:00+04:00' },
+      { status: 'done', at: '2026-09-02T19:00:00+04:00' },
+    ],
+  })
+
+  it('shares one day across the issues worked that day', () => {
+    const one = computeTeamPerformance(input([inProgressAllWednesday('COM-10')]))
+    expect(one.devs[0]!.effortTotalH).toBeCloseTo(8, 1) // the whole day on one issue
+
+    // The same day, three issues. It is still one day of work, not three.
+    const three = computeTeamPerformance(input([
+      inProgressAllWednesday('COM-11'),
+      inProgressAllWednesday('COM-12'),
+      inProgressAllWednesday('COM-13'),
+    ]))
+    expect(three.devs[0]!.effortTotalH).toBeCloseTo(8, 1)
+    // and it is split between them rather than given to one
+    for (const i of three.devs[0]!.issues) expect(i.effortH).toBeCloseTo(8 / 3, 1)
+  })
+})
+
+describe('an issue nobody touches stops accruing', () => {
+  it('caps effort at the stale cut-off and says so', () => {
+    // In Progress since early August, never moved again.
+    const forgotten = issue('COM-20', '2026-09-30', null, {
+      statusHistory: [{ status: 'inprogress', at: '2026-08-03T10:00:00+04:00' }],
+    })
+    const team = computeTeamPerformance(input([forgotten]), { from: '2026-08-01', to: '2026-09-30' })
+    const ip = team.devs[0]!.issues[0]!
+
+    expect(ip.stale).toBe(true)
+    // Five working days of an eight-hour day — not the ~40 working days since August.
+    expect(ip.effortH).toBeLessThanOrEqual(40.01)
+    // Cycle time keeps running, because the issue really is still ageing.
+    expect(ip.cycleH!).toBeGreaterThan(100)
+  })
+})
+
+describe('flow efficiency', () => {
+  it('is active work over the whole span, not the share that was not blocked', () => {
+    // Two hours of work on Wednesday morning, delivered at the end of Thursday:
+    // 2h worked inside a span of 8 + 9 working hours.
+    const slow = issue('COM-30', '2026-09-03', '2026-09-03T19:00:00+04:00', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-02T10:00:00+04:00' },
+        { status: 'review', at: '2026-09-02T12:00:00+04:00' },
+        { status: 'done', at: '2026-09-03T19:00:00+04:00' },
+      ],
+    })
+    const ip = computeTeamPerformance(input([slow])).devs[0]!.issues[0]!
+
+    expect(ip.effortH).toBeCloseTo(2, 1)
+    // Nothing was ever flagged Blocked, so the old measure called this 100% productive.
+    expect(ip.flowEffPct!).toBeLessThan(40)
+  })
+})
+
+describe('percentiles instead of averages', () => {
+  it('is not dragged by one issue left open over a holiday', () => {
+    const quick = (key: string, done: string) => issue(key, '2026-09-02', done, {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-02T10:00:00+04:00' },
+        { status: 'done', at: done },
+      ],
+    })
+    const team = computeTeamPerformance(input([
+      quick('COM-40', '2026-09-02T12:00:00+04:00'),
+      quick('COM-41', '2026-09-02T12:00:00+04:00'),
+      quick('COM-42', '2026-09-02T12:00:00+04:00'),
+      quick('COM-43', '2026-09-25T18:00:00+04:00'), // the outlier
+    ]))
+
+    expect(team.cycleP50H!).toBeLessThan(6)   // a typical issue is a couple of hours
+    expect(team.cycleP85H!).toBeGreaterThan(team.cycleP50H!) // the tail is still visible
+  })
+})
+
+describe('the team figure matches the issues under it', () => {
+  it('sums work and time-in-flight rather than averaging percentages', () => {
+    // One quick issue and one that sat in review for two days. Averaging the two
+    // percentages would flatter the team; weighting by time in flight does not.
+    const quick = issue('COM-50', '2026-09-02', '2026-09-02T12:00:00+04:00', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-02T10:00:00+04:00' },
+        { status: 'done', at: '2026-09-02T12:00:00+04:00' },
+      ],
+    })
+    const lingering = issue('COM-51', '2026-09-04', '2026-09-04T18:00:00+04:00', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-02T10:00:00+04:00' },
+        { status: 'review', at: '2026-09-02T11:00:00+04:00' },
+        { status: 'done', at: '2026-09-04T18:00:00+04:00' },
+      ],
+    })
+    const team = computeTeamPerformance(input([quick, lingering]))
+
+    expect(team.flowEffPct!).toBeLessThan(40)
+    expect(team.flowEffPct!).toBeCloseTo(team.devs[0]!.flowEffPct!, 5)
+  })
+})

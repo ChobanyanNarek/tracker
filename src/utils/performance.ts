@@ -56,15 +56,24 @@ export interface IssuePerf {
   startMs: number | null
   deliveryMs: number | null
   deliverySource: 'pr' | 'status' | null
+  /** Raw work-window hours per calendar day, before the developer's day is shared out. */
+  effortByDay: Map<string, { raw: number; cap: number }>
   effortH: number
   blockedH: number
-  flowEffPct: number | null // effort / (effort + blocked) — productive share
+  flowEffPct: number | null // active work ÷ cycle time — the share of the span actually worked
   cycleH: number | null // working hours start → delivery (or → now while ongoing)
+  /*
+   * Working hours the issue was in flight: first In Progress until it was actually Done
+   * (or until now). Wider than cycleH, which stops at delivery -- the wait in review and
+   * QA belongs in the denominator of flow efficiency, and that is where it lives.
+   */
+  flowSpanH: number | null
   reworkCount: number // times it went back to In Progress after Review/Done
   timing: Timing | null
   deliveryDeltaH: number | null // signed working hours vs deadline: + late, − early, 0 on time
   verdict: Verdict
   suspect: boolean // PR pushed before the first In Progress
+  stale: boolean // sat untouched past the stale cut-off; accrual stopped there
   intervals: StatusInterval[]
 }
 
@@ -79,11 +88,14 @@ export interface DevPerf {
   insufficientCount: number
   effortTotalH: number
   blockedTotalH: number
+  /** Total working hours the developer's issues were in flight — the flow-efficiency base. */
+  flowSpanTotalH: number
   flowEffPct: number | null
-  avgEffortH: number | null
-  avgBlockedH: number | null
-  avgCycleH: number | null
-  avgDeliveryDeltaH: number | null
+  medEffortH: number | null
+  medBlockedH: number | null
+  cycleP50H: number | null
+  cycleP85H: number | null
+  medDeliveryDeltaH: number | null
   throughputWk: number | null // delivered issues per week in range
   reworkIssues: number
   reworkRatePct: number | null
@@ -95,8 +107,9 @@ export interface TeamPerf {
   deliveredCount: number
   onTimePct: number | null
   flowEffPct: number | null
-  avgCycleH: number | null
-  avgDeliveryDeltaH: number | null
+  cycleP50H: number | null
+  cycleP85H: number | null
+  medDeliveryDeltaH: number | null
   throughputWk: number | null
   reworkRatePct: number | null
   ongoingCount: number
@@ -123,10 +136,37 @@ const VERDICT_ORDER: Record<Verdict, number> = {
   lateBlocky: 0, overdue: 1, lateSolid: 2, onTimeBlocky: 3, ongoing: 4, great: 5, insufficient: 6,
 }
 const ON_TIME_TOLERANCE_MS = 5 * 60_000
-const BLOCKY_THRESHOLD_PCT = 70
+/*
+ * Flow efficiency below this reads as "mostly waiting". 40% is the figure Kanban practice
+ * treats as good; teams that do not watch it at all sit nearer 15%. The old threshold of
+ * 70% belonged to a different measure (share of tracked time not flagged Blocked), which
+ * sat near 100% for everyone and so never told anyone anything.
+ */
+const LOW_FLOW_EFF_PCT = 40
+/*
+ * An issue nobody has touched for this many working days has stopped being work in
+ * progress and started being forgotten. Its open interval stops accruing effort at that
+ * point -- otherwise a ticket left In Progress in March is still booking eight hours a day
+ * in September -- and it is flagged so the row can say so.
+ */
+const STALE_AFTER_WORKDAYS = 5
 
 const atMs = (e: StatusHistoryEntry) => new Date(e.at).getTime()
-const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
+/*
+ * Cycle and effort distributions have a long right tail -- one issue left open over a
+ * holiday used to drag a whole team's average and flip a developer's profile line. The
+ * median says what a typical issue costs; the 85th percentile is what to promise someone.
+ */
+function percentile(xs: number[], p: number): number | null {
+  if (!xs.length) return null
+  const sorted = [...xs].sort((a, b) => a - b)
+  if (sorted.length === 1) return sorted[0]!
+  const pos = (sorted.length - 1) * p
+  const lo = Math.floor(pos)
+  const hi = Math.ceil(pos)
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (pos - lo)
+}
+const median = (xs: number[]) => percentile(xs, 0.5)
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -168,14 +208,15 @@ function inRange(dateStr: string, range: PerfRange): boolean {
  * real clock time, a full work-window day counts as `dailyHours`.
  * Non-work days, vacation/sick/holiday days contribute nothing.
  */
-function cappedWorkHours(
+function workHoursByDay(
   segments: Array<[number, number]>,
   dev: Developer,
   schedule: Record<string, Record<string, string>>,
   scheduleHours: Record<string, Record<string, number>>,
-): number {
+): Map<string, { raw: number; cap: number }> {
+  const out = new Map<string, { raw: number; cap: number }>()
   const valid = segments.filter(([s, e]) => e > s)
-  if (!valid.length) return 0
+  if (!valid.length) return out
 
   const sched = getSchedule(dev)
   const tz = resolveTrackerTz(sched.timezone)
@@ -185,7 +226,6 @@ function cappedWorkHours(
   const minMs = Math.min(...valid.map(([s]) => s))
   const maxMs = Math.max(...valid.map(([, e]) => e))
 
-  let total = 0
   const startDateStr = tzDateStr(minMs, tz)
   const endDateStr = tzDateStr(maxMs, tz)
   const [sy, sm, sd] = startDateStr.split('-').map(Number)
@@ -214,9 +254,7 @@ function cappedWorkHours(
             const overlap = Math.min(e, winEnd) - Math.max(s, winStart)
             if (overlap > 0) rawH += overlap / 3_600_000
           }
-          if (rawH > 0) {
-            total += Math.min(rawH, effectiveDailyHours(dev, dateStr, scheduleHours, sched))
-          }
+          if (rawH > 0) out.set(dateStr, { raw: rawH, cap: effectiveDailyHours(dev, dateStr, scheduleHours, sched) })
         }
       }
     }
@@ -224,7 +262,63 @@ function cappedWorkHours(
     cursorUtc.setUTCDate(cursorUtc.getUTCDate() + 1)
   }
 
+  return out
+}
+
+/** Sum of the per-day hours, each capped at that day's productive hours. */
+function cappedWorkHours(
+  segments: Array<[number, number]>,
+  dev: Developer,
+  schedule: Record<string, Record<string, string>>,
+  scheduleHours: Record<string, Record<string, number>>,
+): number {
+  let total = 0
+  for (const { raw, cap } of workHoursByDay(segments, dev, schedule, scheduleHours).values()) {
+    total += Math.min(raw, cap)
+  }
   return total
+}
+
+/*
+ * The last status interval runs to "now", so it grows without limit. Cut the accrual off
+ * after STALE_AFTER_WORKDAYS of the developer's own working days and report it as stale.
+ * Only the accrual is clamped: cycle time keeps running, because an ageing issue really is
+ * still ageing.
+ */
+function clampStaleTail(
+  segments: Array<[number, number]>,
+  openEndMs: number,
+  dev: Developer,
+  schedule: Record<string, Record<string, string>>,
+  scheduleHours: Record<string, Record<string, number>>,
+): { segments: Array<[number, number]>; stale: boolean } {
+  const lastIdx = segments.findIndex(([, e]) => e === openEndMs)
+  if (lastIdx < 0) return { segments, stale: false }
+  const [openStart] = segments[lastIdx]!
+
+  const days = [...workHoursByDay([[openStart, openEndMs]], dev, schedule, scheduleHours)].sort(
+    (a, b) => (a[0] < b[0] ? -1 : 1),
+  )
+  let budget = 0
+  let spent = 0
+  for (const [, { cap }] of days.slice(0, STALE_AFTER_WORKDAYS)) budget += cap
+  if (!budget) return { segments, stale: false }
+
+  const sched = getSchedule(dev)
+  const tz = resolveTrackerTz(sched.timezone)
+  const winEndMin = timeToMinutes(sched.endTime)
+
+  for (const [dateStr, { raw, cap }] of days) {
+    spent += Math.min(raw, cap)
+    if (spent >= budget) {
+      const cutoff = tzMidnightUtcMs(dateStr, tz) + winEndMin * 60_000
+      if (cutoff >= openEndMs) break
+      const out = segments.slice()
+      out[lastIdx] = [openStart, cutoff]
+      return { segments: out, stale: true }
+    }
+  }
+  return { segments, stale: false }
 }
 
 function buildIntervals(
@@ -268,10 +362,13 @@ function computeIssue(
 
   const seg = (status: Status): Array<[number, number]> =>
     intervals.filter((iv) => iv.status === status).map((iv) => [iv.startMs, iv.endMs])
-  const effortH = cappedWorkHours(seg('inprogress'), dev, schedule, scheduleHours)
-  const blockedH = cappedWorkHours(seg('blocked'), dev, schedule, scheduleHours)
-  const trackedH = effortH + blockedH
-  const flowEffPct = trackedH > 1e-9 ? (effortH / trackedH) * 100 : null
+  const inProgress = clampStaleTail(seg('inprogress'), nowMs, dev, schedule, scheduleHours)
+  const blocked = clampStaleTail(seg('blocked'), nowMs, dev, schedule, scheduleHours)
+  const stale = inProgress.stale || blocked.stale
+  // Raw per-day hours, not yet capped: the cap belongs to the developer's day as a whole,
+  // and is applied across all of their issues together once they are all computed.
+  const effortByDay = workHoursByDay(inProgress.segments, dev, schedule, scheduleHours)
+  const blockedH = cappedWorkHours(blocked.segments, dev, schedule, scheduleHours)
 
   // Rework: In Progress again after having reached Review/Done
   let reworkCount = 0
@@ -312,6 +409,12 @@ function computeIssue(
 
   const suspect = startMs != null && prInstants.length > 0 && Math.min(...prInstants) < startMs
 
+  const lastEntry = sortedHistory[sortedHistory.length - 1]
+  const flowEndMs = lastEntry?.status === 'done' ? atMs(lastEntry) : nowMs
+  const flowSpanH = startMs != null
+    ? cappedWorkHours([[startMs, Math.max(flowEndMs, startMs)]], dev, schedule, scheduleHours)
+    : null
+
   let timing: Timing | null = null
   let deliveryDeltaH: number | null = null
   let cycleH: number | null = null
@@ -331,10 +434,9 @@ function computeIssue(
       timing = 'late'
       deliveryDeltaH = cappedWorkHours([[deadlineMs, deliveryMs]], dev, schedule, scheduleHours)
     }
-    const blocky = flowEffPct != null && flowEffPct < BLOCKY_THRESHOLD_PCT
-    verdict = timing === 'late'
-      ? (blocky ? 'lateBlocky' : 'lateSolid')
-      : (blocky ? 'onTimeBlocky' : 'great')
+    // The flow-efficiency half of the verdict needs the capped effort, which is only known
+    // once every issue of this developer has been computed. finalizeIssue fills it in.
+    verdict = timing === 'late' ? 'lateSolid' : 'great'
   } else {
     cycleH = cappedWorkHours([[startMs, Math.max(nowMs, startMs)]], dev, schedule, scheduleHours)
     verdict = nowMs > deadlineMs + ON_TIME_TOLERANCE_MS ? 'overdue' : 'ongoing'
@@ -351,24 +453,64 @@ function computeIssue(
     startMs,
     deliveryMs,
     deliverySource,
-    effortH,
+    effortByDay,
+    effortH: 0,
     blockedH,
-    flowEffPct,
+    flowEffPct: null,
     cycleH,
+    flowSpanH,
     reworkCount,
     timing,
     deliveryDeltaH,
     verdict,
     suspect,
+    stale,
     intervals,
   }
 }
 
-function profileOf(d: Pick<DevPerf, 'deliveredCount' | 'onTimePct' | 'flowEffPct' | 'avgDeliveryDeltaH'>): string {
+/*
+ * A developer has one day, however many issues they touch in it. Effort was capped per
+ * issue, so three issues open on the same Tuesday each booked a full day -- 24 hours in an
+ * 8-hour day, which inflated effort, flow efficiency and the productive/blocked split for
+ * anyone who multitasks. Share each day out in proportion to the raw time on each issue.
+ */
+function finalizeDevIssues(issues: IssuePerf[]): void {
+  const dayTotals = new Map<string, number>()
+  for (const ip of issues) {
+    for (const [date, { raw }] of ip.effortByDay) dayTotals.set(date, (dayTotals.get(date) ?? 0) + raw)
+  }
+
+  for (const ip of issues) {
+    let effortH = 0
+    for (const [date, { raw, cap }] of ip.effortByDay) {
+      const claimed = dayTotals.get(date) ?? raw
+      effortH += claimed > cap ? (raw / claimed) * cap : Math.min(raw, cap)
+    }
+    ip.effortH = effortH
+
+    /*
+     * Flow efficiency the way the rest of the industry means it: active work over the whole
+     * span the issue was in flight, review and QA waiting included. The old number was
+     * effort / (effort + blocked), which counted only two statuses and ignored every other
+     * kind of waiting -- so it read near 100% for everyone, and it rewarded never using the
+     * Blocked status at all.
+     */
+    ip.flowEffPct = ip.flowSpanH != null && ip.flowSpanH > 1e-9
+      ? Math.min(100, (effortH / ip.flowSpanH) * 100)
+      : null
+
+    const lowFlow = ip.flowEffPct != null && ip.flowEffPct < LOW_FLOW_EFF_PCT
+    if (ip.verdict === 'great' && lowFlow) ip.verdict = 'onTimeBlocky'
+    else if (ip.verdict === 'lateSolid' && lowFlow) ip.verdict = 'lateBlocky'
+  }
+}
+
+function profileOf(d: Pick<DevPerf, 'deliveredCount' | 'onTimePct' | 'flowEffPct' | 'medDeliveryDeltaH'>): string {
   if (!d.deliveredCount) return 'No delivered issues in range'
   const timeWord = d.onTimePct! >= 75 ? 'usually on time' : d.onTimePct! >= 40 ? 'sometimes late' : 'often late'
-  const blockWord = d.flowEffPct == null || d.flowEffPct >= BLOCKY_THRESHOLD_PCT ? 'few blocks' : 'frequently blocked'
-  const early = d.avgDeliveryDeltaH != null && d.avgDeliveryDeltaH < -0.5 ? ' · typically delivers early' : ''
+  const blockWord = d.flowEffPct == null || d.flowEffPct >= LOW_FLOW_EFF_PCT ? 'work flows' : 'mostly waiting'
+  const early = d.medDeliveryDeltaH != null && d.medDeliveryDeltaH < -0.5 ? ' · typically delivers early' : ''
   return `${timeWord[0]!.toUpperCase()}${timeWord.slice(1)} · ${blockWord}${early}`
 }
 
@@ -436,6 +578,9 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
     perDev.get(devId)!.push(ip)
   }
 
+  // Effort, flow efficiency and the verdict need every issue of a developer at once.
+  for (const issues of perDev.values()) finalizeDevIssues(issues)
+
   const allIssues = [...perDev.values()].flat()
   const weeks = rangeWeeks(range, allIssues, nowMs)
 
@@ -452,13 +597,16 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
       const onTimeCount = delivered.filter((i) => i.timing !== 'late').length
       const effortTotalH = measured.reduce((s, i) => s + i.effortH, 0)
       const blockedTotalH = measured.reduce((s, i) => s + i.blockedH, 0)
-      const trackedH = effortTotalH + blockedTotalH
+      // Aggregate flow efficiency is total work over total time in flight, to match the
+      // per-issue figure. Summing the spans, not averaging the percentages, so a one-hour
+      // issue does not weigh the same as a three-week one.
+      const flowSpanTotalH = measured.reduce((s, i) => s + (i.flowSpanH ?? 0), 0)
       const reworkIssues = measured.filter((i) => i.reworkCount > 0).length
       const base = {
         deliveredCount: n,
         onTimePct: n ? (onTimeCount / n) * 100 : null,
-        flowEffPct: trackedH > 1e-9 ? (effortTotalH / trackedH) * 100 : null,
-        avgDeliveryDeltaH: mean(delivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
+        flowEffPct: flowSpanTotalH > 1e-9 ? Math.min(100, (effortTotalH / flowSpanTotalH) * 100) : null,
+        medDeliveryDeltaH: median(delivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
       }
       return {
         dev,
@@ -470,9 +618,11 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
         insufficientCount: issues.filter((i) => i.verdict === 'insufficient').length,
         effortTotalH,
         blockedTotalH,
-        avgEffortH: mean(delivered.map((i) => i.effortH)),
-        avgBlockedH: mean(delivered.map((i) => i.blockedH)),
-        avgCycleH: mean(delivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!)),
+        flowSpanTotalH,
+        medEffortH: median(delivered.map((i) => i.effortH)),
+        medBlockedH: median(delivered.map((i) => i.blockedH)),
+        cycleP50H: percentile(delivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.5),
+        cycleP85H: percentile(delivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.85),
         throughputWk: n ? n / weeks : null,
         reworkIssues,
         reworkRatePct: measured.length ? (reworkIssues / measured.length) * 100 : null,
@@ -483,8 +633,7 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
 
   const allDelivered = devs.flatMap((d) => d.issues.filter((i) => DELIVERED.includes(i.verdict)))
   const teamEffort = devs.reduce((s, d) => s + d.effortTotalH, 0)
-  const teamBlocked = devs.reduce((s, d) => s + d.blockedTotalH, 0)
-  const teamTracked = teamEffort + teamBlocked
+  const teamSpan = devs.reduce((s, d) => s + d.flowSpanTotalH, 0)
   const teamMeasured = devs.reduce((s, d) => s + (d.issues.length - d.insufficientCount), 0)
   const teamRework = devs.reduce((s, d) => s + d.reworkIssues, 0)
   const n = allDelivered.length
@@ -493,9 +642,10 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
     devs,
     deliveredCount: n,
     onTimePct: n ? (allDelivered.filter((i) => i.timing !== 'late').length / n) * 100 : null,
-    flowEffPct: teamTracked > 1e-9 ? (teamEffort / teamTracked) * 100 : null,
-    avgCycleH: mean(allDelivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!)),
-    avgDeliveryDeltaH: mean(allDelivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
+    flowEffPct: teamSpan > 1e-9 ? Math.min(100, (teamEffort / teamSpan) * 100) : null,
+    cycleP50H: percentile(allDelivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.5),
+    cycleP85H: percentile(allDelivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.85),
+    medDeliveryDeltaH: median(allDelivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
     throughputWk: n ? n / weeks : null,
     reworkRatePct: teamMeasured ? (teamRework / teamMeasured) * 100 : null,
     ongoingCount: devs.reduce((s, d) => s + d.ongoingCount, 0),
