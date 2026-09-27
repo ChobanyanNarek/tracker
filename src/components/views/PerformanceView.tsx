@@ -237,11 +237,14 @@ function AgingWip({ issues, devName, onOpen }: {
             <span style={{ width: 62, flexShrink: 0, fontSize: 9, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {devName(i.taskId)}
             </span>
-            <span style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: `${((i.cycleH ?? 0) / max) * 100}%`, height: 11, background: color, borderRadius: 3, flexShrink: 0, minWidth: 2 }} />
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text2)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                {fmtWorkHours(i.cycleH ?? 0)}
-              </span>
+            {/* The bar's track, the number and the note each own their column. The number
+                used to sit inside the track beside a bar that could fill it, so the longest
+                row printed its age straight over the note next to it. */}
+            <span style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>
+              <span style={{ width: `${((i.cycleH ?? 0) / max) * 100}%`, height: 11, background: color, borderRadius: 3, minWidth: 2 }} />
+            </span>
+            <span style={{ width: 52, flexShrink: 0, paddingLeft: 6, textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text2)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+              {fmtWorkHours(i.cycleH ?? 0)}
             </span>
             <span style={{ width: 74, flexShrink: 0, paddingLeft: 8, textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 9, color, whiteSpace: 'nowrap' }}>
               {i.stale ? 'untouched' : note}
