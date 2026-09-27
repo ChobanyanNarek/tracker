@@ -360,6 +360,24 @@ export interface GithubSyncPlan {
   deployments: DeploymentRecord[]
 }
 
+/*
+ * While GitHub is rate-limiting a token, carrying on asking every two minutes keeps the
+ * budget empty and, for secondary limits, lengthens the penalty. A connection that hits
+ * one is left alone on background syncs until this passes; a sync the user asked for
+ * still goes, because they may be trying it after waiting.
+ */
+const RATE_LIMIT_COOLDOWN_MS = 15 * 60_000
+const rateLimitedUntil = new Map<string, number>()
+
+export function isRateLimited(connectionId: string, now = Date.now()): boolean {
+  const until = rateLimitedUntil.get(connectionId)
+  return until !== undefined && now < until
+}
+
+function looksRateLimited(message: string): boolean {
+  return /rate.limit|secondary|abuse|\b429\b/i.test(message)
+}
+
 export async function computeGithubSync(state: SyncState, transport: Transport, run: SyncRun): Promise<GithubSyncPlan> {
   const { githubConnections, jiraConnections, tasks, developers } = state
   const enabledConns = githubConnections.filter((c) => c.enabled && hasCredential(c))
@@ -408,12 +426,22 @@ export async function computeGithubSync(state: SyncState, transport: Transport, 
       .filter((d) => !d.archivedAt)
       .flatMap((d) => identityList(conn.developerUsernames?.[d.id])))]
 
+    // Still cooling off from a rate limit, and nobody asked for this sync: leave it be.
+    if (run.background && isRateLimited(conn.id)) {
+      syncedConns.push(conn)
+      continue
+    }
+
     if (conn.orgOrUser.trim()) {
       try {
         const orgPRs = await fetchOrgPRs(transport, conn.orgOrUser, authFor(conn))
         for (const p of orgPRs) { prById.set(p.id, p); prProjectId.set(p.id, conn.projectId ?? '') }
       } catch (err) {
         const msg = (err as Error).message
+        if (looksRateLimited(msg)) {
+          rateLimitedUntil.set(conn.id, Date.now() + RATE_LIMIT_COOLDOWN_MS)
+          throw err
+        }
         const isPermission = msg.includes('403') || msg.includes('Forbidden') || msg.includes('401')
         if (!isPermission || devUsernames.length === 0) throw err
       }

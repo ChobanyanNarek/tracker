@@ -82,6 +82,7 @@ export async function fetchOrgPRs(t: Transport, orgOrUser: string, auth: Provide
   if ('token' in auth && !auth.token.trim()) throw new Error('Personal Access Token is empty')
 
   const { owner, repo: singleRepo } = normalizeGithubPath(orgOrUser)
+  const dormantBefore = Date.now() - 90 * 24 * 60 * 60 * 1000
 
   // If a specific repo was given, use it directly; otherwise discover all repos in the org/user
   const repos: string[] = []
@@ -93,7 +94,8 @@ export async function fetchOrgPRs(t: Transport, orgOrUser: string, auth: Provide
     for (const scope of ['orgs', 'users'] as const) {
       let page = 1
       while (true) {
-        const res = await providerGet(t, 'github', auth, `/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100&page=${page}`)
+        // Newest activity first, so the dormant ones fall at the end and the loop can stop.
+        const res = await providerGet(t, 'github', auth, `/${scope}/${encodeURIComponent(owner)}/repos?type=all&sort=pushed&direction=desc&per_page=100&page=${page}`)
         lastStatus = res.status
         if (!res.ok) {
           // GitHub says which kind of 403 this is in the body.
@@ -101,9 +103,22 @@ export async function fetchOrgPRs(t: Transport, orgOrUser: string, auth: Provide
           if (/rate limit|abuse|secondary/i.test(body?.message ?? '')) lastRateLimited = true
           break
         }
-        const batch = await res.json() as { full_name: string }[]
-        for (const r of batch) repos.push(r.full_name)
+        const batch = await res.json() as { full_name: string; pushed_at?: string | null; archived?: boolean }[]
+        for (const r of batch) {
+          /*
+           * Every repo costs up to ten requests a sync (two PR states, five pages each),
+           * so an org full of dormant repos burns the token's hourly budget on repos that
+           * cannot have anything new. A repo nobody has pushed to in three months has no
+           * PR this sync needs — the closed ones are already discarded after thirty days —
+           * and an archived one never will again.
+           */
+          if (r.archived) continue
+          if (r.pushed_at && new Date(r.pushed_at).getTime() < dormantBefore) continue
+          repos.push(r.full_name)
+        }
         if (batch.length < 100) break
+        // Sorted by activity: once a whole page is dormant, so is everything after it.
+        if (batch.every((r) => r.pushed_at && new Date(r.pushed_at).getTime() < dormantBefore)) break
         page++
       }
       if (repos.length) break
@@ -124,7 +139,7 @@ export async function fetchOrgPRs(t: Transport, orgOrUser: string, auth: Provide
       console.warn(`[GitHub sync] org "${owner}" returned 0 repos — token may need full "repo" scope for private repos`)
     }
   }
-  console.info(`[GitHub sync] found ${repos.length} repos in ${owner}`)
+  console.info(`[GitHub sync] ${repos.length} active repos in ${owner} (dormant and archived ones skipped)`)
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   const byId = new Map<number, GitHubPR>()
