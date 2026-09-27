@@ -38,6 +38,12 @@ export type PersistedState = Pick<AppState, DocKey | 'tasks'>
 // Most records per save request; the rest go in the next one. Kept small: the server
 // validates each request in one go, and 300 full tasks took ~0.4 s of blocking there.
 export const BATCH_LIMIT = 100
+/*
+ * How long a refused record is held back before being offered again. Long enough that an
+ * unstorable record is not retried in a loop, short enough that a deploy catching up fixes
+ * the save banner on its own rather than waiting for a reload.
+ */
+export const REJECT_RETRY_MS = 2 * 60_000
 
 export function normalizeTask(t: Task): Task {
   return {
@@ -135,6 +141,15 @@ export class RecordTracker {
   // A value the server refused as unstorable is not resent until it changes.
   private rejectedTasks = new Map<string, Task>()
   private rejectedDocs = new Map<string, unknown>()
+  /*
+   * When each refusal happened. A refusal is not always permanent: a record can be turned
+   * away because the server has not caught up with a key the app has just started sending,
+   * and then accepted minutes later once it deploys. Holding it back for ever left the save
+   * banner red until the page was reloaded, so a refused record is offered again after a
+   * cooling-off period. If it really is unstorable it is simply refused again, once per
+   * period rather than in a loop.
+   */
+  private rejectedAt = new Map<string, number>()
   cursor = 0
   // False until a full snapshot has been loaded: without bases nothing can be diffed safely.
   ready = false
@@ -160,6 +175,7 @@ export class RecordTracker {
     this.docs.clear()
     this.rejectedTasks.clear()
     this.rejectedDocs.clear()
+    this.rejectedAt.clear()
     const values = next as Record<string, unknown>
     for (const d of res.docs) {
       if (!DOC_KEY_SET.has(d.key)) continue
@@ -190,6 +206,12 @@ export class RecordTracker {
     }
   }
 
+  /** True once a refusal is old enough to be worth trying again. */
+  private dueForRetry(id: string): boolean {
+    const at = this.rejectedAt.get(id)
+    return at === undefined || Date.now() - at >= REJECT_RETRY_MS
+  }
+
   // The next save: records that differ from their base, at most `limit` of them.
   collect(state: PersistedState, limit = BATCH_LIMIT): Batch | null {
     if (!this.ready) return null
@@ -203,7 +225,7 @@ export class RecordTracker {
       if (size >= limit) break
       const value = values[key]
       const base = this.docs.get(key)
-      if (this.rejectedDocs.has(key) && this.rejectedDocs.get(key) === value) continue
+      if (this.rejectedDocs.has(key) && this.rejectedDocs.get(key) === value && !this.dueForRetry(`doc:${key}`)) continue
       if (!base) {
         if (value === undefined) continue
       } else if (value === base.value || (base.rev === null && value === undefined)) {
@@ -223,7 +245,7 @@ export class RecordTracker {
       current.add(t.id)
       if (size >= limit) continue
       const base = this.tasks.get(t.id)
-      if (this.rejectedTasks.get(t.id) === t) continue
+      if (this.rejectedTasks.get(t.id) === t && !this.dueForRetry(`task:${t.id}`)) continue
       if (base) {
         if (t === base.value) continue
         if (deepEqual(t, base.value)) { base.value = t; continue }
@@ -250,9 +272,11 @@ export class RecordTracker {
       if (a.kind === 'doc') {
         this.docs.set(a.id, { rev: a.revision, value: batch.sentDocs.get(a.id) })
         this.rejectedDocs.delete(a.id)
+        this.rejectedAt.delete(`doc:${a.id}`)
       } else if (a.kind === 'task') {
         this.tasks.set(a.id, { rev: a.revision, value: batch.sentTasks.get(a.id)! })
         this.rejectedTasks.delete(a.id)
+        this.rejectedAt.delete(`task:${a.id}`)
       } else {
         this.tasks.delete(a.id)
       }
@@ -261,6 +285,7 @@ export class RecordTracker {
     const rejected: string[] = []
     for (const r of result.rejected) {
       rejected.push(`${r.kind}:${r.id}`)
+      this.rejectedAt.set(`${r.kind}:${r.id}`, Date.now())
       if (r.kind === 'doc') this.rejectedDocs.set(r.id, batch.sentDocs.get(r.id))
       else this.rejectedTasks.set(r.id, batch.sentTasks.get(r.id)!)
     }

@@ -355,3 +355,45 @@ describe('backing off a failing server', () => {
     expect(attempts).toBe(1)
   })
 })
+
+describe('a refusal that turns out to be temporary', () => {
+  it('is tried again, and the banner clears on its own', async () => {
+    // What happened in practice: the app started sending a doc key the server had not
+    // deployed yet, so every save was refused — and the refusal stuck, leaving the error
+    // up long after the server caught up.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    let serverKnowsTheKey = false
+    let attempts = 0
+
+    serve({
+      commit: async (_url, init) => {
+        attempts++
+        const body = await bodyOf(init!)
+        const ok = serverKnowsTheKey
+        return json({
+          applied: ok ? body.tasks.map((t) => ({ kind: 'task', id: t.id, revision: 900 + attempts })) : [],
+          conflicts: [],
+          rejected: ok ? [] : body.tasks.map((t) => ({ kind: 'task', id: t.id, reason: 'invalid' })),
+        } satisfies CommitResponse)
+      },
+    })
+
+    useStore.getState().updateTask('t1', { comment: 'written before the server caught up' })
+    persistNow()
+    await settle()
+    expect(useStore.getState().saveError).toBe('refused')
+
+    // The server deploys. Nothing changes in the app; the record is simply offered again
+    // once the cooling-off period has passed.
+    serverKnowsTheKey = true
+    const before = attempts
+    vi.advanceTimersByTime(3 * 60_000)
+    persistNow()
+    await settle()
+
+    expect(attempts).toBeGreaterThan(before)
+    expect(useStore.getState().saveError).toBeNull()
+    expect(useStore.getState().saveStatus).toBe('saved')
+    vi.useRealTimers()
+  })
+})
