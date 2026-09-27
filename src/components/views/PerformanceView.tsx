@@ -589,7 +589,31 @@ export default function PerformanceView() {
    * asks for it; it just is not the first thing the page says. Picking a single developer
    * in the top bar is itself asking for it.
    */
-  const deployments = useStore((s) => s.deployments) ?? []
+  const allDeployments = useStore((s) => s.deployments)
+  /*
+   * Scoped like everything else on the page. Deployments carry the project of the
+   * connection that fetched them, so a project filter is exact. A developer is not
+   * something a deployment has, so selecting one narrows to the projects they work on --
+   * "the deployments of the projects this person is on" is a true statement; "this
+   * person's deployment frequency" is not.
+   *
+   * Connections that are not tied to a project produce records with no project, and those
+   * cannot be narrowed at all; they are kept, and the panel says so.
+   */
+  const deployments = useMemo(() => {
+    const all = allDeployments ?? []
+    if (!all.length) return all
+    const wanted = selectedProject !== 'ALL'
+      ? new Set([selectedProject])
+      : selectedDev !== 'ALL'
+        ? new Set(projects.filter((p) => p.members.includes(selectedDev)).map((p) => p.id))
+        : null
+    if (!wanted) return all
+    return all.filter((d) => !d.projectId || wanted.has(d.projectId))
+  }, [allDeployments, projects, selectedProject, selectedDev])
+
+  const unscopedDeployments = (allDeployments ?? []).some((d) => !d.projectId)
+  const selectedDevName = allDevelopers.find((d) => d.id === selectedDev)?.name ?? 'this developer'
   // The DORA window follows the range picker; with no range it is the last twelve weeks,
   // which is long enough for a deployment cadence to mean anything.
   const doraWindow = useMemo(() => {
@@ -698,8 +722,15 @@ export default function PerformanceView() {
             <ChartCard title="DORA — getting changes to production">
               {selectedDev !== 'ALL' && (
                 <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 7, lineHeight: 1.5 }}>
-                  Deployments are a property of the project, not of one person — these stay
-                  team-wide. Only the lead time follows the selected developer's merges.
+                  Narrowed to the projects {selectedDevName} works on. A deployment belongs to a
+                  project rather than to a person, so it cannot be attributed further than
+                  that; the lead time does follow their own merges.
+                </div>
+              )}
+              {unscopedDeployments && (
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 7, lineHeight: 1.5 }}>
+                  Some records come from a connection that is not tied to a project, so they
+                  cannot be narrowed and are counted throughout.
                 </div>
               )}
               <DoraPanel
