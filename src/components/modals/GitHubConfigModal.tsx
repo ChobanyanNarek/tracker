@@ -72,7 +72,12 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
   }
 
   function formatGithubError(msg: string): string {
-    if (msg.includes('401')) return 'Token expired or invalid — create a new one at github.com/settings/tokens with repo scope.'
+    if (msg.includes('401') || /bad credentials/i.test(msg)) {
+      return 'GitHub rejects this token (401). It has been revoked, has expired, or was replaced — regenerating a token on GitHub invalidates the old one immediately. Paste the current token above.'
+    }
+    if (/rate limit|secondary|abuse/i.test(msg) || msg.includes('429')) {
+      return 'GitHub is rate-limiting this token — nothing is wrong with it. Wait for the hourly budget to refill, and lengthen the auto-sync interval if it keeps happening.'
+    }
     if (msg.includes('403')) return 'Access denied (403) — your token cannot list org repos. Sync will fall back to per-developer fetch if usernames are configured.'
     if (msg.includes('404') || msg.includes('neither a readable')) return 'Not found — check the org / user name.'
     return msg
@@ -93,15 +98,30 @@ function ConnForm({ conn, developers, onChange, onDelete, isOnly }: ConnFormProp
       } else {
         // Org/user — list repos
         let repos: string[] = []
+        /*
+         * Why the listing failed matters. It used to say "0 repos — regenerate with repo
+         * scope" whatever the reason, which sends someone to replace a token that is
+         * working: a rate limit looks the same from here, and regenerating revokes the old
+         * token and turns a wait into a real outage.
+         */
+        let lastStatus = 0
+        let lastMessage = ''
         for (const scope of ['orgs', 'users'] as const) {
           const res = await providerGet('github', auth, `/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100`)
-          if (!res.ok) continue
+          if (!res.ok) {
+            lastStatus = res.status
+            const body = (await res.json().catch(() => null)) as { message?: string } | null
+            lastMessage = body?.message ?? ''
+            continue
+          }
           const batch = await res.json() as { full_name: string }[]
           repos = batch.map((r) => r.full_name)
           if (repos.length) break
         }
-        if (!repos.length) {
-          setTestResult({ ok: false, msg: `Token can see 0 repos under "${owner}". The token needs full "repo" scope (not just public_repo) to access private org repos. Go to github.com/settings/tokens and regenerate with repo scope.` })
+        if (!repos.length && lastStatus) {
+          setTestResult({ ok: false, msg: formatGithubError(`GitHub ${lastStatus}: ${lastMessage}`) })
+        } else if (!repos.length) {
+          setTestResult({ ok: false, msg: `Token works, but it can see 0 repos under "${owner}". For private org repos it needs full "repo" scope, not just "public_repo" — and on an org with SSO the token must also be authorised for that org.` })
         } else {
           setTestResult({ ok: true, msg: `Connection successful ✓ — ${repos.length} repo${repos.length !== 1 ? 's' : ''} found under ${owner}` })
         }

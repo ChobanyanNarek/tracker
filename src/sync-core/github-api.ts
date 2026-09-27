@@ -124,7 +124,9 @@ export async function fetchOrgPRs(t: Transport, orgOrUser: string, auth: Provide
       if (repos.length) break
     }
     if (!repos.length) {
-      if (lastStatus === 401) throw new Error('GitHub 401: token invalid or expired — create a new PAT with repo scope')
+      // Not "create a new one": regenerating revokes whatever is still in the app and can
+      // turn a recoverable problem into a broken integration. Say what GitHub said.
+      if (lastStatus === 401) throw new Error('GitHub 401: this token is rejected — it was revoked, expired, or replaced. Paste the current token in GitHub settings.')
       /*
        * 403 is both "no access" and "you have asked too often". They need different
        * answers: one is a token to fix, the other is a wait. Blaming the scope for a rate
