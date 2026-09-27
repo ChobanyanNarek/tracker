@@ -42,6 +42,7 @@ function freshState(): AppState {
     notes: [],
     releaseNoteColumns: [],
     releaseNoteData: {},
+    deployments: [],
   }
 }
 

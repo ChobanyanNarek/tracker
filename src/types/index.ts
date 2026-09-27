@@ -299,4 +299,5 @@ export interface AppState {
   browserTimezone?: string  // this browser's IANA zone, saved so the server-side sync knows the user's "today"
   releaseNoteColumns?: ReleaseNoteColumn[]
   releaseNoteData?: Record<string, ReleaseNoteIssueData>  // key = jiraDedupeKey or issueId
+  deployments?: DeploymentRecord[]  // what the git host published, for the DORA measures
 }

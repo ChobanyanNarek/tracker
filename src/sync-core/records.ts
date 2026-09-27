@@ -21,7 +21,7 @@ export const DOC_KEYS = [
   'developers', 'projects', 'sprints', 'notes', 'schedule', 'scheduleHours', 'notifsEnabled',
   'jiraConnections', 'gitlabConnections', 'githubConnections', 'trackerTimezone',
   'selectedProject', 'selectedDev', 'selectedDate', 'releaseNoteColumns', 'releaseNoteData',
-  'browserTimezone',
+  'browserTimezone', 'deployments',
 ] as const
 export type DocKey = typeof DOC_KEYS[number]
 const DOC_KEY_SET = new Set<string>(DOC_KEYS)

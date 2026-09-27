@@ -1,9 +1,10 @@
-import type { AppState, GitHubConfig, GitLabConfig, JiraIssue, PrEntry, PrState, PrStateEvent, Task } from '../types'
+import type { AppState, DeploymentRecord, GitHubConfig, GitLabConfig, JiraIssue, PrEntry, PrState, PrStateEvent, Task } from '../types'
 import { authFor, hasCredential } from './credentials'
 import { localParts } from './dates'
 import { extractJiraKeys as extractGithubJiraKeys, fetchOrgPRs, fetchUserPRs, normalizeGithubPath } from './github-api'
 import { extractJiraKeys, fetchGroupMRs, fetchUserMRs } from './gitlab-api'
 import { fetchConnectionProjectKeys } from './jira-api'
+import { fetchGitHubDeployments, fetchGitLabDeployments, mergeDeployments } from './deploy-sync'
 import type { SyncRun, SyncState } from './jira-sync'
 import { identityList, jiraDedupeKey } from './keys'
 import type { Transport } from './transport'
@@ -118,6 +119,8 @@ export interface GitlabSyncPlan {
   mrUrlToStatus: Map<string, JiraIssue['status']>
   syncedConns: GitLabConfig[]
   resultStr: string
+  /** Deployment records for the DORA measures; empty when the project publishes none. */
+  deployments: DeploymentRecord[]
 }
 
 export async function computeGitlabSync(state: SyncState, transport: Transport, run: SyncRun): Promise<GitlabSyncPlan> {
@@ -278,15 +281,29 @@ export async function computeGitlabSync(state: SyncState, transport: Transport, 
   if (skippedNoIssue.length) parts.push(`${skippedNoIssue.length} untracked`)
   const resultStr = parts.join(', ')
 
+  /*
+   * Deployment records, where the project publishes any. A provider that records none is
+   * the ordinary case, not a failure, so this never stops the MR sync it rides along with.
+   */
+  const deployments: DeploymentRecord[] = []
+  for (const conn of syncedConns) {
+    try {
+      deployments.push(...await fetchGitLabDeployments(transport, conn))
+    } catch (e) {
+      console.warn('[GitLab sync] deployments unavailable:', e instanceof Error ? e.message : e)
+    }
+  }
+
   return {
     counts: { linked, updated, noKey: skippedNoKey.length, noIssue: skippedNoIssue.length, noKeyList: skippedNoKey, noIssueList: skippedNoIssue },
-    prPatches, mrUrlToStatus, syncedConns, resultStr,
+    prPatches, mrUrlToStatus, syncedConns, resultStr, deployments,
   }
 }
 
-export function applyGitlabSync(s: SyncState, plan: GitlabSyncPlan): Pick<AppState, 'tasks' | 'gitlabConnections'> {
+export function applyGitlabSync(s: SyncState, plan: GitlabSyncPlan): Pick<AppState, 'tasks' | 'gitlabConnections' | 'deployments'> {
   const { prPatches, mrUrlToStatus, syncedConns, resultStr } = plan
   return {
+  deployments: mergeDeployments(s.deployments ?? [], plan.deployments),
   tasks: s.tasks.map((t) => {
     const taskPatch = prPatches.get(t.id)
     if (!taskPatch) return t
@@ -334,6 +351,8 @@ export interface GithubSyncPlan {
   prUrlToKeys: Map<string, Set<string>>
   fetchedGithubUrls: Set<string>
   syncedConns: GitHubConfig[]
+  /** Deployment records for the DORA measures; empty when the project publishes none. */
+  deployments: DeploymentRecord[]
 }
 
 export async function computeGithubSync(state: SyncState, transport: Transport, run: SyncRun): Promise<GithubSyncPlan> {
@@ -490,12 +509,22 @@ export async function computeGithubSync(state: SyncState, transport: Transport, 
   // All GitHub PR urls fetched this sync
   const fetchedGithubUrls = new Set(allPRs.map((p) => p.html_url))
 
-  return { counts: { linked, updated }, prPatches, prUrlToStatus, prUrlToKeys, fetchedGithubUrls, syncedConns }
+  const deployments: DeploymentRecord[] = []
+  for (const conn of syncedConns) {
+    try {
+      deployments.push(...await fetchGitHubDeployments(transport, conn))
+    } catch (e) {
+      console.warn('[GitHub sync] deployments unavailable:', e instanceof Error ? e.message : e)
+    }
+  }
+
+  return { counts: { linked, updated }, prPatches, prUrlToStatus, prUrlToKeys, fetchedGithubUrls, syncedConns, deployments }
 }
 
-export function applyGithubSync(s: SyncState, plan: GithubSyncPlan): Pick<AppState, 'tasks' | 'githubConnections'> {
+export function applyGithubSync(s: SyncState, plan: GithubSyncPlan): Pick<AppState, 'tasks' | 'githubConnections' | 'deployments'> {
   const { prPatches, prUrlToStatus, prUrlToKeys, fetchedGithubUrls, syncedConns } = plan
   return {
+  deployments: mergeDeployments(s.deployments ?? [], plan.deployments),
   tasks: s.tasks.map((t) => {
     const taskPatch = prPatches.get(t.id)
     let changed = false

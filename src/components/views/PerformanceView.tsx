@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard } from '../../store'
 import { computeTeamPerformance } from '../../utils/performance'
 import type { IssuePerf, DevPerf, Verdict, PerfRange } from '../../utils/performance'
-import type { Developer, Status } from '../../types'
+import type { DeploymentRecord, Developer, Status } from '../../types'
+import { changeFailBand, computeDora, deployFreqBand, recoveryBand } from '../../utils/dora'
 import { fmtWorkHours, tzDateTimeLabel } from '../../utils/working-hours'
 import { hexRgb, initials } from '../../utils/format'
 import { STATUS_LABEL, STATUS_COLOR } from '../../constants'
@@ -49,6 +50,52 @@ function fmtCalendar(hours: number): string {
   if (hours < 1) return `${Math.round(hours * 60)}m`
   if (hours < 48) return `${Math.round(hours * 10) / 10}h`
   return `${Math.round(hours / 24 * 10) / 10}d`
+}
+
+/*
+ * DORA, from the deployment records the git host published. Kept apart from the rest of
+ * the page because it measures something different — how changes reach production, not how
+ * issues move across a board — and because a team that publishes no deployments should see
+ * that said plainly rather than four blank figures.
+ */
+function DoraPanel({ deployments, mergeMs, fromMs, toMs }: {
+  deployments: DeploymentRecord[]; mergeMs: number[]; fromMs: number; toMs: number
+}) {
+  const d = computeDora({ deployments, mergeMs, fromMs, toMs })
+
+  if (d.noData) {
+    return (
+      <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>
+        No deployment records to read.
+        <div style={{ marginTop: 4 }}>
+          These four need to know when a change reached production, which only your GitLab
+          or GitHub deployments can say. Nothing else here — not Jira, not the merge —
+          knows that. Once your pipeline records deployments against a
+          {' '}<b style={{ color: 'var(--text2)' }}>production</b> environment, they appear here on the next sync.
+        </div>
+      </div>
+    )
+  }
+
+  const line = (label: string, value: string, band: string | null, color?: string) => (
+    <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', flex: 1, minWidth: 0 }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: color ?? 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+      {band && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', whiteSpace: 'nowrap' }}>{band}</span>}
+    </div>
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {line('Deployment frequency', d.deployFreqWk != null ? `${Math.round(d.deployFreqWk * 10) / 10}/wk` : '—', deployFreqBand(d.deployFreqWk))}
+      {line('Lead time to production', d.leadTimeP50H != null ? fmtCalendar(d.leadTimeP50H) : '—', doraBand(d.leadTimeP50H)?.label ?? null, doraBand(d.leadTimeP50H)?.color)}
+      {line('Change failure rate', pct(d.changeFailPct), changeFailBand(d.changeFailPct), d.changeFailPct != null && d.changeFailPct > 15 ? AMBER : GREEN)}
+      {line('Recovery time', d.recoveryP50H != null ? fmtCalendar(d.recoveryP50H) : '—', recoveryBand(d.recoveryP50H))}
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>
+        {d.deployCount} to production{d.failedCount > 0 ? `, ${d.failedCount} failed` : ''} in range
+      </div>
+    </div>
+  )
 }
 
 const GREEN = 'var(--green)'
@@ -536,6 +583,16 @@ export default function PerformanceView() {
    * asks for it; it just is not the first thing the page says. Picking a single developer
    * in the top bar is itself asking for it.
    */
+  const deployments = useStore((s) => s.deployments) ?? []
+  // The DORA window follows the range picker; with no range it is the last twelve weeks,
+  // which is long enough for a deployment cadence to mean anything.
+  const doraWindow = useMemo(() => {
+    const bounds = rangeBounds(rangeKey)
+    const toMs = bounds.to ? new Date(`${bounds.to}T23:59:59`).getTime() : Date.now()
+    const fromMs = bounds.from ? new Date(`${bounds.from}T00:00:00`).getTime() : toMs - 12 * 7 * 86_400_000
+    return { fromMs, toMs }
+  }, [rangeKey])
+
   const [showPeople, setShowPeople] = useState(false)
   const perPerson = showPeople || selectedDev !== 'ALL'
 
@@ -631,6 +688,14 @@ export default function PerformanceView() {
             </ChartCard>
             <ChartCard title="Where the time goes">
               <StatusSplit byStatus={team.byStatus} untouchedH={team.untouchedH} />
+            </ChartCard>
+            <ChartCard title="DORA — getting changes to production">
+              <DoraPanel
+                deployments={deployments}
+                mergeMs={team.devs.flatMap((dv) => dv.issues).filter((i) => i.deliverySource === 'merge' && i.deliveryMs != null).map((i) => i.deliveryMs!)}
+                fromMs={doraWindow.fromMs}
+                toMs={doraWindow.toMs}
+              />
             </ChartCard>
           </div>
         )}
