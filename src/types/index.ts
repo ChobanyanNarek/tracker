@@ -17,6 +17,24 @@ export interface Note {
   archivedAt?: string
 }
 
+/*
+ * One deployment as the provider recorded it. This is the piece DORA needs that nothing
+ * else in the tracker can supply: Jira knows when work was called done and the git host
+ * knows when it was merged, but only the deployment record says when it reached anybody.
+ */
+export interface DeploymentRecord {
+  id: string              // "gitlab:<projectId>:<iid>" / "github:<owner>/<repo>:<id>"
+  provider: 'gitlab' | 'github'
+  repo: string            // path with namespace / owner-repo
+  environment: string     // as the provider names it; production is matched loosely
+  status: 'success' | 'failed' | 'running' | 'canceled'
+  createdAt: string       // ISO
+  finishedAt?: string     // ISO, when the provider recorded one
+  sha?: string
+  url?: string
+  projectId?: string      // tracker project this connection belongs to, when it is scoped
+}
+
 export interface GitLabConfig {
   id: string
   name: string
