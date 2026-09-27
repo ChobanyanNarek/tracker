@@ -63,15 +63,26 @@ function DoraPanel({ deployments, mergeMs, fromMs, toMs }: {
 }) {
   const d = computeDora({ deployments, mergeMs, fromMs, toMs })
 
+  /*
+   * Nothing to show yet. A paragraph explaining why filled a third of the dashboard with
+   * text on a page that is meant to be read at a glance, so the explanation moved to the
+   * hover and the panel keeps one quiet line — the four names, greyed, so it is obvious
+   * what would appear here and equally obvious that nothing has.
+   */
   if (d.noData) {
     return (
-      <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>
-        No deployment records to read.
-        <div style={{ marginTop: 4 }}>
-          These four need to know when a change reached production, which only your GitLab
-          or GitHub deployments can say. Nothing else here — not Jira, not the merge —
-          knows that. Once your pipeline records deployments against a
-          {' '}<b style={{ color: 'var(--text2)' }}>production</b> environment, they appear here on the next sync.
+      <div
+        title={'These four measure how changes reach production, so they need a deployment record — something your CI writes to GitLab or GitHub when it deploys. Nothing else here knows it: Jira knows a ticket was called done, the merge knows code landed on a branch, and neither says whether users have it.\n\nOnce a pipeline records deployments against a "production" environment, they appear here on the next sync.'}
+        style={{ fontSize: 11, color: 'var(--text4)', lineHeight: 1.7, cursor: 'help' }}
+      >
+        {['Deployment frequency', 'Lead time to production', 'Change failure rate', 'Recovery time'].map((label) => (
+          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>{label}</span>
+            <span>—</span>
+          </div>
+        ))}
+        <div style={{ marginTop: 6, fontSize: 10 }}>
+          Waiting on deployment records from your pipeline · <span style={{ borderBottom: '1px dotted var(--text4)' }}>what is this?</span>
         </div>
       </div>
     )
