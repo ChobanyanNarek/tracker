@@ -112,6 +112,31 @@ function checkIssue(name: string, ip: IssuePerf) {
     expect(ip.byStatus.inprogress, `${where}: split agrees with effort`).toBeCloseTo(ip.effortH, 1)
   }
 
+  /*
+   * The signed delta and the timing word describe the same fact, so they cannot disagree:
+   * a verdict of 'late' with a negative delta would put a green figure on a late issue.
+   */
+  if (ip.timing === 'early') expect(ip.deliveryDeltaH!, `${where}: early ⇒ negative delta`).toBeLessThanOrEqual(0)
+  if (ip.timing === 'late') expect(ip.deliveryDeltaH!, `${where}: late ⇒ positive delta`).toBeGreaterThanOrEqual(0)
+  if (ip.timing === 'onTime') expect(ip.deliveryDeltaH, `${where}: on time ⇒ no delta`).toBe(0)
+  if (ip.timing == null) expect(ip.deliveryDeltaH, `${where}: unjudged ⇒ no delta`).toBeNull()
+
+  // Lead time is calendar time between two real instants, so it cannot run backwards.
+  if (ip.prLeadH != null) {
+    expect(Number.isFinite(ip.prLeadH), `${where}: lead time is finite`).toBe(true)
+    expect(ip.prLeadH, `${where}: lead time ≥ 0`).toBeGreaterThanOrEqual(0)
+  }
+
+  // Time left before a deadline belongs only to something that has not arrived yet.
+  if (ip.deliveryMs != null) expect(ip.hoursToDeadline, `${where}: delivered ⇒ no time left`).toBeNull()
+  if (ip.hoursToDeadline != null) expect(ip.hoursToDeadline, `${where}: time left ≥ 0`).toBeGreaterThanOrEqual(0)
+
+  // Only unfinished work can be at risk of missing a date.
+  if (ip.atRisk) expect(['ongoing', 'overdue'], `${where}: at risk ⇒ still in flight`).toContain(ip.verdict)
+
+  expect(Number.isInteger(ip.reworkCount), `${where}: rework is a count`).toBe(true)
+  expect(ip.reworkCount, `${where}: rework ≥ 0`).toBeGreaterThanOrEqual(0)
+
   // No number is negative or NaN.
   for (const [k, v] of Object.entries({ effortH: ip.effortH, blockedH: ip.blockedH, untouchedH: ip.untouchedH, span })) {
     expect(Number.isFinite(v), `${where}: ${k} is finite`).toBe(true)
