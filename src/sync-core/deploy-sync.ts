@@ -12,7 +12,16 @@ import { normalizeGithubPath } from './github-api'
  * rather than a failure.
  */
 
-const MAX_PAGES = 5 // 5 × 100 — a year of deployments for all but the busiest repos
+/*
+ * One page per repo. The first version walked five, and asked GitHub for the status of
+ * every deployment it found — hundreds of requests per sync, on a connection that syncs
+ * every two minutes. That exhausts a token's hourly budget in minutes, and once GitHub
+ * starts refusing, the very next sync cannot even list the org's repos: the integration
+ * reports "0 repos" and looks broken when nothing is wrong with the token.
+ */
+const MAX_PAGES = 1
+/** Statuses are a request each, so only the newest unknown deployments are resolved. */
+const MAX_STATUS_LOOKUPS = 40
 
 interface GitLabDeployment {
   id: number
@@ -111,29 +120,45 @@ async function githubRepos(t: Transport, config: GitHubConfig): Promise<string[]
   return []
 }
 
-export async function fetchGitHubDeployments(t: Transport, config: GitHubConfig): Promise<DeploymentRecord[]> {
+export async function fetchGitHubDeployments(
+  t: Transport,
+  config: GitHubConfig,
+  /** Ids already held, so a deployment's status is looked up once and not on every sync. */
+  known: ReadonlySet<string> = new Set(),
+): Promise<DeploymentRecord[]> {
   if (!config.orgOrUser.trim() || !hasCredential(config)) return []
   const auth = authFor(config)
   const repos = await githubRepos(t, config).catch(() => [])
   const out: DeploymentRecord[] = []
+  let statusLookups = 0
 
   for (const full of repos) {
     for (let page = 1; page <= MAX_PAGES; page++) {
       const res = await providerGet(t, 'github', auth, `/repos/${full}/deployments?per_page=100&page=${page}`)
-      if (!res.ok) break
+      // A refusal here is usually the rate limit, and pressing on only deepens it.
+      if (!res.ok) return out
       const batch = (await res.json()) as GitHubDeployment[]
       if (!Array.isArray(batch) || !batch.length) break
 
       for (const d of batch) {
+        const id = `github:${full}:${d.id}`
+        // Already resolved on an earlier sync; its outcome does not change afterwards.
+        if (known.has(id)) continue
         /*
          * GitHub keeps the outcome on a separate status resource, newest first. Without it
-         * every deployment would look like it was still running.
+         * every deployment would look like it was still running — but it is a request
+         * each, so only a bounded number are resolved per sync and the rest wait.
          */
-        const statusRes = await providerGet(t, 'github', auth, `/repos/${full}/deployments/${d.id}/statuses?per_page=1`)
-        const statuses = statusRes.ok ? (await statusRes.json()) as GitHubDeploymentStatus[] : []
-        const latest = Array.isArray(statuses) ? statuses[0] : undefined
+        let latest: GitHubDeploymentStatus | undefined
+        if (statusLookups < MAX_STATUS_LOOKUPS) {
+          statusLookups++
+          const statusRes = await providerGet(t, 'github', auth, `/repos/${full}/deployments/${d.id}/statuses?per_page=1`)
+          if (!statusRes.ok) return out
+          const statuses = (await statusRes.json()) as GitHubDeploymentStatus[]
+          latest = Array.isArray(statuses) ? statuses[0] : undefined
+        }
         out.push({
-          id: `github:${full}:${d.id}`,
+          id,
           provider: 'github',
           repo: full,
           environment: d.environment ?? '',

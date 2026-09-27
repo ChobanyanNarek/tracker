@@ -89,12 +89,16 @@ export async function fetchOrgPRs(t: Transport, orgOrUser: string, auth: Provide
     repos.push(singleRepo)
   } else {
     let lastStatus = 0
+    let lastRateLimited = false
     for (const scope of ['orgs', 'users'] as const) {
       let page = 1
       while (true) {
         const res = await providerGet(t, 'github', auth, `/${scope}/${encodeURIComponent(owner)}/repos?type=all&per_page=100&page=${page}`)
         lastStatus = res.status
         if (!res.ok) {
+          // GitHub says which kind of 403 this is in the body.
+          const body = (await res.json().catch(() => null)) as { message?: string } | null
+          if (/rate limit|abuse|secondary/i.test(body?.message ?? '')) lastRateLimited = true
           break
         }
         const batch = await res.json() as { full_name: string }[]
@@ -106,6 +110,14 @@ export async function fetchOrgPRs(t: Transport, orgOrUser: string, auth: Provide
     }
     if (!repos.length) {
       if (lastStatus === 401) throw new Error('GitHub 401: token invalid or expired — create a new PAT with repo scope')
+      /*
+       * 403 is both "no access" and "you have asked too often". They need different
+       * answers: one is a token to fix, the other is a wait. Blaming the scope for a rate
+       * limit sent people to regenerate a token that was working perfectly well.
+       */
+      if (lastStatus === 429 || (lastStatus === 403 && lastRateLimited)) {
+        throw new Error('GitHub is rate-limiting this token — nothing is wrong with it. Syncs resume once the hourly budget refills; lengthen the auto-sync interval if it keeps happening.')
+      }
       if (lastStatus === 403) throw new Error('GitHub 403: token does not have access to this org — check repo scope')
       // 200 + empty = org exists but token can only see 0 repos (private org, needs full `repo` scope)
       // Fall through with empty repos — per-developer username fallback will still run

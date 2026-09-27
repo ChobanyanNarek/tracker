@@ -282,15 +282,20 @@ export async function computeGitlabSync(state: SyncState, transport: Transport, 
   const resultStr = parts.join(', ')
 
   /*
-   * Deployment records, where the project publishes any. A provider that records none is
-   * the ordinary case, not a failure, so this never stops the MR sync it rides along with.
+   * Deployment records, where the project publishes any. Not on a background sync: those
+   * run as often as every two minutes, and deployment history does not change that fast --
+   * asking for it that often is what exhausted the token's rate limit and left the
+   * integration reporting "0 repos" on the sync after. A provider that records none is the
+   * ordinary case, not a failure, so this never stops the MR sync it rides along with.
    */
   const deployments: DeploymentRecord[] = []
-  for (const conn of syncedConns) {
-    try {
-      deployments.push(...await fetchGitLabDeployments(transport, conn))
-    } catch (e) {
-      console.warn('[GitLab sync] deployments unavailable:', e instanceof Error ? e.message : e)
+  if (!run.background) {
+    for (const conn of syncedConns) {
+      try {
+        deployments.push(...await fetchGitLabDeployments(transport, conn))
+      } catch (e) {
+        console.warn('[GitLab sync] deployments unavailable:', e instanceof Error ? e.message : e)
+      }
     }
   }
 
@@ -509,12 +514,17 @@ export async function computeGithubSync(state: SyncState, transport: Transport, 
   // All GitHub PR urls fetched this sync
   const fetchedGithubUrls = new Set(allPRs.map((p) => p.html_url))
 
+  // Manual syncs only — see the note in computeGitlabSync. Ids already held are passed in
+  // so a deployment's outcome is resolved once rather than on every sync.
   const deployments: DeploymentRecord[] = []
-  for (const conn of syncedConns) {
-    try {
-      deployments.push(...await fetchGitHubDeployments(transport, conn))
-    } catch (e) {
-      console.warn('[GitHub sync] deployments unavailable:', e instanceof Error ? e.message : e)
+  if (!run.background) {
+    const known = new Set((state.deployments ?? []).map((d) => d.id))
+    for (const conn of syncedConns) {
+      try {
+        deployments.push(...await fetchGitHubDeployments(transport, conn, known))
+      } catch (e) {
+        console.warn('[GitHub sync] deployments unavailable:', e instanceof Error ? e.message : e)
+      }
     }
   }
 
