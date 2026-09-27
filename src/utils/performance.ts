@@ -771,12 +771,19 @@ function finalizeDevIssues(issues: IssuePerf[]): void {
   }
 }
 
-function profileOf(d: Pick<DevPerf, 'deliveredCount' | 'onTimePct' | 'flowEffPct' | 'medDeliveryDeltaH'>): string {
-  if (!d.deliveredCount) return 'No delivered issues in range'
-  const timeWord = d.onTimePct! >= 75 ? 'usually on time' : d.onTimePct! >= 40 ? 'sometimes late' : 'often late'
-  const blockWord = d.flowEffPct == null || d.flowEffPct >= LOW_FLOW_EFF_PCT ? 'work flows' : 'mostly waiting'
-  const early = d.medDeliveryDeltaH != null && d.medDeliveryDeltaH < -0.5 ? ' · typically delivers early' : ''
-  return `${timeWord[0]!.toUpperCase()}${timeWord.slice(1)} · ${blockWord}${early}`
+/*
+ * A line about the work, not a verdict on the person. It used to read "Often late ·
+ * mostly waiting", which is a judgement drawn from ticket metadata: the lateness is
+ * measured against a date somebody typed, and the waiting is usually a property of the
+ * process rather than of whoever happens to be assigned. The facts are still all here --
+ * on-time rate, flow efficiency, cycle time -- and mean more without a label on top.
+ */
+function profileOf(d: Pick<DevPerf, 'deliveredCount' | 'wipCount' | 'cycleP50H'>): string {
+  const parts: string[] = []
+  parts.push(d.deliveredCount === 1 ? '1 delivered' : `${d.deliveredCount} delivered`)
+  if (d.wipCount) parts.push(`${d.wipCount} in progress`)
+  if (d.cycleP50H != null) parts.push(`median cycle ${(d.cycleP50H / 8).toFixed(1)}d`)
+  return parts.join(' · ')
 }
 
 /**
@@ -947,7 +954,11 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
         atRiskCount: issues.filter((i) => i.atRisk).length,
         byStatus,
         untouchedH: measured.reduce((sum, i) => sum + i.untouchedH, 0),
-        profile: profileOf(base),
+        profile: profileOf({
+          deliveredCount: n,
+          wipCount: issues.filter((i) => i.verdict === 'ongoing' || i.verdict === 'overdue').length,
+          cycleP50H: percentile(delivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.5),
+        }),
       }
     })
     // By name, not by score. Sorting people by on-time percentage made the list read as a

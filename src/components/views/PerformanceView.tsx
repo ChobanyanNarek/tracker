@@ -509,6 +509,16 @@ export default function PerformanceView() {
     [developers, tasks, schedule, scheduleHours, rangeKey],
   )
 
+  /*
+   * Per-person numbers are off by default. Flow metrics describe a process, and the one
+   * they hang on here -- on-time against a date somebody typed -- says more about how the
+   * date was set than about who was assigned. The data is all still here for anyone who
+   * asks for it; it just is not the first thing the page says. Picking a single developer
+   * in the top bar is itself asking for it.
+   */
+  const [showPeople, setShowPeople] = useState(false)
+  const perPerson = showPeople || selectedDev !== 'ALL'
+
   const visibleDevs = useMemo(
     () => selectedDev === 'ALL' ? team.devs : team.devs.filter((d) => d.dev.id === selectedDev),
     [team.devs, selectedDev],
@@ -540,6 +550,16 @@ export default function PerformanceView() {
           </button>
         ))}
         <div style={{ flex: 1, minWidth: 12 }} />
+        {selectedDev === 'ALL' && (
+          <button
+            onClick={() => setShowPeople((v) => !v)}
+            aria-pressed={showPeople}
+            title={showPeople ? 'Hide the per-developer breakdown' : 'Show the per-developer breakdown'}
+            style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 10px', borderRadius: 12, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, border: `1px solid ${showPeople ? 'var(--accent)' : 'var(--border)'}`, background: showPeople ? 'var(--accent-dim)' : 'var(--surface2)', color: showPeople ? 'var(--accent)' : 'var(--text2)', fontWeight: showPeople ? 600 : 400 }}
+          >
+            By developer
+          </button>
+        )}
         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', flexShrink: 0 }}>{LOCAL_TZ}</span>
       </div>
 
@@ -573,8 +593,8 @@ export default function PerformanceView() {
           )}
         </div>
 
-        {/* team comparison charts */}
-        {selectedDev === 'ALL' && chartDevs.length > 0 && (
+        {/* What the team's process is doing — the default view. */}
+        {team.devs.some((d) => d.issues.length > 0) && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10, flexShrink: 0 }}>
             <ChartCard title="Work in progress — oldest first">
               <AgingWip
@@ -583,6 +603,15 @@ export default function PerformanceView() {
                 onOpen={(i) => setSelected({ issue: i, dev: team.devs.find((d) => d.issues.includes(i))!.dev })}
               />
             </ChartCard>
+            <ChartCard title="Where the time goes">
+              <StatusSplit byStatus={team.byStatus} untouchedH={team.untouchedH} />
+            </ChartCard>
+          </div>
+        )}
+
+        {/* Broken down by person — only when asked for. */}
+        {perPerson && selectedDev === 'ALL' && chartDevs.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10, flexShrink: 0 }}>
             <ChartCard title="Throughput — issues/week">
               <HBars
                 color={BLUE}
@@ -600,9 +629,6 @@ export default function PerformanceView() {
                   display: fmtWorkHours(d.cycleP50H!),
                 }))}
               />
-            </ChartCard>
-            <ChartCard title="Where the time goes">
-              <StatusSplit byStatus={team.byStatus} untouchedH={team.untouchedH} />
             </ChartCard>
             <ChartCard title="Productive vs blocked time">
               <FlowBars rows={chartDevs.map((d) => ({ key: d.dev.id, label: d.dev.name, effortH: d.effortTotalH, blockedH: d.blockedTotalH }))} />
@@ -622,7 +648,7 @@ export default function PerformanceView() {
         {team.devs.length === 0 && <EmptyState icon="chart" title="No developers" />}
 
         {/* per-developer blocks */}
-        {visibleDevs.map((d) => {
+        {perPerson && visibleDevs.map((d) => {
           const rgb = hexRgb(d.dev.color)
           const isCollapsed = collapsed[d.dev.id]
           const showCharts = chartsOpen[d.dev.id] ?? false
