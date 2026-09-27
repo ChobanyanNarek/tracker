@@ -484,3 +484,105 @@ describe("lead time for changes, as far as this data reaches", () => {
     expect(computeTeamPerformance(input([noMerge])).prLeadP50H).toBeNull()
   })
 })
+
+/*
+ * The parts of the dashboard that had no test of their own: throughput and the weeks it
+ * divides by, the original-deadline comparison, and the choice of which copy of an issue
+ * to measure when the same one appears on many days.
+ */
+describe('throughput and the weeks behind it', () => {
+  const delivered = (key: string, date: string) => issue(key, date, `${date}T17:00:00+04:00`)
+
+  it('is deliveries divided by the weeks of the range, not of the data', () => {
+    const team = computeTeamPerformance(
+      input([delivered('TH-1', '2026-09-07'), delivered('TH-2', '2026-09-14'), delivered('TH-3', '2026-09-21')]),
+      { from: '2026-09-01', to: '2026-09-28' }, // exactly four weeks
+    )
+    expect(team.deliveredCount).toBe(3)
+    expect(team.throughputWk!).toBeCloseTo(3 / 4, 1)
+  })
+
+  it('never divides by less than a week, so a one-day range cannot inflate it', () => {
+    const team = computeTeamPerformance(
+      input([delivered('TH-4', '2026-09-09')]),
+      { from: '2026-09-09', to: '2026-09-09' },
+    )
+    expect(team.weeks).toBe(1)
+    expect(team.throughputWk!).toBe(1) // one issue that week, not seven a week
+  })
+
+  it('spans the data when no range is given', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-28T12:00:00+04:00'))
+    // Work that actually began in July, not merely due then.
+    const july = issue('TH-5', '2026-07-10', '2026-07-10T17:00:00+04:00', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-07-01T10:00:00+04:00' },
+        { status: 'done', at: '2026-07-10T17:00:00+04:00' },
+      ],
+    })
+    const team = computeTeamPerformance(input([july, delivered('TH-6', '2026-09-01')]))
+
+    expect(team.weeks).toBeGreaterThan(11) // 1 July to today is about thirteen weeks
+    expect(team.throughputWk!).toBeLessThan(0.3)
+    vi.useRealTimers()
+  })
+})
+
+describe('on-time against the deadline the issue started with', () => {
+  it('separates a date that was met from one that was moved to be met', () => {
+    const moved = issue('MV-1', '2026-09-20', '2026-09-18T17:00:00+04:00', {
+      deadlineHistory: [
+        { deadline: '2026-09-10', at: '2026-09-01T10:00:00+04:00' }, // what was promised
+        { deadline: '2026-09-20', at: '2026-09-09T10:00:00+04:00' }, // what it became
+      ],
+    })
+    const team = computeTeamPerformance(input([moved]))
+    const ip = team.devs[0]!.issues[0]!
+
+    expect(ip.timing).toBe('early')            // against the date it ended with
+    expect(ip.timingVsOriginal).toBe('late')   // against the one it started with
+    expect(ip.deadlineMovedDays).toBe(10)
+    expect(team.movedDeadlineCount).toBe(1)
+    expect(team.onTimeVsOriginalPct).toBe(0)
+    expect(team.onTimePct).toBe(100)           // both are true, and both are shown
+  })
+
+  it('says nothing about issues whose date never moved', () => {
+    const team = computeTeamPerformance(input([issue('MV-2', '2026-09-20', '2026-09-18T17:00:00+04:00')]))
+    expect(team.movedDeadlineCount).toBe(0)
+    expect(team.onTimeVsOriginalPct).toBeNull()
+    expect(team.devs[0]!.issues[0]!.deadlineMovedDays).toBeNull()
+  })
+})
+
+describe('the same issue on many days', () => {
+  it('is measured once, from the copy that knows the most about it', () => {
+    const thin = issue('DUP-1', '2026-09-20', null, { statusHistory: [{ status: 'inprogress', at: '2026-09-09T10:00:00+04:00' }] })
+    const full = issue('DUP-1', '2026-09-20', '2026-09-18T17:00:00+04:00', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-09T10:00:00+04:00' },
+        { status: 'review', at: '2026-09-17T10:00:00+04:00' },
+        { status: 'done', at: '2026-09-18T17:00:00+04:00' },
+      ],
+    })
+    const team = computeTeamPerformance({
+      tasks: [task('day1', [thin]), task('day2', [full]), task('day3', [thin])],
+      developers: [dev], schedule: {}, scheduleHours: {},
+    })
+
+    expect(team.devs[0]!.issues).toHaveLength(1)
+    expect(team.devs[0]!.issues[0]!.verdict).not.toBe('ongoing') // the richer copy won
+    expect(team.deliveredCount).toBe(1)
+  })
+})
+
+describe('a PR pushed before the work started', () => {
+  it('is flagged rather than quietly measured', () => {
+    const odd = issue('SUS-1', '2026-09-20', null, {
+      statusHistory: [{ status: 'inprogress', at: '2026-09-10T10:00:00+04:00' }],
+      prs: [{ url: 'https://gl/99', date: '2026-09-05', time: '11:00' }],
+    })
+    expect(computeTeamPerformance(input([odd])).devs[0]!.issues[0]!.suspect).toBe(true)
+  })
+})
