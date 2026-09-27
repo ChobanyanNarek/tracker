@@ -67,6 +67,13 @@ export interface IssuePerf {
    * quietly disagreeing with it.
    */
   untouchedH: number
+  /*
+   * DORA's lead time for changes, as far as this data reaches: calendar hours from the
+   * first PR opening to the last merge. Calendar, not working hours, because that is what
+   * the published bands are measured in — under an hour is elite, under a day is high.
+   * The deploy leg is missing: nothing here knows when a merge reached production.
+   */
+  prLeadH: number | null
   /** Working hours left before the deadline, for something still in flight. */
   hoursToDeadline: number | null
   /** Still in flight and unlikely to make its deadline, judged against the team's own p85. */
@@ -127,6 +134,9 @@ export interface DevPerf {
   medBlockedH: number | null
   cycleP50H: number | null
   cycleP85H: number | null
+  /** Lead time for changes (PR opened → merged), calendar hours. */
+  prLeadP50H: number | null
+  prLeadP85H: number | null
   medDeliveryDeltaH: number | null
   throughputWk: number | null // delivered issues per week in range
   reworkIssues: number
@@ -146,6 +156,9 @@ export interface TeamPerf {
   flowEffPct: number | null
   cycleP50H: number | null
   cycleP85H: number | null
+  /** Lead time for changes (PR opened → merged), calendar hours. */
+  prLeadP50H: number | null
+  prLeadP85H: number | null
   medDeliveryDeltaH: number | null
   throughputWk: number | null
   reworkRatePct: number | null
@@ -616,6 +629,15 @@ function computeIssue(
     ? tzWallClockMs(firstDue.deadline, firstDue.deadlineTime || sched.endTime, tz)
     : null
 
+  const prOpened = (issue.prs ?? [])
+    .flatMap((p) => p.stateHistory ?? [])
+    .filter((e) => e.state === 'open' || e.state === 'draft')
+    .map((e) => new Date(e.at).getTime())
+    .filter((ms) => Number.isFinite(ms))
+  const prLeadH = prOpened.length && mergeInstants.length
+    ? Math.max(0, (Math.max(...mergeInstants) - Math.min(...prOpened)) / 3_600_000)
+    : null
+
   const suspect = startMs != null && prInstants.length > 0 && Math.min(...prInstants) < startMs
 
   let timing: Timing | null = null
@@ -704,6 +726,7 @@ function computeIssue(
     timingVsOriginal,
     deadlineMovedDays,
     byStatus,
+    prLeadH,
     hoursToDeadline,
     untouchedH: 0, // filled once the developer's day has been shared out
     atRisk: false, // filled once the team's p85 is known
@@ -947,6 +970,8 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
         medBlockedH: median(delivered.map((i) => i.blockedH)),
         cycleP50H: percentile(delivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.5),
         cycleP85H: percentile(delivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.85),
+        prLeadP50H: percentile(issues.filter((i) => i.prLeadH != null).map((i) => i.prLeadH!), 0.5),
+        prLeadP85H: percentile(issues.filter((i) => i.prLeadH != null).map((i) => i.prLeadH!), 0.85),
         throughputWk: n ? n / weeks : null,
         reworkIssues,
         reworkRatePct: measured.length ? (reworkIssues / measured.length) * 100 : null,
@@ -987,6 +1012,8 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
     flowEffPct: teamSpan > 1e-9 ? Math.min(100, (teamEffort / teamSpan) * 100) : null,
     cycleP50H: percentile(allDelivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.5),
     cycleP85H: percentile(allDelivered.filter((i) => i.cycleH != null).map((i) => i.cycleH!), 0.85),
+    prLeadP50H: percentile(everyIssue.filter((i) => i.prLeadH != null).map((i) => i.prLeadH!), 0.5),
+    prLeadP85H: percentile(everyIssue.filter((i) => i.prLeadH != null).map((i) => i.prLeadH!), 0.85),
     medDeliveryDeltaH: median(allDelivered.filter((i) => i.deliveryDeltaH != null).map((i) => i.deliveryDeltaH!)),
     throughputWk: n ? n / weeks : null,
     reworkRatePct: teamMeasured ? (teamRework / teamMeasured) * 100 : null,

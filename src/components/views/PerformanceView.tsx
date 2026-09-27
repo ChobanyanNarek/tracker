@@ -31,6 +31,26 @@ const VERDICT_CONF: Record<Verdict, { label: string; color: string; dim: string 
   insufficient: { label: 'No data',           color: 'var(--text3)',  dim: 'var(--surface3)' },
 }
 
+/*
+ * DORA's published bands for lead time for changes, in calendar hours. What this app can
+ * see is the PR leg — opened to merged — so a team can look better here than it really is:
+ * the wait between merging and actually reaching production is not in the data.
+ */
+function doraBand(hours: number | null): { label: string; color: string } | null {
+  if (hours == null) return null
+  if (hours < 1) return { label: 'elite (<1h)', color: 'var(--green)' }
+  if (hours < 24) return { label: 'high (<1d)', color: 'var(--green)' }
+  if (hours < 24 * 7) return { label: 'medium (<1wk)', color: 'var(--amber)' }
+  return { label: 'low (>1wk)', color: 'var(--red)' }
+}
+
+/** Calendar duration, for the figures the DORA bands are measured in. */
+function fmtCalendar(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)}m`
+  if (hours < 48) return `${Math.round(hours * 10) / 10}h`
+  return `${Math.round(hours / 24 * 10) / 10}d`
+}
+
 const GREEN = 'var(--green)'
 const AMBER = 'var(--amber)'
 const RED = 'var(--red)'
@@ -572,6 +592,12 @@ export default function PerformanceView() {
           {summaryCard('Cycle p50', team.cycleP50H != null ? fmtWorkHours(team.cycleP50H) : '—', undefined,
             team.cycleP85H != null ? `p85 ${fmtWorkHours(team.cycleP85H)}` : undefined)}
           {summaryCard('Throughput', team.throughputWk != null ? `${(Math.round(team.throughputWk * 10) / 10)}/wk` : '—')}
+          {team.prLeadP50H != null && summaryCard(
+            'PR lead time',
+            fmtCalendar(team.prLeadP50H),
+            doraBand(team.prLeadP50H)?.color,
+            `${doraBand(team.prLeadP50H)?.label} · p85 ${fmtCalendar(team.prLeadP85H ?? team.prLeadP50H)}`,
+          )}
           {summaryCard('Rework', pct(team.reworkRatePct), team.reworkRatePct != null && team.reworkRatePct > 25 ? AMBER : undefined)}
           {inProgressTotal > 0 && summaryCard(
             'In progress',

@@ -453,3 +453,34 @@ describe('measured the way the field measures it', () => {
     expect(ip.deliverySource).toBe('pr')
   })
 })
+
+describe("lead time for changes, as far as this data reaches", () => {
+  it('measures the PR leg in calendar time, not working hours', () => {
+    // Opened Friday evening, merged Monday morning. In working hours that is a couple of
+    // hours; DORA counts the weekend, because the change really was not in production.
+    const overWeekend = issue('DORA-1', '2026-09-15', null, {
+      statusHistory: [{ status: 'inprogress', at: '2026-09-11T10:00:00+04:00' }],
+      prs: [{
+        url: 'https://gl/20', date: '2026-09-11', time: '18:00',
+        state: 'merged',
+        stateHistory: [
+          { state: 'open', at: '2026-09-11T18:00:00+04:00' },   // Friday
+          { state: 'merged', at: '2026-09-14T10:00:00+04:00' }, // Monday
+        ],
+      }],
+    })
+    const ip = computeTeamPerformance(input([overWeekend])).devs[0]!.issues[0]!
+
+    expect(ip.prLeadH).toBeCloseTo(64, 0) // 2 days 16 hours of calendar time
+    expect(ip.cycleH!).toBeLessThan(ip.prLeadH!) // working hours are far fewer
+  })
+
+  it('is absent when nothing recorded a merge', () => {
+    const noMerge = issue('DORA-2', '2026-09-15', null, {
+      statusHistory: [{ status: 'inprogress', at: '2026-09-11T10:00:00+04:00' }],
+      prs: [{ url: 'https://gl/21', date: '2026-09-11', time: '18:00' }],
+    })
+    expect(computeTeamPerformance(input([noMerge])).devs[0]!.issues[0]!.prLeadH).toBeNull()
+    expect(computeTeamPerformance(input([noMerge])).prLeadP50H).toBeNull()
+  })
+})
