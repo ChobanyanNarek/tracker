@@ -57,7 +57,7 @@ export interface IssuePerf {
   deadlineAssumed: boolean
   startMs: number | null
   deliveryMs: number | null
-  deliverySource: 'pr' | 'status' | null
+  deliverySource: 'merge' | 'pr' | 'status' | null
   /** Working hours spent in each status between first In Progress and done/now. */
   byStatus: Partial<Record<Status, number>>
   /*
@@ -438,6 +438,13 @@ function computeIssue(
 
   const firstIp = sortedHistory.find((e) => e.status === 'inprogress')
   const startMs = firstIp ? atMs(firstIp) : null
+  /*
+   * When the issue arrived on the board, which is where lead time starts. Flow efficiency
+   * is active work over the lead time -- the days an issue sits in To Do waiting for
+   * someone to pick it up are exactly the waiting the measure is about, and leaving them
+   * out is why this dashboard reported numbers far above the 15-40% the field works with.
+   */
+  const flightStartMs = sortedHistory.length ? atMs(sortedHistory[0]!) : null
 
   const deadlineAssumed = !!issue.deadline && !issue.deadlineTime
   // No deadline is not the same as no work: the issue still has effort, cycle time and
@@ -446,13 +453,29 @@ function computeIssue(
     ? tzWallClockMs(issue.deadline, issue.deadlineTime || sched.endTime, tz)
     : null
 
-  // Delivery: LAST MR/PR push wins; fallback — last transition INTO review/done.
+  /*
+   * Delivery, best evidence first:
+   *   1. the merge, where the provider recorded one -- the moment the work landed, and
+   *      what every delivery-metrics tool measures to;
+   *   2. otherwise the last push, a date somebody typed;
+   *   3. otherwise the move into review or done.
+   * A push is when work was offered, not when it arrived: taking it as delivery made a
+   * follow-up commit during review look like a late delivery.
+   */
+  const mergeInstants = (issue.prs ?? [])
+    .flatMap((p) => p.stateHistory ?? [])
+    .filter((e) => e.state === 'merged')
+    .map((e) => new Date(e.at).getTime())
+    .filter((ms) => Number.isFinite(ms))
   const prInstants = (issue.prs ?? [])
     .filter((p) => p.date)
     .map((p) => tzWallClockMs(p.date, p.time || sched.endTime, tz))
   let deliveryMs: number | null = null
   let deliverySource: IssuePerf['deliverySource'] = null
-  if (prInstants.length) {
+  if (mergeInstants.length) {
+    deliveryMs = Math.max(...mergeInstants)
+    deliverySource = 'merge'
+  } else if (prInstants.length) {
     deliveryMs = Math.max(...prInstants)
     deliverySource = 'pr'
   } else {
@@ -502,7 +525,7 @@ function computeIssue(
    */
   const clipTo = (segments: Array<[number, number]>, end: number): Array<[number, number]> =>
     segments
-      .map(([a, b]) => [Math.max(a, startMs ?? a), Math.min(b, end)] as [number, number])
+      .map(([a, b]) => [Math.max(a, flightStartMs ?? a), Math.min(b, end)] as [number, number])
       .filter(([a, b]) => b > a)
   /*
    * Work stops at delivery; waiting does not. Clipping review at delivery erased the very
@@ -631,7 +654,7 @@ function computeIssue(
    * the end state, not time spent.
    */
   const byStatus: Partial<Record<Status, number>> = {}
-  if (startMs != null) {
+  if (flightStartMs != null) {
     for (const d of dayRaw.values()) {
       for (const [status, hours] of dayByStatus(d)) {
         if (hours > 1e-9) byStatus[status] = (byStatus[status] ?? 0) + hours
@@ -639,8 +662,8 @@ function computeIssue(
     }
   }
 
-  const flowSpanH = startMs != null
-    ? cappedWorkHours([[startMs, Math.max(flowEndMs, startMs)]], dev, schedule, scheduleHours)
+  const flowSpanH = flightStartMs != null
+    ? cappedWorkHours([[flightStartMs, Math.max(flowEndMs, flightStartMs)]], dev, schedule, scheduleHours)
     : null
 
   const hoursToDeadline = deliveryMs == null && deadlineMs != null && deadlineMs > nowMs

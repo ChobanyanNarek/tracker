@@ -148,9 +148,15 @@ describe('the dashboard agrees with itself', () => {
           expect(d.onTimePct).toBeGreaterThanOrEqual(0)
           expect(d.onTimePct).toBeLessThanOrEqual(100)
         }
-        // The developer's split is the sum of their issues' splits.
+        /*
+         * The developer's split is the sum of their issues' splits — over the issues the
+         * aggregates are built from. An issue that never reached In Progress has no
+         * measurable work, so it stays out of the totals even though it has queue time.
+         */
         const devAccounted = Object.values(d.byStatus).reduce((s, x) => s + x, 0)
-        const issueAccounted = d.issues.reduce((s, i) => s + Object.values(i.byStatus).reduce((a, b) => a + b, 0), 0)
+        const issueAccounted = d.issues
+          .filter((i) => i.verdict !== 'insufficient')
+          .reduce((s, i) => s + Object.values(i.byStatus).reduce((a, b) => a + b, 0), 0)
         expect(devAccounted, `${name}: dev split = sum of issue splits`).toBeCloseTo(issueAccounted, 1)
       }
 

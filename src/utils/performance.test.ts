@@ -402,3 +402,54 @@ describe('an issue that never waited for anything', () => {
     vi.useRealTimers()
   })
 })
+
+/*
+ * The definitions the field actually uses: flow efficiency is active work over the whole
+ * lead time — queue included — and delivery is the merge, not the push that offered it.
+ */
+describe('measured the way the field measures it', () => {
+  it('counts the wait before anyone picked the issue up', () => {
+    // A week in To Do, then four hours of work. Measuring from the first In Progress
+    // called that 100% efficient; measuring the lead time tells the truth.
+    const queued = issue('LEAD-1', '2026-09-11', '2026-09-09T14:00:00+04:00', {
+      statusHistory: [
+        { status: 'todo', at: '2026-09-02T10:00:00+04:00' },
+        { status: 'inprogress', at: '2026-09-09T10:00:00+04:00' },
+        { status: 'done', at: '2026-09-09T14:00:00+04:00' },
+      ],
+    })
+    const ip = computeTeamPerformance(input([queued])).devs[0]!.issues[0]!
+
+    expect(ip.effortH).toBeCloseTo(4, 1)
+    expect(ip.flowSpanH!).toBeGreaterThan(30)  // the week of queueing is in there
+    expect(ip.flowEffPct!).toBeLessThan(15)    // which is the range the field reports
+    expect(ip.byStatus.todo!).toBeGreaterThan(30)
+  })
+
+  it('delivers when the MR was merged, not when it was pushed', () => {
+    const merged = issue('LEAD-2', '2026-09-10', null, {
+      statusHistory: [{ status: 'inprogress', at: '2026-09-09T10:00:00+04:00' }],
+      prs: [{
+        url: 'https://gl/9', date: '2026-09-09', time: '11:00',
+        state: 'merged',
+        stateHistory: [
+          { state: 'open', at: '2026-09-09T11:00:00+04:00' },
+          { state: 'merged', at: '2026-09-10T15:00:00+04:00' },
+        ],
+      }],
+    })
+    const ip = computeTeamPerformance(input([merged])).devs[0]!.issues[0]!
+
+    expect(ip.deliverySource).toBe('merge')
+    expect(new Date(ip.deliveryMs!).toISOString()).toBe('2026-09-10T11:00:00.000Z') // 15:00 +04
+  })
+
+  it('falls back to the push when nothing recorded a merge', () => {
+    const pushedOnly = issue('LEAD-3', '2026-09-10', null, {
+      statusHistory: [{ status: 'inprogress', at: '2026-09-09T10:00:00+04:00' }],
+      prs: [{ url: 'https://gl/10', date: '2026-09-09', time: '11:00' }],
+    })
+    const ip = computeTeamPerformance(input([pushedOnly])).devs[0]!.issues[0]!
+    expect(ip.deliverySource).toBe('pr')
+  })
+})

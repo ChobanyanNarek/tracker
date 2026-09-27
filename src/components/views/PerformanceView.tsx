@@ -106,9 +106,9 @@ function HBars({ rows, color, labelWidth = 84 }: { rows: BarRowDatum[]; color: s
 }
 
 const STATUS_SPLIT: Array<{ status: Status; label: string; color: string }> = [
-  // Not "waiting to start": the span begins when work started, so this is time the issue
-  // was pushed back to To Do after that.
-  { status: 'todo', label: 'Parked in To Do', color: 'var(--text4)' },
+  // Lead time starts when the issue reached the board, so this really is the wait before
+  // (and between) anyone picking it up.
+  { status: 'todo', label: 'Waiting to start', color: 'var(--text4)' },
   { status: 'inprogress', label: 'In progress', color: GREEN },
   { status: 'review', label: 'In review', color: BLUE },
   { status: 'blocked', label: 'Blocked', color: AMBER },
@@ -328,7 +328,12 @@ function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Develo
             {row('Deadline', issue.deadlineMs == null
               ? <span style={{ color: 'var(--text3)' }}>none set — not counted in on-time</span>
               : <>{tzDateTimeLabel(issue.deadlineMs, LOCAL_TZ)}{issue.deadlineAssumed && <span style={{ color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 3 }}> <Icon name="info" size={9} /> end of day assumed</span>}</>)}
-            {row('Delivery (last MR push)', issue.deliveryMs ? `${tzDateTimeLabel(issue.deliveryMs, LOCAL_TZ)}${issue.deliverySource === 'status' ? ' (from status)' : ''}` : 'not delivered')}
+            {row('Delivered', issue.deliveryMs
+              ? `${tzDateTimeLabel(issue.deliveryMs, LOCAL_TZ)} ${
+                  issue.deliverySource === 'merge' ? '(MR merged)'
+                  : issue.deliverySource === 'pr' ? '(last MR push — no merge recorded)'
+                  : '(from status)'}`
+              : 'not delivered')}
             {issue.deliveryDeltaH != null && row('Delivery vs deadline', <span style={{ color: issue.deliveryDeltaH <= 0 ? GREEN : RED }}>{fmtDelta(issue.deliveryDeltaH)}</span>)}
           </div>
 
