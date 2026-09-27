@@ -797,7 +797,12 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
       // An issue with no deadline used to be skipped outright, so a month of work on
       // tickets nobody dated showed up as nothing delivered -- and the cheapest way to
       // protect a score was to leave the deadline off.
-      if (issue.deadline && range.from && issue.deadline < range.from && !mightDeliverInRange(issue, range)) continue
+      // Nothing that is still open is dropped here either, whatever its deadline says:
+      // it is current work, and the range describes finished work. See the anchor test
+      // below, which is the same rule applied once the issue has been measured.
+      const stillOpen = !(issue.prs ?? []).some((p) => p.date)
+        && !(issue.statusHistory ?? []).some((h) => h.status === 'done' || h.status === 'review')
+      if (!stillOpen && issue.deadline && range.from && issue.deadline < range.from && !mightDeliverInRange(issue, range)) continue
       const key = `${task.devId}:${issue.issueId ?? jiraDedupeKey(issue.url, issue.name)}`
       const rank = (issue.statusHistory?.length ?? 0) * 100 + (issue.prs?.length ?? 0)
       const ex = best.get(key)
@@ -816,10 +821,20 @@ export function computeTeamPerformance(input: PerfInput, range: PerfRange = {}):
      * In range when the work landed in it, or -- for anything not delivered -- when it
      * was due in it. So a delivered issue is counted in the period it was delivered.
      */
-    const anchorMs = ip.deliveryMs ?? ip.deadlineMs ?? ip.startMs
-    if (anchorMs == null) continue
-    if (fromMs != null && anchorMs < fromMs) continue
-    if (toMs != null && anchorMs > toMs) continue
+    /*
+     * The range picks a period of finished work; it does not pick a period of unfinished
+     * work. Anything still in flight is open on someone's desk right now whatever window
+     * is on screen -- filtering it by its deadline made "In progress" read 0 for "This
+     * month" while eight issues sat open, and hid exactly the at-risk work the panel above
+     * exists to surface.
+     */
+    const inFlight = ip.deliveryMs == null && ip.startMs != null
+    if (!inFlight) {
+      const anchorMs = ip.deliveryMs ?? ip.deadlineMs ?? ip.startMs
+      if (anchorMs == null) continue
+      if (fromMs != null && anchorMs < fromMs) continue
+      if (toMs != null && anchorMs > toMs) continue
+    }
     if (!perDev.has(devId)) perDev.set(devId, [])
     perDev.get(devId)!.push(ip)
   }

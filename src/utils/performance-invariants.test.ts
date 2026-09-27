@@ -254,3 +254,26 @@ describe('and keeps agreeing in the awkward cases', () => {
     expect(Number.isFinite(t.weeks)).toBe(true)
   })
 })
+
+describe('the range picks a period of finished work, not of open work', () => {
+  it('counts what is in flight the same however narrow the window', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(NOW))
+
+    const open = mk('OPEN', [h('inprogress', '2026-06-01T10:00:00+04:00')], { deadline: '2026-06-10' })
+    const shipped = mk('SHIPPED', [h('inprogress', '2026-09-09T10:00:00+04:00'), h('done', '2026-09-09T15:00:00+04:00')], { deadline: '2026-09-10' })
+    const run = (range: { from?: string; to?: string }) =>
+      computeTeamPerformance({ tasks: [task([open, shipped])], developers: [dev], schedule: {}, scheduleHours: {} }, range)
+
+    // June's issue is still open today, so it is in flight whatever window is on screen.
+    for (const range of [{}, { from: '2026-09-01', to: '2026-09-30' }, { from: '2026-09-20', to: '2026-09-27' }]) {
+      const t = run(range)
+      expect(t.ongoingCount + t.overdueCount, `in flight for ${JSON.stringify(range)}`).toBe(1)
+      expect(t.devs[0]!.wipCount).toBe(1)
+    }
+
+    // Delivered work, on the other hand, belongs to the period it was delivered in.
+    expect(run({ from: '2026-09-01', to: '2026-09-30' }).deliveredCount).toBe(1)
+    expect(run({ from: '2026-08-01', to: '2026-08-31' }).deliveredCount).toBe(0)
+  })
+})

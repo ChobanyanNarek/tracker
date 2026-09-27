@@ -63,11 +63,15 @@ describe('computeTeamPerformance ranges', () => {
     expect(september.devs[0]!.issues[0]!.timing).toBe('late')
   })
 
-  it('still places work that has not been delivered by its due date', () => {
+  it('shows work that is still open whichever window is on screen', () => {
+    // It used to be placed by its deadline, so an issue open on someone's desk right now
+    // vanished as soon as the window moved past its due date — and with it the warning
+    // that it was overdue. Open work belongs to now, not to a period.
     const ongoing = issue('COM-3', '2026-09-20', null)
 
-    expect(computeTeamPerformance(input([ongoing]), { from: '2026-09-01', to: '2026-09-30' }).devs[0]!.issues).toHaveLength(1)
-    expect(computeTeamPerformance(input([ongoing]), { from: '2026-10-01', to: '2026-10-31' }).devs[0]!.issues).toHaveLength(0)
+    for (const range of [{ from: '2026-09-01', to: '2026-09-30' }, { from: '2026-10-01', to: '2026-10-31' }]) {
+      expect(computeTeamPerformance(input([ongoing]), range).devs[0]!.issues).toHaveLength(1)
+    }
   })
 
   it('keeps everything when no range is given', () => {
