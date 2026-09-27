@@ -550,10 +550,16 @@ export default function PerformanceView() {
   const boardScope = getBoardScope(store)
   // These two feed the expensive computeTeamPerformance memo below. Built inline they were
   // new arrays on every render, so that memo recomputed the whole team on every keystroke.
-  const developers = useMemo(
-    () => proj ? allDevelopers.filter((d) => proj.members.includes(d.id)) : allDevelopers,
-    [allDevelopers, proj],
-  )
+  /*
+   * The developer picked in the top bar scopes the whole page, summary strip included.
+   * It used to scope only the per-person sections further down, so choosing one developer
+   * left the headline figures reading for the entire team — the same numbers, under their
+   * name.
+   */
+  const developers = useMemo(() => {
+    const inProject = proj ? allDevelopers.filter((d) => proj.members.includes(d.id)) : allDevelopers
+    return selectedDev === 'ALL' ? inProject : inProject.filter((d) => d.id === selectedDev)
+  }, [allDevelopers, proj, selectedDev])
   const tasks = useMemo(
     () => (proj ? allTasks.filter((t) => t.projectId === selectedProject) : allTasks)
       .filter((t) => taskPassesBoardFilter(t, boardScope))
@@ -690,6 +696,12 @@ export default function PerformanceView() {
               <StatusSplit byStatus={team.byStatus} untouchedH={team.untouchedH} />
             </ChartCard>
             <ChartCard title="DORA — getting changes to production">
+              {selectedDev !== 'ALL' && (
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 7, lineHeight: 1.5 }}>
+                  Deployments are a property of the project, not of one person — these stay
+                  team-wide. Only the lead time follows the selected developer's merges.
+                </div>
+              )}
               <DoraPanel
                 deployments={deployments}
                 mergeMs={team.devs.flatMap((dv) => dv.issues).filter((i) => i.deliverySource === 'merge' && i.deliveryMs != null).map((i) => i.deliveryMs!)}
