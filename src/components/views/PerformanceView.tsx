@@ -272,13 +272,15 @@ function DeltaChart({ issues }: { issues: IssuePerf[] }) {
 function PerfIssueModal({ issue, dev, onClose }: { issue: IssuePerf; dev: Developer; onClose: () => void }) {
   const why = (() => {
     switch (issue.verdict) {
-      case 'great':        return 'Delivered on time with mostly productive working time.'
-      case 'onTimeBlocky': return 'Delivered on time, but a large share of the tracked time was spent blocked.'
-      case 'lateSolid':    return 'Delivered after the deadline, but the working time itself was productive — the deadline may have been unrealistic.'
-      case 'lateBlocky':   return 'Delivered after the deadline with a large share of blocked time.'
+      // These two used to say "blocked", from when the measure was effort over blocked
+      // time. It is flow efficiency now: most of the span was waiting, wherever it waited.
+      case 'great':        return 'Delivered on time, and most of its time was spent being worked on.'
+      case 'onTimeBlocky': return 'Delivered on time, but most of its life was spent waiting rather than being worked on. See where the time went below.'
+      case 'lateSolid':    return 'Delivered after the deadline, though the time was mostly spent working — the deadline may have been unrealistic.'
+      case 'lateBlocky':   return 'Delivered after the deadline, and most of its life was spent waiting rather than being worked on.'
       case 'deliveredNoDue': return 'Delivered — but no deadline was set, so it is not counted in on-time.'
-      case 'ongoing':      return 'Still in progress — no MR push or review yet.'
-      case 'overdue':      return 'Past the deadline with no delivery signal (no MR push, no review).'
+      case 'ongoing':      return 'Still in progress — nothing merged, pushed or moved to review yet.'
+      case 'overdue':      return 'Past the deadline with no delivery signal — nothing merged, pushed or moved to review.'
       default:             return "Never marked In Progress, so effort can't be measured."
     }
   })()
