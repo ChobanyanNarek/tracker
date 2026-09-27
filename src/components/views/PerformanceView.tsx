@@ -3,7 +3,7 @@ import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard } from '../
 import { computeTeamPerformance } from '../../utils/performance'
 import type { IssuePerf, DevPerf, Verdict, PerfRange } from '../../utils/performance'
 import type { DeploymentRecord, Developer, Status } from '../../types'
-import { changeFailBand, computeDora, deployFreqBand, recoveryBand } from '../../utils/dora'
+import { changeFailBand, computeDora, deployFreqBand, isProduction, recoveryBand } from '../../utils/dora'
 import { fmtWorkHours, tzDateTimeLabel } from '../../utils/working-hours'
 import { hexRgb, initials } from '../../utils/format'
 import { STATUS_LABEL, STATUS_COLOR } from '../../constants'
@@ -63,30 +63,9 @@ function DoraPanel({ deployments, mergeMs, fromMs, toMs }: {
 }) {
   const d = computeDora({ deployments, mergeMs, fromMs, toMs })
 
-  /*
-   * Nothing to show yet. A paragraph explaining why filled a third of the dashboard with
-   * text on a page that is meant to be read at a glance, so the explanation moved to the
-   * hover and the panel keeps one quiet line — the four names, greyed, so it is obvious
-   * what would appear here and equally obvious that nothing has.
-   */
-  if (d.noData) {
-    return (
-      <div
-        title={'These four measure how changes reach production, so they need a deployment record — something your CI writes to GitLab or GitHub when it deploys. Nothing else here knows it: Jira knows a ticket was called done, the merge knows code landed on a branch, and neither says whether users have it.\n\nOnce a pipeline records deployments against a "production" environment, they appear here on the next sync.'}
-        style={{ fontSize: 11, color: 'var(--text4)', lineHeight: 1.7, cursor: 'help' }}
-      >
-        {['Deployment frequency', 'Lead time to production', 'Change failure rate', 'Recovery time'].map((label) => (
-          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>{label}</span>
-            <span>—</span>
-          </div>
-        ))}
-        <div style={{ marginTop: 6, fontSize: 10 }}>
-          Waiting on deployment records from your pipeline · <span style={{ borderBottom: '1px dotted var(--text4)' }}>what is this?</span>
-        </div>
-      </div>
-    )
-  }
+  // The card is not rendered at all without records to read — see hasDeployData below.
+  // This only guards against a set that is all staging, which computeDora also calls empty.
+  if (d.noData) return null
 
   const line = (label: string, value: string, band: string | null, color?: string) => (
     <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -624,6 +603,11 @@ export default function PerformanceView() {
   }, [allDeployments, projects, selectedProject, selectedDev])
 
   const unscopedDeployments = (allDeployments ?? []).some((d) => !d.projectId)
+  /*
+   * No panel at all until a pipeline publishes something worth measuring. An empty card
+   * explaining its own emptiness is just a paragraph taking up a third of the dashboard.
+   */
+  const hasDeployData = deployments.some((d) => isProduction(d.environment))
   const selectedDevName = allDevelopers.find((d) => d.id === selectedDev)?.name ?? 'this developer'
   // The DORA window follows the range picker; with no range it is the last twelve weeks,
   // which is long enough for a deployment cadence to mean anything.
@@ -730,6 +714,7 @@ export default function PerformanceView() {
             <ChartCard title="Where the time goes">
               <StatusSplit byStatus={team.byStatus} untouchedH={team.untouchedH} />
             </ChartCard>
+            {hasDeployData && (
             <ChartCard title="DORA — getting changes to production">
               {selectedDev !== 'ALL' && (
                 <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 7, lineHeight: 1.5 }}>
@@ -751,6 +736,7 @@ export default function PerformanceView() {
                 toMs={doraWindow.toMs}
               />
             </ChartCard>
+            )}
           </div>
         )}
 
