@@ -409,6 +409,25 @@ function clampStaleTail(
   return { segments, stale: false }
 }
 
+/*
+ * How many working hours a developer actually has between two instants: their own schedule
+ * and daily hours, minus weekends, public holidays, vacation, sick days and days off.
+ *
+ * This is what makes a promise checkable before any work happens. Three hundred hours of
+ * frontend by the end of October is not a plan if the only frontend developer has a
+ * hundred and twenty hours before then.
+ */
+export function availableHours(
+  dev: Developer,
+  fromMs: number,
+  toMs: number,
+  schedule: Record<string, Record<string, string>>,
+  scheduleHours: Record<string, Record<string, number>>,
+): number {
+  if (!(toMs > fromMs)) return 0
+  return cappedWorkHours([[fromMs, toMs]], dev, schedule, scheduleHours)
+}
+
 function buildIntervals(
   sortedHistory: StatusHistoryEntry[],
   nowMs: number,

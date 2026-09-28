@@ -1,0 +1,329 @@
+import type { Developer, JiraIssue, PlanLine, Project, ProjectPlan, Task } from '../types'
+import { availableHours, type IssuePerf, type TeamPerf } from './performance'
+import { resolveTrackerTz, tzWallClockToUtcMs } from './working-hours'
+
+/**
+ * Plan vs actual.
+ *
+ * Before development starts a document goes to the partner: how many hours each kind of
+ * developer will spend, and by when. This answers the two questions that document raises
+ * once work is under way, and answers them separately because they fail separately:
+ *
+ *   - are we inside the hours?
+ *   - are we going to make the date?
+ *
+ * Capacity answers a third, and it answers it on day one rather than in the last week:
+ * do the people named in each line even have that many hours before the date? Three
+ * hundred hours of frontend by the end of October is not a plan if the only frontend
+ * developer has a hundred and twenty hours before then.
+ *
+ * You can be well inside the hours and still be late (the person is on another project),
+ * and you can hit the date having spent half as much again as promised.
+ *
+ * Every figure here says how much of the work it could see. An issue nobody estimated, that
+ * has no dates and no branch, is invisible to the check — and a check that quietly ignores
+ * part of the work is worse than no check, so the uncovered count travels with the result.
+ */
+
+const SEC_PER_HOUR = 3600
+
+/** How far off plan a line has to be before it is worth colouring. */
+export const PLAN_TOLERANCE_PCT = 10
+
+export type PlanHealth = 'onPlan' | 'atRisk' | 'over' | 'noData'
+
+/** Whether the people on a line physically have the hours the line promises. */
+export type Feasibility = 'fits' | 'tight' | 'impossible' | 'unknown'
+
+/** Where an issue's hours figure came from — shown so nobody trusts a guess as a measurement. */
+export type PlanSource = 'estimate' | 'branch' | 'window' | 'none'
+
+export interface PlanLineStatus {
+  line: PlanLine
+  /** Developers whose work counts against this line. */
+  devIds: string[]
+  allocatedH: number
+  /** Hours the opened issues are expected to take, by estimate or by their window. */
+  plannedH: number
+  /** Hours actually spent so far. */
+  actualH: number
+  deliveredCount: number
+  openCount: number
+  /** Issues matching this line that no source could size. */
+  unsizedCount: number
+  /**
+   * What the line will have cost by the time it is finished, if the rest goes like the
+   * part already done. Null until enough has been delivered to extrapolate from.
+   */
+  projectedH: number | null
+  /** Projected hours against allocated, as a percentage. Positive is over. */
+  deviationPct: number | null
+  /** The date this line is judged against. */
+  end?: string
+  health: PlanHealth
+  /** Working hours these people have in the whole plan window, after leave and holidays. */
+  capacityTotalH: number | null
+  /** Working hours they have left between now and the date. */
+  capacityLeftH: number | null
+  /** Hours still expected to be needed — projected minus what is already spent. */
+  remainingH: number | null
+  feasibility: Feasibility
+}
+
+export interface PlanStatus {
+  lines: PlanLineStatus[]
+  allocatedH: number
+  plannedH: number
+  actualH: number
+  projectedH: number | null
+  deviationPct: number | null
+  targetEnd?: string
+  /** Issues in the project that matched no line at all — nobody's hours cover them. */
+  unplannedCount: number
+  /** Issues that matched a line but could not be sized by any source. */
+  unsizedCount: number
+  /** Issues the check could see and size. */
+  sizedCount: number
+  capacityTotalH: number | null
+  capacityLeftH: number | null
+  feasibility: Feasibility
+}
+
+/** Hours an issue is expected to take, and where that number came from. */
+export function issueSize(issue: JiraIssue, perf?: IssuePerf): { hours: number | null; source: PlanSource } {
+  // A number someone actually committed to beats anything derived.
+  if (issue.timeOriginalEstimate) return { hours: issue.timeOriginalEstimate / SEC_PER_HOUR, source: 'estimate' }
+
+  /*
+   * Otherwise the branch tells the truth about how long the work took: opened when someone
+   * started writing code, merged when it landed. It only exists where code was written, so
+   * it covers development and not design or QA.
+   */
+  const branch = branchWindowH(issue, perf)
+  if (branch != null) return { hours: branch, source: 'branch' }
+
+  // Last resort: the issue's own span, when it has one.
+  if (perf?.flowSpanH != null && perf.flowSpanH > 0) return { hours: perf.flowSpanH, source: 'window' }
+
+  return { hours: null, source: 'none' }
+}
+
+/** Working hours between a branch being opened and merged or closed, when both are known. */
+function branchWindowH(issue: JiraIssue, perf?: IssuePerf): number | null {
+  let earliestOpen: number | null = null
+  let latestEnd: number | null = null
+  for (const pr of issue.prs ?? []) {
+    for (const ev of pr.stateHistory ?? []) {
+      const at = new Date(ev.at).getTime()
+      if (Number.isNaN(at)) continue
+      if (ev.state === 'open' || ev.state === 'draft') {
+        if (earliestOpen == null || at < earliestOpen) earliestOpen = at
+      } else if (ev.state === 'merged' || ev.state === 'closed') {
+        if (latestEnd == null || at > latestEnd) latestEnd = at
+      }
+    }
+  }
+  if (earliestOpen == null || latestEnd == null || latestEnd <= earliestOpen) return null
+  /*
+   * Calendar hours would count nights and weekends as work. Without the developer's
+   * schedule to hand here the engine's own span is the better scale when it exists, so the
+   * branch window is expressed as elapsed hours only when nothing better is available.
+   */
+  if (perf?.flowSpanH != null && perf.flowSpanH > 0) return Math.min(perf.flowSpanH, (latestEnd - earliestOpen) / 3_600_000)
+  return (latestEnd - earliestOpen) / 3_600_000
+}
+
+/** Hours actually spent on an issue: a logged figure if there is one, else measured effort. */
+export function issueSpentH(issue: JiraIssue, perf?: IssuePerf): number {
+  if (issue.timeSpent) return issue.timeSpent / SEC_PER_HOUR
+  return perf?.effortH ?? 0
+}
+
+/**
+ * Which line a developer's work counts against. A line naming the person wins over a line
+ * naming their role, so nothing is counted twice; roles are matched case-insensitively
+ * because they are typed by hand.
+ */
+export function lineForDeveloper(plan: ProjectPlan, dev: Developer): PlanLine | undefined {
+  const byPerson = plan.lines.find((l) => l.target.kind === 'developer' && l.target.devId === dev.id)
+  if (byPerson) return byPerson
+  const role = dev.role.trim().toLowerCase()
+  if (!role) return undefined
+  return plan.lines.find((l) => l.target.kind === 'roles' && l.target.roles.some((r) => r.trim().toLowerCase() === role))
+}
+
+/** Working hours a line's people have between two dates, leave and holidays taken out. */
+function capacityFor(
+  devIds: string[],
+  developers: Developer[],
+  project: Project,
+  fromMs: number,
+  toMs: number,
+  schedule: Record<string, Record<string, string>>,
+  scheduleHours: Record<string, Record<string, number>>,
+  tz: string,
+): number {
+  let total = 0
+  for (const id of devIds) {
+    const dev = developers.find((d) => d.id === id)
+    if (!dev || dev.archivedAt) continue
+    // Somebody who joined the project part-way through only has hours from then on.
+    const joined = project.joinDates?.[id]
+    const start = joined ? Math.max(fromMs, tzWallClockToUtcMs(joined, '00:00', tz)) : fromMs
+    total += availableHours(dev, start, toMs, schedule, scheduleHours)
+  }
+  return total
+}
+
+export function computePlanStatus(
+  project: Project,
+  developers: Developer[],
+  tasks: Task[],
+  team: TeamPerf,
+  schedule: Record<string, Record<string, string>> = {},
+  scheduleHours: Record<string, Record<string, number>> = {},
+  nowMs: number = Date.now(),
+): PlanStatus | null {
+  const plan = project.plan
+  if (!plan?.lines.length) return null
+
+  const tz = resolveTrackerTz()
+  const planStartMs = plan.approvedAt ? tzWallClockToUtcMs(plan.approvedAt, '00:00', tz) : nowMs
+
+  const devById = new Map(developers.map((d) => [d.id, d]))
+  const perfByKey = new Map<string, IssuePerf>()
+  for (const d of team.devs) {
+    for (const ip of d.issues) perfByKey.set(`${d.dev.id}:${ip.issueId ?? ip.url}`, ip)
+  }
+
+  // One entry per issue per developer; daily copies of the same issue must not be counted
+  // more than once, so the richest record wins, exactly as the performance engine does.
+  const best = new Map<string, { issue: JiraIssue; devId: string; rank: number }>()
+  for (const task of tasks) {
+    if (task.projectId !== project.id) continue
+    if (!devById.has(task.devId)) continue
+    for (const issue of task.jiras ?? []) {
+      // Work agreed before the document was signed is not what the document covers.
+      if (plan.approvedAt && issue.deadline && issue.deadline < plan.approvedAt) continue
+      const key = `${task.devId}:${issue.issueId ?? issue.url}`
+      const rank = (issue.statusHistory?.length ?? 0) * 100 + (issue.prs?.length ?? 0)
+      const ex = best.get(key)
+      if (!ex || rank > ex.rank) best.set(key, { issue, devId: task.devId, rank })
+    }
+  }
+
+  const acc = new Map<string, { plannedH: number; deliveredH: number; openSpends: number[]; delivered: number; unsized: number }>()
+  for (const l of plan.lines) acc.set(l.id, { plannedH: 0, deliveredH: 0, openSpends: [], delivered: 0, unsized: 0 })
+  let unplannedCount = 0
+  let sizedCount = 0
+  let unsizedTotal = 0
+
+  for (const [key, { issue, devId }] of best) {
+    const dev = devById.get(devId)!
+    const line = lineForDeveloper(plan, dev)
+    if (!line) { unplannedCount++; continue }
+    const bucket = acc.get(line.id)!
+    const perf = perfByKey.get(key)
+    const { hours } = issueSize(issue, perf)
+
+    if (hours == null) { bucket.unsized++; unsizedTotal++ } else { bucket.plannedH += hours; sizedCount++ }
+
+    const spent = issueSpentH(issue, perf)
+    const done = perf ? perf.deliveryMs != null : issue.status === 'done'
+    if (done) { bucket.delivered++; bucket.deliveredH += spent } else { bucket.openSpends.push(spent) }
+  }
+
+  const lines: PlanLineStatus[] = plan.lines.map((line) => {
+    const b = acc.get(line.id)!
+    const devIds = developers.filter((d) => lineForDeveloper(plan, d)?.id === line.id).map((d) => d.id)
+    const openCount = b.openSpends.length
+    const actualH = b.deliveredH + b.openSpends.reduce((s, h) => s + h, 0)
+
+    /*
+     * What the line will cost by the end. Extrapolating from hours burnt alone says
+     * nothing — 80% of the hours is fine at 80% done and alarming at 30% — so the rate is
+     * taken from the issues that actually finished. An issue still open is expected to cost
+     * that much, or what it has already cost if it has passed it: work does not get cheaper
+     * by running long.
+     */
+    const perDelivered = b.delivered > 0 ? b.deliveredH / b.delivered : null
+    const projectedH = perDelivered == null
+      ? null
+      : b.deliveredH + b.openSpends.reduce((s, spent) => s + Math.max(spent, perDelivered), 0)
+    const deviationPct = projectedH != null && line.hours > 0
+      ? ((projectedH - line.hours) / line.hours) * 100
+      : null
+
+    let health: PlanHealth = 'noData'
+    if (deviationPct != null) {
+      health = deviationPct > PLAN_TOLERANCE_PCT ? 'over'
+        : deviationPct > 0 ? 'atRisk'
+        : 'onPlan'
+    }
+
+    const end = line.end ?? plan.targetEnd
+    const endMs = end ? tzWallClockToUtcMs(end, '23:59', tz) : null
+    const capacityTotalH = endMs == null ? null
+      : capacityFor(devIds, developers, project, planStartMs, endMs, schedule, scheduleHours, tz)
+    const capacityLeftH = endMs == null ? null
+      : capacityFor(devIds, developers, project, nowMs, endMs, schedule, scheduleHours, tz)
+    const remainingH = projectedH != null ? Math.max(0, projectedH - actualH) : null
+
+    /*
+     * Feasibility is about people and the calendar, not about progress: it is answerable
+     * before a single issue is opened, and it is the one failure that no amount of working
+     * harder later will fix.
+     */
+    let feasibility: Feasibility = 'unknown'
+    if (capacityTotalH != null && devIds.length) {
+      feasibility = capacityTotalH < line.hours ? 'impossible'
+        : capacityTotalH < line.hours * (1 + PLAN_TOLERANCE_PCT / 100) ? 'tight'
+        : 'fits'
+    }
+
+    return {
+      line,
+      devIds,
+      allocatedH: line.hours,
+      plannedH: b.plannedH,
+      actualH,
+      deliveredCount: b.delivered,
+      openCount,
+      unsizedCount: b.unsized,
+      projectedH,
+      deviationPct,
+      end,
+      health,
+      capacityTotalH,
+      capacityLeftH,
+      remainingH,
+      feasibility,
+    }
+  })
+
+  const allocatedH = lines.reduce((s, l) => s + l.allocatedH, 0)
+  const projectedTotal = lines.some((l) => l.projectedH != null)
+    ? lines.reduce((s, l) => s + (l.projectedH ?? l.actualH), 0)
+    : null
+
+  return {
+    lines,
+    allocatedH,
+    plannedH: lines.reduce((s, l) => s + l.plannedH, 0),
+    actualH: lines.reduce((s, l) => s + l.actualH, 0),
+    projectedH: projectedTotal,
+    deviationPct: projectedTotal != null && allocatedH > 0
+      ? ((projectedTotal - allocatedH) / allocatedH) * 100
+      : null,
+    targetEnd: plan.targetEnd,
+    unplannedCount,
+    unsizedCount: unsizedTotal,
+    sizedCount,
+    capacityTotalH: lines.every((l) => l.capacityTotalH == null) ? null : lines.reduce((s, l) => s + (l.capacityTotalH ?? 0), 0),
+    capacityLeftH: lines.every((l) => l.capacityLeftH == null) ? null : lines.reduce((s, l) => s + (l.capacityLeftH ?? 0), 0),
+    feasibility: lines.some((l) => l.feasibility === 'impossible') ? 'impossible'
+      : lines.some((l) => l.feasibility === 'tight') ? 'tight'
+      : lines.some((l) => l.feasibility === 'fits') ? 'fits'
+      : 'unknown',
+  }
+}
