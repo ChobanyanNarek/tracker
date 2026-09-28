@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useStore } from '../../store'
 import { computeTeamPerformance } from '../../utils/performance'
 import { computePlanStatus, type Feasibility, type PlanHealth, type PlanStatus } from '../../utils/plan'
@@ -9,6 +9,7 @@ import { computePlanStatus, type Feasibility, type PlanHealth, type PlanStatus }
  */
 const hrs = (h: number) => `${Math.round(h)}h`
 import EmptyState from '../ui/EmptyState'
+import PlanEditor from './PlanEditor'
 
 const GREEN = 'var(--green)'
 const AMBER = 'var(--amber)'
@@ -111,7 +112,8 @@ function PlanPanel({ status, devName }: { status: PlanStatus; devName: (id: stri
  */
 export default function PlanView() {
   const store = useStore()
-  const { developers, projects, tasks, schedule, scheduleHours, selectedProject } = store
+  const { developers, projects, tasks, schedule, scheduleHours, selectedProject, updateProject } = store
+  const [editing, setEditing] = useState(false)
 
   const project = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
 
@@ -135,13 +137,33 @@ export default function PlanView() {
     )
   }
 
+  const editor = (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rx)', padding: 16 }}>
+      <PlanEditor
+        project={project}
+        developers={developers}
+        tasks={tasks}
+        onChange={(plan) => updateProject(project.id, { plan })}
+      />
+    </div>
+  )
+
+  /*
+   * With nothing filled in there is nothing to compare, so the form is the screen. This is
+   * where the numbers come from, so it belongs here rather than behind project settings.
+   */
   if (!status) {
     return (
-      <EmptyState
-        icon="flag"
-        title={`No plan recorded for ${project.name}`}
-        hint="Add the hours from the document you sent the partner: Projects → edit the project → Plan."
-      />
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{project.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4, lineHeight: 1.6 }}>
+            Enter the hours from the document you sent the partner. Once they are here, this
+            screen shows whether the work opened since is still inside them.
+          </div>
+        </div>
+        {editor}
+      </div>
     )
   }
 
@@ -161,7 +183,12 @@ export default function PlanView() {
         {headline && (
           <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: headline.color }}>{headline.text}</span>
         )}
+        <button className="btn-soft" onClick={() => setEditing((e) => !e)} style={{ flexShrink: 0 }}>
+          {editing ? 'Done editing' : 'Edit the agreement'}
+        </button>
       </div>
+
+      {editing && editor}
 
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
         {[

@@ -1,4 +1,4 @@
-import type { Developer, JiraIssue, PlanLine, Project, ProjectPlan, Task } from '../types'
+import type { Developer, JiraIssue, PlanLine, PlanScope, Project, ProjectPlan, Task } from '../types'
 import { availableHours, type IssuePerf, type TeamPerf } from './performance'
 import { resolveTrackerTz, tzWallClockToUtcMs } from './working-hours'
 
@@ -175,6 +175,36 @@ function capacityFor(
   return total
 }
 
+/** An issue's Jira key, however it is recorded. */
+function keyOf(issue: JiraIssue): string {
+  const raw = issue.issueId ?? ''
+  if (raw) return raw.trim().toUpperCase()
+  const fromUrl = issue.url?.split('/').pop() ?? ''
+  return fromUrl.trim().toUpperCase()
+}
+
+const has = (list: string[] | undefined, key: string) =>
+  !!list?.some((k) => k.trim().toUpperCase() === key)
+
+/*
+ * Whether the agreement covers this issue. An empty list is not a filter — a scope with
+ * nothing chosen covers everything, which is what someone who has not narrowed it expects.
+ */
+export function inScope(scope: PlanScope | undefined, issue: JiraIssue): boolean {
+  const key = keyOf(issue)
+  if (!scope) return true
+  if (has(scope.excludeKeys, key)) return false
+
+  const byParent = scope.parentKeys?.length
+    ? !!issue.parentKey && has(scope.parentKeys, issue.parentKey.trim().toUpperCase())
+    : null
+  const byIssue = scope.issueKeys?.length ? has(scope.issueKeys, key) : null
+
+  // Named either way is enough: an issue picked by hand belongs even if its epic was not.
+  if (byParent == null && byIssue == null) return true
+  return !!byParent || !!byIssue
+}
+
 export function computePlanStatus(
   project: Project,
   developers: Developer[],
@@ -205,6 +235,7 @@ export function computePlanStatus(
     for (const issue of task.jiras ?? []) {
       // Work agreed before the document was signed is not what the document covers.
       if (plan.approvedAt && issue.deadline && issue.deadline < plan.approvedAt) continue
+      if (!inScope(plan.scope, issue)) continue
       const key = `${task.devId}:${issue.issueId ?? issue.url}`
       const rank = (issue.statusHistory?.length ?? 0) * 100 + (issue.prs?.length ?? 0)
       const ex = best.get(key)

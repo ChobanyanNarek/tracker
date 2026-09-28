@@ -249,3 +249,36 @@ describe('capacity — can these people even do it by that date', () => {
     expect(early.capacityTotalH).toBeCloseTo(late.capacityTotalH!, 0) // the window itself did not move
   })
 })
+
+describe('choosing which tasks the agreement covers', () => {
+  const underEpic = (key: string, epic: string) => issue(key, { parentKey: epic, timeOriginalEstimate: 4 * H, timeSpent: 4 * H })
+  const loose = (key: string) => issue(key, { timeOriginalEstimate: 4 * H, timeSpent: 4 * H })
+  const line = { id: 'fe', label: 'Frontend', target: { kind: 'roles' as const, roles: ['Frontend'] }, hours: 40 }
+
+  function scoped(scope: NonNullable<Project['plan']>['scope']) {
+    const proj = project([line])
+    proj.plan!.scope = scope
+    return status(proj, [task('t1', 'd1', [underEpic('S-1', 'EPIC-1'), underEpic('S-2', 'EPIC-2'), loose('S-3')])])!
+  }
+
+  it('covers everything when nothing has been narrowed', () => {
+    expect(scoped(undefined).lines[0]!.deliveredCount).toBe(3)
+    expect(scoped({}).lines[0]!.deliveredCount).toBe(3) // an empty scope is not an empty list
+  })
+
+  it('narrows to an epic', () => {
+    expect(scoped({ parentKeys: ['EPIC-1'] }).lines[0]!.deliveredCount).toBe(1)
+  })
+
+  it('takes an issue picked by hand even when its epic was not chosen', () => {
+    expect(scoped({ parentKeys: ['EPIC-1'], issueKeys: ['S-3'] }).lines[0]!.deliveredCount).toBe(2)
+  })
+
+  it('lets an exclusion beat everything else', () => {
+    expect(scoped({ parentKeys: ['EPIC-1'], excludeKeys: ['S-1'] }).lines[0]!.deliveredCount).toBe(0)
+  })
+
+  it('does not care how the keys were typed', () => {
+    expect(scoped({ parentKeys: ['epic-1'] }).lines[0]!.deliveredCount).toBe(1)
+  })
+})

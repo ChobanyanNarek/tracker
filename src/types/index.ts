@@ -248,11 +248,26 @@ export interface PlanLine {
   end?: string
 }
 
+/*
+ * Which of a project's issues the agreement actually covers. Everything since the agreed
+ * date by default; narrow it when the document is about one slice of the work rather than
+ * all of it. An empty list means "no filter on this", not "nothing".
+ */
+export interface PlanScope {
+  /** Only issues under these Jira parents or epics. */
+  parentKeys?: string[]
+  /** Only these exact issues, whatever else they match. */
+  issueKeys?: string[]
+  /** Never these, whatever else they match. Wins over both lists above. */
+  excludeKeys?: string[]
+}
+
 export interface ProjectPlan {
   /** The whole project's date; a line without its own `end` is judged against this. */
   targetEnd?: string
   /** When the document was agreed, so work before it is not counted against the plan. */
   approvedAt?: string
+  scope?: PlanScope
   lines: PlanLine[]
 }
 
