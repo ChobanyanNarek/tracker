@@ -1,6 +1,7 @@
 import type { Developer, JiraIssue, PlanLine, PlanScope, Project, ProjectPlan, Task } from '../types'
 import { availableHours, type IssuePerf, type TeamPerf } from './performance'
-import { resolveTrackerTz, tzWallClockToUtcMs } from './working-hours'
+import { resolveTrackerTz, tzDateStr, tzWallClockToUtcMs } from './working-hours'
+import { isoDate } from './dates'
 
 /**
  * Plan vs actual.
@@ -120,6 +121,24 @@ export interface PlanLineStatus {
   /** Hours still expected to be needed — projected minus what is already spent. */
   remainingH: number | null
   feasibility: Feasibility
+
+  /*
+   * Schedule, as distinct from hours. A line can sit well inside its budget and still be
+   * weeks behind, because nobody has been working on it. Capacity says whether the hours
+   * exist; this says whether the work is arriving.
+   *
+   * earned — what the delivered tasks were sized at: the work actually banked.
+   * due    — what should have been banked by now, if the hours went evenly across the
+   *          window's working capacity, so holidays flatten it instead of counting.
+   */
+  earnedH: number
+  dueByNowH: number | null
+  /** earned ÷ due, as a percentage. Under 100 is behind schedule. */
+  schedulePct: number | null
+
+  /** How much of the spend somebody logged, against how much the app measured. */
+  loggedH: number
+  measuredH: number
 }
 
 export interface PlanStatus {
@@ -145,6 +164,21 @@ export interface PlanStatus {
   feasibility: Feasibility
   /** The opened work against the agreed hours, across every line. */
   scopeOverPct: number | null
+  earnedH: number
+  dueByNowH: number | null
+  schedulePct: number | null
+  loggedH: number
+  measuredH: number
+  /** Week by week, for the curve: what was due, what was banked, what was spent. */
+  weekly: PlanWeek[]
+}
+
+export interface PlanWeek {
+  /** Monday of the week, YYYY-MM-DD. */
+  week: string
+  dueH: number
+  earnedH: number
+  actualH: number
 }
 
 /**
@@ -218,10 +252,21 @@ function branchWindowH(
   return availableHours(dev, earliestOpen, latestEnd, schedule, scheduleHours)
 }
 
-/** Hours actually spent on an issue: a logged figure if there is one, else measured effort. */
+/**
+ * Hours actually spent on an issue, and whether that is a figure somebody logged or one the
+ * app measured. The distinction matters when the number goes to a partner: a worklog is a
+ * person's own statement, a measurement is an inference from the board.
+ *
+ * The measured figure is the SHARED one. Hours charged against an allocation are a claim on
+ * a finite day, so three issues open on one Tuesday must not book that Tuesday three times.
+ */
+export function issueSpent(issue: JiraIssue, perf?: IssuePerf): { hours: number; logged: boolean } {
+  if (issue.timeSpent) return { hours: issue.timeSpent / SEC_PER_HOUR, logged: true }
+  return { hours: perf?.effortShareH ?? 0, logged: false }
+}
+
 export function issueSpentH(issue: JiraIssue, perf?: IssuePerf): number {
-  if (issue.timeSpent) return issue.timeSpent / SEC_PER_HOUR
-  return perf?.effortH ?? 0
+  return issueSpent(issue, perf).hours
 }
 
 /**
@@ -258,6 +303,19 @@ function capacityFor(
     total += availableHours(dev, start, toMs, schedule, scheduleHours)
   }
   return total
+}
+
+/** The Monday on or before a date, so weeks line up however the plan started. */
+function mondayOf(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return isoDate(d)
+}
+
+function addDaysISO(dateStr: string, n: number): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() + n)
+  return isoDate(d)
 }
 
 /** An issue's Jira key, however it is recorded. */
@@ -383,8 +441,19 @@ export function computePlanStatus(
   }
 
   const issueRows: PlanIssueStatus[] = []
-  const acc = new Map<string, { plannedH: number; sized: number; deliveredH: number; openSpends: number[]; delivered: number; unsized: number }>()
-  for (const l of plan.lines) acc.set(l.id, { plannedH: 0, sized: 0, deliveredH: 0, openSpends: [], delivered: 0, unsized: 0 })
+  interface Bucket {
+    plannedH: number; sized: number; deliveredH: number; openSpends: number[]
+    delivered: number; unsized: number
+    earnedH: number       // what the delivered tasks were sized at
+    loggedH: number; measuredH: number
+  }
+  const acc = new Map<string, Bucket>()
+  for (const l of plan.lines) {
+    acc.set(l.id, { plannedH: 0, sized: 0, deliveredH: 0, openSpends: [], delivered: 0, unsized: 0, earnedH: 0, loggedH: 0, measuredH: 0 })
+  }
+  // Per-day spend and per-day delivery, for the weekly curve.
+  const spentByDay = new Map<string, number>()
+  const earnedByDay = new Map<string, number>()
   let unplannedCount = 0
   let sizedCount = 0
   let unsizedTotal = 0
@@ -399,9 +468,29 @@ export function computePlanStatus(
 
     if (hours == null) { bucket.unsized++; unsizedTotal++ } else { bucket.plannedH += hours; bucket.sized++; sizedCount++ }
 
-    const spent = issueSpentH(issue, perf)
+    const { hours: spent, logged } = issueSpent(issue, perf)
+    if (logged) bucket.loggedH += spent; else bucket.measuredH += spent
     const done = perf ? perf.deliveryMs != null : issue.status === 'done'
-    if (done) { bucket.delivered++; bucket.deliveredH += spent } else { bucket.openSpends.push(spent) }
+    if (done) {
+      bucket.delivered++
+      bucket.deliveredH += spent
+      if (hours != null) bucket.earnedH += hours
+      // Banked on the day it was delivered.
+      if (perf?.deliveryMs != null && hours != null) {
+        const d = tzDateStr(perf.deliveryMs, tz)
+        earnedByDay.set(d, (earnedByDay.get(d) ?? 0) + hours)
+      }
+    } else {
+      bucket.openSpends.push(spent)
+    }
+
+    /*
+     * A logged total carries no dates, so it cannot be spread across the weeks. The curve
+     * is built from the measured daily spend, which is date-resolved, and says so.
+     */
+    for (const [day, h] of perf?.effortSharedByDay ?? []) {
+      spentByDay.set(day, (spentByDay.get(day) ?? 0) + h)
+    }
 
     issueRows.push(assessIssue(issue, perf, hours, source, spent, done, line.id, devId, nowMs))
   }
@@ -447,6 +536,17 @@ export function computePlanStatus(
     const remainingH = projectedH != null ? Math.max(0, projectedH - actualH) : null
 
     /*
+     * How much of the window's working capacity has gone. Using capacity rather than
+     * calendar days means a fortnight of holidays does not count as time in which work
+     * should have appeared.
+     */
+    const spentShare = capacityTotalH != null && capacityTotalH > 1e-9 && capacityLeftH != null
+      ? Math.min(1, Math.max(0, (capacityTotalH - capacityLeftH) / capacityTotalH))
+      : null
+    const dueByNowH = spentShare == null ? null : line.hours * spentShare
+    const schedulePct = dueByNowH != null && dueByNowH > 1e-9 ? (b.earnedH / dueByNowH) * 100 : null
+
+    /*
      * Feasibility is about people and the calendar, not about progress: it is answerable
      * before a single issue is opened, and it is the one failure that no amount of working
      * harder later will fix.
@@ -477,11 +577,53 @@ export function computePlanStatus(
       capacityLeftH,
       remainingH,
       feasibility,
+      earnedH: b.earnedH,
+      dueByNowH,
+      schedulePct,
+      loggedH: b.loggedH,
+      measuredH: b.measuredH,
     }
   })
 
   const allocatedH = lines.reduce((s, l) => s + l.allocatedH, 0)
   const plannedTotalH = lines.reduce((s, l) => s + l.plannedH, 0)
+  const earnedTotalH = lines.reduce((s, l) => s + l.earnedH, 0)
+  const dueTotalH = lines.every((l) => l.dueByNowH == null) ? null : lines.reduce((s, l) => s + (l.dueByNowH ?? 0), 0)
+
+  /*
+   * The curve. Three lines a week apart: what should have been banked by then, what was,
+   * and what it cost. "Should" rises with the share of the window's capacity that had gone
+   * by that week, so it flattens over holidays instead of marching on regardless.
+   */
+  const weekly: PlanWeek[] = []
+  const lastDay = [...spentByDay.keys(), ...earnedByDay.keys()].sort().pop()
+  if (plan.approvedAt && lastDay) {
+    const endAll = lines.reduce<string | undefined>((latest, l) => (l.end && (!latest || l.end > latest) ? l.end : latest), undefined)
+    const finish = endAll && endAll > lastDay ? lastDay : lastDay
+    let cursor = mondayOf(plan.approvedAt)
+    let earned = 0
+    let actual = 0
+    const totalCapacity = lines.reduce((sum, l) => sum + (l.capacityTotalH ?? 0), 0)
+
+    for (let i = 0; i < 260 && cursor <= finish; i++) {
+      const weekEnd = addDaysISO(cursor, 6)
+      for (const [day, h] of earnedByDay) if (day >= cursor && day <= weekEnd) earned += h
+      for (const [day, h] of spentByDay) if (day >= cursor && day <= weekEnd) actual += h
+
+      const gone = totalCapacity > 1e-9
+        ? lines.reduce((sum, l) => {
+            const devs = l.devIds
+            if (!devs.length) return sum
+            const endMs = tzWallClockToUtcMs(weekEnd, '23:59', tz)
+            return sum + capacityFor(devs, developers, project, planStartMs, endMs, schedule, scheduleHours, tz)
+          }, 0)
+        : 0
+      const dueH = totalCapacity > 1e-9 ? allocatedH * Math.min(1, gone / totalCapacity) : 0
+
+      weekly.push({ week: cursor, dueH, earnedH: earned, actualH: actual })
+      cursor = addDaysISO(cursor, 7)
+    }
+  }
   const projectedTotal = lines.some((l) => l.projectedH != null)
     ? lines.reduce((s, l) => s + (l.projectedH ?? l.actualH), 0)
     : null
@@ -502,6 +644,12 @@ export function computePlanStatus(
     unsizedCount: unsizedTotal,
     sizedCount,
     scopeOverPct: allocatedH > 0 && sizedCount > 0 ? ((plannedTotalH - allocatedH) / allocatedH) * 100 : null,
+    earnedH: earnedTotalH,
+    dueByNowH: dueTotalH,
+    schedulePct: dueTotalH != null && dueTotalH > 1e-9 ? (earnedTotalH / dueTotalH) * 100 : null,
+    loggedH: lines.reduce((s, l) => s + l.loggedH, 0),
+    measuredH: lines.reduce((s, l) => s + l.measuredH, 0),
+    weekly,
     capacityTotalH: lines.every((l) => l.capacityTotalH == null) ? null : lines.reduce((s, l) => s + (l.capacityTotalH ?? 0), 0),
     capacityLeftH: lines.every((l) => l.capacityLeftH == null) ? null : lines.reduce((s, l) => s + (l.capacityLeftH ?? 0), 0),
     feasibility: lines.some((l) => l.feasibility === 'impossible') ? 'impossible'

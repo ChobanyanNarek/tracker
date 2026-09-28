@@ -3,7 +3,7 @@ import { useStore } from '../../store'
 import { computeTeamPerformance } from '../../utils/performance'
 import {
   computePlanStatus, NEEDS_ATTENTION,
-  type Feasibility, type IssueTrack, type PlanHealth, type PlanIssueStatus, type PlanStatus,
+  type Feasibility, type IssueTrack, type PlanHealth, type PlanIssueStatus, type PlanStatus, type PlanWeek,
 } from '../../utils/plan'
 /*
  * Hours throughout, never days. The document sent to the partner is written in hours, and
@@ -30,6 +30,55 @@ const FEASIBILITY: Record<Feasibility, { label: string; color: string } | null> 
   tight: { label: 'barely enough time', color: AMBER },
   impossible: { label: 'not enough hours before the date', color: RED },
   unknown: null,
+}
+
+/*
+ * Three lines, a week apart: what should have been banked by then, what actually was, and
+ * what it cost. One snapshot says where you are; this says which way you are going.
+ */
+function BurnCurve({ weeks }: { weeks: PlanWeek[] }) {
+  if (weeks.length < 2) return null
+  const W = 620, H = 150, padL = 40, padB = 20, padT = 8
+  const max = Math.max(...weeks.flatMap((w) => [w.dueH, w.earnedH, w.actualH]), 1)
+  const x = (i: number) => padL + (i / (weeks.length - 1)) * (W - padL - 8)
+  const y = (v: number) => padT + (1 - v / max) * (H - padT - padB)
+  const path = (pick: (w: PlanWeek) => number) =>
+    weeks.map((w, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(pick(w)).toFixed(1)}`).join(' ')
+
+  const series = [
+    { label: 'Should be banked', color: 'var(--text3)', dash: '4 3', pick: (w: PlanWeek) => w.dueH },
+    { label: 'Banked', color: GREEN, dash: undefined, pick: (w: PlanWeek) => w.earnedH },
+    { label: 'Spent', color: 'var(--accent)', dash: undefined, pick: (w: PlanWeek) => w.actualH },
+  ]
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Plan against delivery, week by week">
+        {[0, 0.5, 1].map((f) => (
+          <g key={f}>
+            <line x1={padL} x2={W - 8} y1={y(max * f)} y2={y(max * f)} stroke="var(--border)" strokeWidth="1" />
+            <text x={padL - 6} y={y(max * f) + 3} textAnchor="end" fontSize="8" fill="var(--text3)" fontFamily="var(--mono)">{Math.round(max * f)}h</text>
+          </g>
+        ))}
+        {series.map((sr) => (
+          <path key={sr.label} d={path(sr.pick)} fill="none" stroke={sr.color} strokeWidth="2"
+            strokeDasharray={sr.dash} strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+        <text x={padL} y={H - 6} fontSize="8" fill="var(--text3)" fontFamily="var(--mono)">{weeks[0]!.week}</text>
+        <text x={W - 8} y={H - 6} textAnchor="end" fontSize="8" fill="var(--text3)" fontFamily="var(--mono)">{weeks[weeks.length - 1]!.week}</text>
+      </svg>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
+        {series.map((sr) => (
+          <span key={sr.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text3)' }}>
+            <span style={{ width: 12, height: 2, background: sr.color, opacity: sr.dash ? 0.7 : 1 }} />{sr.label}
+          </span>
+        ))}
+        <span style={{ fontSize: 10, color: 'var(--text4)' }}>
+          Spent is the measured daily figure — a logged total carries no dates to spread across weeks.
+        </span>
+      </div>
+    </div>
+  )
 }
 
 const TRACK: Record<IssueTrack, { label: string; color: string }> = {
@@ -164,6 +213,13 @@ function PlanPanel({ status, devName }: { status: PlanStatus; devName: (id: stri
                 </span>
               )}
               <span>{l.deliveredCount} done · {l.openCount} open</span>
+              {l.schedulePct != null && (
+                <span title="What the delivered tasks were sized at, against what should have been delivered by now">
+                  banked <b style={{ color: l.schedulePct < 90 ? RED : l.schedulePct < 100 ? AMBER : GREEN }}>{hrs(l.earnedH)}</b>
+                  {' '}of {hrs(l.dueByNowH ?? 0)} due
+                  <b style={{ color: l.schedulePct < 90 ? RED : 'var(--text2)' }}> ({Math.round(l.schedulePct)}%)</b>
+                </span>
+              )}
               {l.sizedCount > 0 && (
                 <span title="What the tasks opened so far add up to, against the hours this line was given">
                   tasks opened add up to <b style={{ color: l.scopeOverPct != null && l.scopeOverPct > 0 ? RED : 'var(--text2)' }}>{hrs(l.plannedH)}</b>
@@ -280,6 +336,11 @@ export default function PlanView() {
         status.tracks.atRisk && `${status.tracks.atRisk} at risk`,
       ].filter(Boolean).join(' · ') + ` — of ${status.issues.length} tasks`
 
+  const worstSchedule = status.lines
+    .filter((l) => l.schedulePct != null)
+    .map((l) => ({ label: l.line.label || 'a line', pct: l.schedulePct! }))
+    .sort((a, b) => a.pct - b.pct)[0] ?? null
+
   const overall = status.deviationPct
   const headline = overall == null ? null
     : overall > 10 ? { text: `Heading ${Math.round(overall)}% over the agreed hours`, color: RED }
@@ -317,6 +378,19 @@ export default function PlanView() {
               : undefined,
           },
           {
+            /*
+             * Coloured and captioned by the worst line, not by the total. One line running
+             * far ahead drags the sum over 100% while two others sit at a third of where
+             * they should be, and the headline would report that as healthy.
+             */
+            label: 'Schedule',
+            value: status.schedulePct != null ? `${Math.round(status.schedulePct)}%` : '—',
+            color: worstSchedule == null ? undefined : worstSchedule.pct < 90 ? RED : worstSchedule.pct < 100 ? AMBER : GREEN,
+            sub: worstSchedule && worstSchedule.pct < 90
+              ? `${worstSchedule.label} only ${Math.round(worstSchedule.pct)}%`
+              : status.dueByNowH != null ? `${hrs(status.earnedH)} of ${hrs(status.dueByNowH)} due` : undefined,
+          },
+          {
             label: 'Will land near',
             value: status.projectedH != null ? hrs(status.projectedH) : '—',
             color: headline?.color,
@@ -340,6 +414,24 @@ export default function PlanView() {
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rx)', padding: 14 }}>
         <PlanPanel status={status} devName={(id) => developers.find((d) => d.id === id)?.name ?? 'Unknown'} />
       </div>
+
+      {status.weekly.length > 1 && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rx)', padding: 14 }}>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: 10 }}>
+            Week by week
+          </div>
+          <BurnCurve weeks={status.weekly} />
+        </div>
+      )}
+
+      {(status.loggedH > 0 || status.measuredH > 0) && (
+        <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>
+          Of {hrs(status.actualH)} spent, <b style={{ color: 'var(--text2)' }}>{hrs(status.loggedH)}</b> comes from
+          worklogs somebody filled in and <b style={{ color: 'var(--text2)' }}>{hrs(status.measuredH)}</b> was measured
+          from the board. A logged figure is a person's own statement; a measured one is an inference, and is the
+          softer of the two in a conversation with a partner.
+        </div>
+      )}
 
       {/* The tasks themselves — the question the document actually raises. */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rx)', overflow: 'hidden' }}>

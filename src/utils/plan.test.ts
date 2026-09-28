@@ -439,3 +439,54 @@ describe('the work already on the board against the hours agreed', () => {
     expect(st.lines[0]!.unsizedCount).toBe(1)
   })
 })
+
+describe('schedule, as distinct from hours', () => {
+  it('reports being behind even while comfortably inside the hours', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-21T12:00:00+04:00')) // three weeks into a four-week window
+
+    // 80 hours agreed to 2 Oct. Three weeks gone, one task of 4h delivered: the hours are
+    // barely touched, but almost nothing has been banked.
+    const one = issue('S-1', { timeOriginalEstimate: 4 * H, timeSpent: 4 * H })
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 80, end: '2026-10-02' }])
+    proj.plan!.approvedAt = '2026-09-01'
+
+    const developers = [anna]
+    const tasks = [task('t1', 'd1', [one])]
+    const team = computeTeamPerformance({ developers, tasks, schedule: {}, scheduleHours: {} })
+    const st = computePlanStatus(proj, developers, tasks, team, {}, {}, Date.now())!
+    vi.useRealTimers()
+
+    const l = st.lines[0]!
+    expect(l.actualH).toBeCloseTo(4, 1)          // hours: almost nothing used
+    expect(l.earnedH).toBeCloseTo(4, 1)          // and almost nothing banked
+    expect(l.dueByNowH!).toBeGreaterThan(40)     // three quarters of the window has gone
+    expect(l.schedulePct!).toBeLessThan(20)      // so it is badly behind schedule
+  })
+
+  it('separates hours somebody logged from hours the app measured', () => {
+    const logged = issue('S-2', { timeOriginalEstimate: 4 * H, timeSpent: 9 * H })
+    const measured = issue('S-3', { timeOriginalEstimate: 4 * H })
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 80 }])
+    const st = status(proj, [task('t1', 'd1', [logged, measured])])!
+
+    expect(st.loggedH).toBeCloseTo(9, 1)
+    expect(st.measuredH).toBeGreaterThan(0)
+    expect(st.loggedH + st.measuredH).toBeCloseTo(st.actualH, 1)
+  })
+
+  it('builds a weekly curve once there is a signed date to start from', () => {
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 80, end: '2026-10-02' }])
+    proj.plan!.approvedAt = '2026-09-01'
+    const st = status(proj, [task('t1', 'd1', [issue('S-4', { timeOriginalEstimate: 4 * H })])])!
+
+    expect(st.weekly.length).toBeGreaterThan(0)
+    expect(st.weekly[0]!.week).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    // Each series only ever climbs.
+    for (let i = 1; i < st.weekly.length; i++) {
+      expect(st.weekly[i]!.earnedH).toBeGreaterThanOrEqual(st.weekly[i - 1]!.earnedH)
+      expect(st.weekly[i]!.actualH).toBeGreaterThanOrEqual(st.weekly[i - 1]!.actualH)
+      expect(st.weekly[i]!.dueH).toBeGreaterThanOrEqual(st.weekly[i - 1]!.dueH - 0.01)
+    }
+  })
+})

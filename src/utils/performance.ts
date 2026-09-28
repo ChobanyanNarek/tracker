@@ -93,6 +93,8 @@ export interface IssuePerf {
    * anything report 23% "flow efficiency" purely because other issues were open too.
    */
   effortShareH: number
+  /** That shared figure broken down by day — a real daily spend, for burn-up curves. */
+  effortSharedByDay: Map<string, number>
   blockedH: number
   flowEffPct: number | null // active work ÷ cycle time — the share of the span actually worked
   cycleH: number | null // working hours start → delivery (or → now while ongoing)
@@ -734,6 +736,7 @@ function computeIssue(
     deliveryMs,
     deliverySource,
     effortByDay,
+    effortSharedByDay: new Map(),
     effortH: 0,
     effortShareH: 0,
     blockedH,
@@ -783,7 +786,9 @@ function finalizeDevIssues(issues: IssuePerf[]): void {
       const claimed = dayTotals.get(date) ?? dayTotal
       const mine = Math.min(dayTotal, cap)
       const allotted = claimed > cap ? (dayTotal / claimed) * cap : mine
-      shareH += mine > 1e-9 ? own * (allotted / mine) : 0
+      const dayShare = mine > 1e-9 ? own * (allotted / mine) : 0
+      ip.effortSharedByDay.set(date, dayShare)
+      shareH += dayShare
     }
     ip.effortH = soloH
     ip.effortShareH = shareH
