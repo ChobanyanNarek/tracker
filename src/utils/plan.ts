@@ -89,6 +89,14 @@ export interface PlanLineStatus {
   allocatedH: number
   /** Hours the opened issues are expected to take, by estimate or by their window. */
   plannedH: number
+  /** How many of the line's issues that figure covers. */
+  sizedCount: number
+  /*
+   * The opened work against the hours it was given, as a percentage. Positive means the
+   * tasks on the board already add up to more than was agreed — which is knowable before
+   * anybody starts, and is the cheapest problem there is to fix.
+   */
+  scopeOverPct: number | null
   /** Hours actually spent so far. */
   actualH: number
   deliveredCount: number
@@ -135,6 +143,8 @@ export interface PlanStatus {
   capacityTotalH: number | null
   capacityLeftH: number | null
   feasibility: Feasibility
+  /** The opened work against the agreed hours, across every line. */
+  scopeOverPct: number | null
 }
 
 /**
@@ -373,8 +383,8 @@ export function computePlanStatus(
   }
 
   const issueRows: PlanIssueStatus[] = []
-  const acc = new Map<string, { plannedH: number; deliveredH: number; openSpends: number[]; delivered: number; unsized: number }>()
-  for (const l of plan.lines) acc.set(l.id, { plannedH: 0, deliveredH: 0, openSpends: [], delivered: 0, unsized: 0 })
+  const acc = new Map<string, { plannedH: number; sized: number; deliveredH: number; openSpends: number[]; delivered: number; unsized: number }>()
+  for (const l of plan.lines) acc.set(l.id, { plannedH: 0, sized: 0, deliveredH: 0, openSpends: [], delivered: 0, unsized: 0 })
   let unplannedCount = 0
   let sizedCount = 0
   let unsizedTotal = 0
@@ -387,7 +397,7 @@ export function computePlanStatus(
     const perf = perfByKey.get(key)
     const { hours, source } = issueSize(issue, perf, dev, schedule, scheduleHours)
 
-    if (hours == null) { bucket.unsized++; unsizedTotal++ } else { bucket.plannedH += hours; sizedCount++ }
+    if (hours == null) { bucket.unsized++; unsizedTotal++ } else { bucket.plannedH += hours; bucket.sized++; sizedCount++ }
 
     const spent = issueSpentH(issue, perf)
     const done = perf ? perf.deliveryMs != null : issue.status === 'done'
@@ -453,6 +463,8 @@ export function computePlanStatus(
       devIds,
       allocatedH: line.hours,
       plannedH: b.plannedH,
+      sizedCount: b.sized,
+      scopeOverPct: line.hours > 0 && b.sized > 0 ? ((b.plannedH - line.hours) / line.hours) * 100 : null,
       actualH,
       deliveredCount: b.delivered,
       openCount,
@@ -469,6 +481,7 @@ export function computePlanStatus(
   })
 
   const allocatedH = lines.reduce((s, l) => s + l.allocatedH, 0)
+  const plannedTotalH = lines.reduce((s, l) => s + l.plannedH, 0)
   const projectedTotal = lines.some((l) => l.projectedH != null)
     ? lines.reduce((s, l) => s + (l.projectedH ?? l.actualH), 0)
     : null
@@ -488,6 +501,7 @@ export function computePlanStatus(
     unplannedCount,
     unsizedCount: unsizedTotal,
     sizedCount,
+    scopeOverPct: allocatedH > 0 && sizedCount > 0 ? ((plannedTotalH - allocatedH) / allocatedH) * 100 : null,
     capacityTotalH: lines.every((l) => l.capacityTotalH == null) ? null : lines.reduce((s, l) => s + (l.capacityTotalH ?? 0), 0),
     capacityLeftH: lines.every((l) => l.capacityLeftH == null) ? null : lines.reduce((s, l) => s + (l.capacityLeftH ?? 0), 0),
     feasibility: lines.some((l) => l.feasibility === 'impossible') ? 'impossible'

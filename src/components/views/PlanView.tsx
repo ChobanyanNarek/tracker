@@ -164,6 +164,15 @@ function PlanPanel({ status, devName }: { status: PlanStatus; devName: (id: stri
                 </span>
               )}
               <span>{l.deliveredCount} done · {l.openCount} open</span>
+              {l.sizedCount > 0 && (
+                <span title="What the tasks opened so far add up to, against the hours this line was given">
+                  tasks opened add up to <b style={{ color: l.scopeOverPct != null && l.scopeOverPct > 0 ? RED : 'var(--text2)' }}>{hrs(l.plannedH)}</b>
+                  {l.scopeOverPct != null && Math.abs(l.scopeOverPct) >= 1 && (
+                    <b style={{ color: l.scopeOverPct > 0 ? RED : GREEN }}> ({l.scopeOverPct > 0 ? '+' : ''}{Math.round(l.scopeOverPct)}%)</b>
+                  )}
+                  <span style={{ color: 'var(--text4)' }}> from {l.sizedCount}{l.unsizedCount > 0 ? ` of ${l.sizedCount + l.unsizedCount}` : ''}</span>
+                </span>
+              )}
               {l.capacityLeftH != null && (
                 <span title="Working hours these people have left before the date, after leave and holidays">
                   {hoursLabel(l.capacityLeftH)} available
@@ -299,6 +308,14 @@ export default function PlanView() {
         {[
           { label: 'Agreed', value: hrs(status.allocatedH), color: undefined as string | undefined, sub: undefined as string | undefined },
           { label: 'Spent', value: hrs(status.actualH), color: undefined, sub: undefined },
+          {
+            label: 'Tasks opened',
+            value: status.sizedCount > 0 ? hrs(status.plannedH) : '—',
+            color: status.scopeOverPct != null && status.scopeOverPct > 0 ? RED : undefined,
+            sub: status.scopeOverPct != null
+              ? `${status.scopeOverPct > 0 ? '+' : ''}${Math.round(status.scopeOverPct)}% vs agreed`
+              : undefined,
+          },
           {
             label: 'Will land near',
             value: status.projectedH != null ? hrs(status.projectedH) : '—',

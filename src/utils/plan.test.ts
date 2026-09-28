@@ -415,3 +415,27 @@ describe('the hours are the developer\'s working hours', () => {
     expect(st.issues[0]!.plannedH).toBeCloseTo(6, 3)
   })
 })
+
+describe('the work already on the board against the hours agreed', () => {
+  it('says when the opened tasks already add up to more than was given', () => {
+    // 20 hours agreed; three tasks estimated at 10 each are already on the board.
+    const ten = (k: string) => issue(k, { timeOriginalEstimate: 10 * H })
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 20 }])
+    const st = status(proj, [task('t1', 'd1', [ten('P-1'), ten('P-2'), ten('P-3')])])!
+
+    expect(st.lines[0]!.plannedH).toBeCloseTo(30, 1)
+    expect(st.lines[0]!.sizedCount).toBe(3)
+    expect(st.lines[0]!.scopeOverPct).toBeCloseTo(50, 0) // 30 against 20
+    expect(st.scopeOverPct).toBeCloseTo(50, 0)
+  })
+
+  it('says how many tasks the figure is built from, so it is not read as the whole scope', () => {
+    const sized = issue('P-4', { timeOriginalEstimate: 5 * H })
+    const bare = issue('P-5', { deadline: '2026-10-30', status: 'todo', statusHistory: [] })
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 20 }])
+    const st = status(proj, [task('t1', 'd1', [sized, bare])])!
+
+    expect(st.lines[0]!.sizedCount).toBe(1)
+    expect(st.lines[0]!.unsizedCount).toBe(1)
+  })
+})
