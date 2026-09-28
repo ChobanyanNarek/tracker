@@ -597,9 +597,16 @@ export function computePlanStatus(
    */
   const weekly: PlanWeek[] = []
   const lastDay = [...spentByDay.keys(), ...earnedByDay.keys()].sort().pop()
-  if (plan.approvedAt && lastDay) {
+  if (plan.approvedAt) {
+    /*
+     * Across the whole agreed window, not just as far as the last day anybody touched
+     * something. Stopping at the last activity drew a two-week chart for a three-month
+     * commitment and hid the only thing worth seeing: the gap still to close before the
+     * date.
+     */
     const endAll = lines.reduce<string | undefined>((latest, l) => (l.end && (!latest || l.end > latest) ? l.end : latest), undefined)
-    const finish = endAll && endAll > lastDay ? lastDay : lastDay
+    const today = tzDateStr(nowMs, tz)
+    const finish = [endAll, lastDay, today].filter((d): d is string => !!d).sort().pop()!
     let cursor = mondayOf(plan.approvedAt)
     let earned = 0
     let actual = 0

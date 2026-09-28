@@ -38,36 +38,54 @@ const FEASIBILITY: Record<Feasibility, { label: string; color: string } | null> 
  */
 function BurnCurve({ weeks }: { weeks: PlanWeek[] }) {
   if (weeks.length < 2) return null
-  const W = 620, H = 150, padL = 40, padB = 20, padT = 8
+  /*
+   * A fixed height, stretched to whatever width there is. The chart used to keep a square
+   * aspect, so on a wide screen it grew into a half-page box with three near-flat lines in
+   * it. Labels live in HTML around the svg rather than inside it: text in a
+   * non-uniformly scaled svg stretches, and non-scaling strokes keep the lines honest.
+   */
+  const W = 1000, H = 200, padT = 6, padB = 6
   const max = Math.max(...weeks.flatMap((w) => [w.dueH, w.earnedH, w.actualH]), 1)
-  const x = (i: number) => padL + (i / (weeks.length - 1)) * (W - padL - 8)
+  const x = (i: number) => (i / (weeks.length - 1)) * W
   const y = (v: number) => padT + (1 - v / max) * (H - padT - padB)
   const path = (pick: (w: PlanWeek) => number) =>
     weeks.map((w, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(pick(w)).toFixed(1)}`).join(' ')
 
   const series = [
-    { label: 'Should be banked', color: 'var(--text3)', dash: '4 3', pick: (w: PlanWeek) => w.dueH },
+    { label: 'Should be banked', color: 'var(--text3)', dash: '5 4', pick: (w: PlanWeek) => w.dueH },
     { label: 'Banked', color: GREEN, dash: undefined, pick: (w: PlanWeek) => w.earnedH },
     { label: 'Spent', color: 'var(--accent)', dash: undefined, pick: (w: PlanWeek) => w.actualH },
   ]
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Plan against delivery, week by week">
-        {[0, 0.5, 1].map((f) => (
-          <g key={f}>
-            <line x1={padL} x2={W - 8} y1={y(max * f)} y2={y(max * f)} stroke="var(--border)" strokeWidth="1" />
-            <text x={padL - 6} y={y(max * f) + 3} textAnchor="end" fontSize="8" fill="var(--text3)" fontFamily="var(--mono)">{Math.round(max * f)}h</text>
-          </g>
-        ))}
-        {series.map((sr) => (
-          <path key={sr.label} d={path(sr.pick)} fill="none" stroke={sr.color} strokeWidth="2"
-            strokeDasharray={sr.dash} strokeLinejoin="round" strokeLinecap="round" />
-        ))}
-        <text x={padL} y={H - 6} fontSize="8" fill="var(--text3)" fontFamily="var(--mono)">{weeks[0]!.week}</text>
-        <text x={W - 8} y={H - 6} textAnchor="end" fontSize="8" fill="var(--text3)" fontFamily="var(--mono)">{weeks[weeks.length - 1]!.week}</text>
-      </svg>
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ width: 34, flexShrink: 0, height: 120, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end',
+          fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)' }}>
+          <span>{hrs(max)}</span><span>{hrs(max / 2)}</span><span>0h</span>
+        </div>
+        <div style={{ flex: 1, minWidth: 0, position: 'relative', height: 120 }}>
+          {[0, 0.5, 1].map((f) => (
+            <div key={f} style={{ position: 'absolute', left: 0, right: 0, top: `${f * 100}%`, borderTop: '1px solid var(--border)' }} />
+          ))}
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img"
+            aria-label="Plan against delivery, week by week"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+            {series.map((sr) => (
+              <path key={sr.label} d={path(sr.pick)} fill="none" stroke={sr.color} strokeWidth="2"
+                strokeDasharray={sr.dash} strokeLinejoin="round" strokeLinecap="round"
+                vectorEffect="non-scaling-stroke" />
+            ))}
+          </svg>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', marginTop: 4, paddingLeft: 42 }}>
+        <span>{weeks[0]!.week}</span>
+        <span>{weeks[weeks.length - 1]!.week}</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8 }}>
         {series.map((sr) => (
           <span key={sr.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--text3)' }}>
             <span style={{ width: 12, height: 2, background: sr.color, opacity: sr.dash ? 0.7 : 1 }} />{sr.label}
