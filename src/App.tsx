@@ -34,7 +34,7 @@ const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
   deadlines: 'Deadlines',
   performance: 'Performance',
-  plan: 'Plan vs Actual',
+  plan: 'Time Allocation',
   schedule: 'Schedule',
   timeline: 'Timeline',
   report: 'Report',
