@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../../store'
 import { computeTeamPerformance } from '../../utils/performance'
-import { computePlanStatus, type Feasibility, type PlanHealth, type PlanStatus } from '../../utils/plan'
+import {
+  computePlanStatus, NEEDS_ATTENTION,
+  type Feasibility, type IssueTrack, type PlanHealth, type PlanIssueStatus, type PlanStatus,
+} from '../../utils/plan'
 /*
  * Hours throughout, never days. The document sent to the partner is written in hours, and
  * a screen that answers "are we inside it" has to be readable straight against that
@@ -27,6 +30,90 @@ const FEASIBILITY: Record<Feasibility, { label: string; color: string } | null> 
   tight: { label: 'barely enough time', color: AMBER },
   impossible: { label: 'not enough hours before the date', color: RED },
   unknown: null,
+}
+
+const TRACK: Record<IssueTrack, { label: string; color: string }> = {
+  late:       { label: 'Late',             color: RED },
+  behind:     { label: 'Behind',           color: RED },
+  atRisk:     { label: 'At risk',          color: AMBER },
+  notStarted: { label: 'Not started',      color: 'var(--text3)' },
+  onTrack:    { label: 'On track',         color: GREEN },
+  doneLate:   { label: 'Done late',        color: AMBER },
+  doneOnTime: { label: 'Done on time',     color: GREEN },
+  done:       { label: 'Done',             color: GREEN },
+  unmeasured: { label: 'Cannot be judged', color: 'var(--text3)' },
+}
+
+const SOURCE_LABEL: Record<PlanIssueStatus['source'], string> = {
+  estimate: 'estimate', branch: 'branch', window: 'own span', none: '—',
+}
+
+/*
+ * The question the document raises is about the tasks, so here they are: every one the
+ * agreement covers, worst first, with what it was sized at, what it has taken, and whether
+ * it is running normally. "Behind" and "late" are kept apart because they are different
+ * failures — behind has used more time than it was given, late has run past its date.
+ */
+function IssueTable({ issues, devName }: { issues: PlanIssueStatus[]; devName: (id: string) => string }) {
+  if (!issues.length) return <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>No tasks covered yet</div>
+
+  const cell: React.CSSProperties = { padding: '6px 8px', fontSize: 11, borderBottom: '1px solid var(--border)', verticalAlign: 'middle' }
+  const head: React.CSSProperties = {
+    ...cell, fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)',
+    textTransform: 'uppercase', letterSpacing: '.6px', textAlign: 'left', whiteSpace: 'nowrap',
+    position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1,
+  }
+
+  return (
+    <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 660 }}>
+        <thead>
+          <tr>
+            <th style={head}>Task</th>
+            <th style={head}>Who</th>
+            <th style={{ ...head, textAlign: 'right' }}>Sized at</th>
+            <th style={{ ...head, textAlign: 'right' }}>Taken</th>
+            <th style={{ ...head, textAlign: 'right' }}>Due</th>
+            <th style={head}>State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {issues.map((i) => {
+            const t = TRACK[i.track]
+            const attention = NEEDS_ATTENTION.includes(i.track)
+            return (
+              <tr key={i.key} style={attention ? { background: i.track === 'atRisk' ? 'var(--amber-dim)' : 'var(--red-dim)' } : undefined}>
+                <td style={{ ...cell, maxWidth: 320 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', flexShrink: 0 }}>{i.key}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.name}</span>
+                  </div>
+                </td>
+                <td style={{ ...cell, color: 'var(--text2)', whiteSpace: 'nowrap' }}>{devName(i.devId)}</td>
+                <td style={{ ...cell, textAlign: 'right', fontFamily: 'var(--mono)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  {i.plannedH != null ? hrs(i.plannedH) : '—'}
+                  <span style={{ color: 'var(--text4)', fontSize: 9 }}> {SOURCE_LABEL[i.source]}</span>
+                </td>
+                <td style={{ ...cell, textAlign: 'right', fontFamily: 'var(--mono)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  {hrs(i.actualH)}
+                  {i.overBySizePct != null && i.overBySizePct > 0 && (
+                    <b style={{ color: RED, fontSize: 9 }}> +{Math.round(i.overBySizePct)}%</b>
+                  )}
+                </td>
+                <td style={{ ...cell, textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
+                  {i.deadline ?? '—'}
+                </td>
+                <td style={{ ...cell, whiteSpace: 'nowrap' }}>
+                  <span style={{ color: t.color, fontWeight: attention ? 700 : 500 }}>{t.label}</span>
+                  {i.stale && <span style={{ color: AMBER, fontSize: 9 }}> · untouched</span>}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 /*
@@ -114,6 +201,7 @@ export default function PlanView() {
   const store = useStore()
   const { developers, projects, tasks, schedule, scheduleHours, selectedProject, updateProject } = store
   const [editing, setEditing] = useState(false)
+  const [onlyProblems, setOnlyProblems] = useState(false)
 
   const project = selectedProject !== 'ALL' ? projects.find((p) => p.id === selectedProject) : null
 
@@ -167,6 +255,22 @@ export default function PlanView() {
     )
   }
 
+  /*
+   * The whole point of the document, in one sentence: are the tasks it covers running
+   * normally. Totals come second — a line can be inside its hours while three of its tasks
+   * have quietly run past their dates.
+   */
+  const attention = status.tracks.late + status.tracks.behind + status.tracks.atRisk
+  const running = status.tracks.onTrack + status.tracks.notStarted
+  const finished = status.tracks.doneOnTime + status.tracks.doneLate + status.tracks.done
+  const answer = attention === 0
+    ? `All ${running + finished} tasks are running normally`
+    : [
+        status.tracks.late && `${status.tracks.late} late`,
+        status.tracks.behind && `${status.tracks.behind} behind`,
+        status.tracks.atRisk && `${status.tracks.atRisk} at risk`,
+      ].filter(Boolean).join(' · ') + ` — of ${status.issues.length} tasks`
+
   const overall = status.deviationPct
   const headline = overall == null ? null
     : overall > 10 ? { text: `Heading ${Math.round(overall)}% over the agreed hours`, color: RED }
@@ -180,8 +284,9 @@ export default function PlanView() {
         {status.targetEnd && (
           <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>agreed by {status.targetEnd}</span>
         )}
+        <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: attention > 0 ? RED : GREEN }}>{answer}</span>
         {headline && (
-          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: headline.color }}>{headline.text}</span>
+          <span style={{ fontSize: 11, color: headline.color }}>{headline.text}</span>
         )}
         <button className="btn-soft" onClick={() => setEditing((e) => !e)} style={{ flexShrink: 0 }}>
           {editing ? 'Done editing' : 'Edit the agreement'}
@@ -217,6 +322,29 @@ export default function PlanView() {
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rx)', padding: 14 }}>
         <PlanPanel status={status} devName={(id) => developers.find((d) => d.id === id)?.name ?? 'Unknown'} />
+      </div>
+
+      {/* The tasks themselves — the question the document actually raises. */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--rx)', overflow: 'hidden' }}>
+        <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>
+            Tasks under this agreement
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--text2)' }}>{answer}</span>
+          {attention > 0 && (
+            <button
+              className={`chip${onlyProblems ? ' active' : ''}`}
+              style={{ marginLeft: 'auto' }}
+              onClick={() => setOnlyProblems((v) => !v)}
+            >{onlyProblems ? 'Showing what needs attention' : `Show only the ${attention} needing attention`}</button>
+          )}
+        </div>
+        <div style={{ padding: '0 6px' }}>
+          <IssueTable
+            issues={onlyProblems ? status.issues.filter((i) => NEEDS_ATTENTION.includes(i.track)) : status.issues}
+            devName={(id) => developers.find((d) => d.id === id)?.name ?? 'Unknown'}
+          />
+        </div>
       </div>
     </div>
   )

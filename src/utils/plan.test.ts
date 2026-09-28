@@ -282,3 +282,103 @@ describe('choosing which tasks the agreement covers', () => {
     expect(scoped({ parentKeys: ['epic-1'] }).lines[0]!.deliveredCount).toBe(1)
   })
 })
+
+describe('each task against the agreement', () => {
+  const line = { id: 'fe', label: 'Frontend', target: { kind: 'roles' as const, roles: ['Frontend'] }, hours: 200 }
+  function tracks(jiras: JiraIssue[], now = '2026-09-22T12:00:00+04:00') {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(now))
+    const developers = [anna]
+    const tasks = [task('t1', 'd1', jiras)]
+    const team = computeTeamPerformance({ developers, tasks, schedule: {}, scheduleHours: {} })
+    const st = computePlanStatus(project([line]), developers, tasks, team, {}, {}, new Date(now).getTime())!
+    vi.useRealTimers()
+    return st
+  }
+
+  it('separates being late from falling behind', () => {
+    // Past its date, still open.
+    const overdue = issue('T-1', {
+      deadline: '2026-09-10', status: 'inprogress',
+      timeOriginalEstimate: 8 * H,
+      statusHistory: [{ status: 'inprogress', at: '2026-09-08T10:00:00+04:00' }],
+    })
+    // Date still ahead, but it has already burnt more than it was sized for.
+    const burnt = issue('T-2', {
+      deadline: '2026-10-30', status: 'inprogress',
+      timeOriginalEstimate: 2 * H, timeSpent: 20 * H,
+      statusHistory: [{ status: 'inprogress', at: '2026-09-21T10:00:00+04:00' }],
+    })
+
+    const st = tracks([overdue, burnt])
+    const byKey = new Map(st.issues.map((i) => [i.key, i]))
+    expect(byKey.get('T-1')!.track).toBe('late')
+    expect(byKey.get('T-2')!.track).toBe('behind')
+    expect(byKey.get('T-2')!.overBySizePct).toBeCloseTo(900, 0)
+  })
+
+  it('judges a finished task against its date', () => {
+    const early = issue('T-3', { deadline: '2026-09-20', timeOriginalEstimate: 4 * H })
+    const overran = issue('T-4', {
+      deadline: '2026-09-01', timeOriginalEstimate: 4 * H,
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-02T10:00:00+04:00' },
+        { status: 'done', at: '2026-09-10T14:00:00+04:00' },
+      ],
+    })
+    const st = tracks([early, overran])
+    const byKey = new Map(st.issues.map((i) => [i.key, i]))
+    expect(byKey.get('T-3')!.track).toBe('doneOnTime')
+    expect(byKey.get('T-4')!.track).toBe('doneLate')
+  })
+
+  it('says plainly when a task cannot be judged at all', () => {
+    const bare = issue('T-5', { deadline: '', status: 'todo', statusHistory: [] })
+    expect(tracks([bare]).issues[0]!.track).toBe('unmeasured')
+  })
+
+  it('counts the states so the answer fits in one line', () => {
+    const st = tracks([
+      issue('T-6', { deadline: '2026-09-10', status: 'inprogress', timeOriginalEstimate: 8 * H, statusHistory: [{ status: 'inprogress', at: '2026-09-08T10:00:00+04:00' }] }),
+      issue('T-7', { deadline: '2026-09-20', timeOriginalEstimate: 4 * H }),
+    ])
+    expect(st.tracks.late).toBe(1)
+    expect(st.tracks.doneOnTime).toBe(1)
+    expect(st.issues[0]!.track).toBe('late') // worst first
+  })
+})
+
+describe('sizing must not be circular', () => {
+  it('refuses to size an unfinished task by how long it has been open', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-22T12:00:00+04:00'))
+    // No estimate, no branch, still running: its own span would just say "as long as it
+    // has taken", which can never be over.
+    const running = issue('U-1', {
+      deadline: '2026-10-30', status: 'inprogress',
+      statusHistory: [{ status: 'inprogress', at: '2026-09-02T10:00:00+04:00' }],
+    })
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 40 }])
+    const tasks = [task('t1', 'd1', [running])]
+    const team = computeTeamPerformance({ developers: [anna], tasks, schedule: {}, scheduleHours: {} })
+    const st = computePlanStatus(proj, [anna], tasks, team, {}, {}, Date.now())!
+    vi.useRealTimers()
+
+    expect(st.issues[0]!.plannedH).toBeNull()
+    expect(st.issues[0]!.source).toBe('none')
+    expect(st.unsizedCount).toBe(1)
+  })
+
+  it('still uses the span once the work is finished', () => {
+    const finished = issue('U-2', {
+      statusHistory: [
+        { status: 'inprogress', at: '2026-09-02T10:00:00+04:00' },
+        { status: 'done', at: '2026-09-02T14:00:00+04:00' },
+      ],
+    })
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 40 }])
+    const st = status(proj, [task('t1', 'd1', [finished])])!
+    expect(st.issues[0]!.source).toBe('window')
+    expect(st.issues[0]!.plannedH).toBeGreaterThan(0)
+  })
+})

@@ -32,6 +32,50 @@ export const PLAN_TOLERANCE_PCT = 10
 
 export type PlanHealth = 'onPlan' | 'atRisk' | 'over' | 'noData'
 
+/*
+ * Where one task stands against the agreement. This is the question the document actually
+ * raises — is every task it covers running normally, neither late nor falling behind — so
+ * it is answered per task and not only in the totals.
+ */
+export type IssueTrack =
+  | 'notStarted'  // nobody has picked it up yet
+  | 'onTrack'     // running, inside its size and its date
+  | 'behind'      // running, but already past the time it was sized for
+  | 'atRisk'      // running, and will not fit before its date at this rate
+  | 'late'        // its date has passed and it is not delivered
+  | 'doneOnTime'
+  | 'doneLate'
+  | 'done'        // delivered, but there was no date to judge it against
+  | 'unmeasured'  // no estimate, no branch, no dates — outside the check
+
+export interface PlanIssueStatus {
+  key: string
+  name: string
+  devId: string
+  lineId?: string
+  /** Hours the task was sized at, and where that number came from. */
+  plannedH: number | null
+  source: PlanSource
+  /** Hours gone into it so far. */
+  actualH: number
+  /** Its own due date, when it has one. */
+  deadline?: string
+  /** Working hours left before that date. */
+  hoursToDeadline: number | null
+  /** How far past its size it has run, as a percentage. Null when it was never sized. */
+  overBySizePct: number | null
+  stale: boolean
+  track: IssueTrack
+}
+
+/** The tracks that mean something needs attention, worst first. */
+export const TRACK_ORDER: Record<IssueTrack, number> = {
+  late: 0, behind: 1, atRisk: 2, notStarted: 3, onTrack: 4,
+  doneLate: 5, doneOnTime: 6, done: 7, unmeasured: 8,
+}
+
+export const NEEDS_ATTENTION: IssueTrack[] = ['late', 'behind', 'atRisk']
+
 /** Whether the people on a line physically have the hours the line promises. */
 export type Feasibility = 'fits' | 'tight' | 'impossible' | 'unknown'
 
@@ -72,6 +116,10 @@ export interface PlanLineStatus {
 
 export interface PlanStatus {
   lines: PlanLineStatus[]
+  /** Every task the agreement covers, worst first. */
+  issues: PlanIssueStatus[]
+  /** How many tasks sit in each state, so the answer fits in one line. */
+  tracks: Record<IssueTrack, number>
   allocatedH: number
   plannedH: number
   actualH: number
@@ -102,8 +150,16 @@ export function issueSize(issue: JiraIssue, perf?: IssuePerf): { hours: number |
   const branch = branchWindowH(issue, perf)
   if (branch != null) return { hours: branch, source: 'branch' }
 
-  // Last resort: the issue's own span, when it has one.
-  if (perf?.flowSpanH != null && perf.flowSpanH > 0) return { hours: perf.flowSpanH, source: 'window' }
+  /*
+   * Last resort, and only once the work is finished: how long it actually took. Using the
+   * span of something still running would be circular — the task would be "sized at"
+   * however long it has been open, so it could never be found to have run past its size.
+   * An unfinished task with no estimate and no branch simply cannot be sized, and saying
+   * so is more useful than a number that can never be wrong.
+   */
+  if (perf?.deliveryMs != null && perf.flowSpanH != null && perf.flowSpanH > 0) {
+    return { hours: perf.flowSpanH, source: 'window' }
+  }
 
   return { hours: null, source: 'none' }
 }
@@ -205,6 +261,60 @@ export function inScope(scope: PlanScope | undefined, issue: JiraIssue): boolean
   return !!byParent || !!byIssue
 }
 
+/*
+ * One task against the agreement. "Behind" and "late" are different failures and are kept
+ * apart: behind means it has already used more time than it was sized for, late means its
+ * date has gone by. A task can be either without being the other.
+ */
+function assessIssue(
+  issue: JiraIssue,
+  perf: IssuePerf | undefined,
+  plannedH: number | null,
+  source: PlanSource,
+  actualH: number,
+  done: boolean,
+  lineId: string,
+  devId: string,
+  nowMs: number,
+): PlanIssueStatus {
+  const deadlineMs = perf?.deadlineMs ?? null
+  const started = perf?.startMs != null
+  const overBySizePct = plannedH != null && plannedH > 0 ? ((actualH - plannedH) / plannedH) * 100 : null
+
+  let track: IssueTrack
+  if (done) {
+    track = deadlineMs == null ? 'done'
+      : (perf?.timing === 'late' ? 'doneLate' : 'doneOnTime')
+  } else if (plannedH == null && deadlineMs == null) {
+    track = 'unmeasured'
+  } else if (deadlineMs != null && nowMs > deadlineMs) {
+    track = 'late'
+  } else if (overBySizePct != null && overBySizePct > 0) {
+    track = 'behind'
+  } else if (perf?.atRisk) {
+    track = 'atRisk'
+  } else if (!started) {
+    track = 'notStarted'
+  } else {
+    track = 'onTrack'
+  }
+
+  return {
+    key: keyOf(issue),
+    name: issue.name || keyOf(issue),
+    devId,
+    lineId,
+    plannedH,
+    source,
+    actualH,
+    ...(issue.deadline ? { deadline: issue.deadline } : {}),
+    hoursToDeadline: perf?.hoursToDeadline ?? null,
+    overBySizePct,
+    stale: perf?.stale ?? false,
+    track,
+  }
+}
+
 export function computePlanStatus(
   project: Project,
   developers: Developer[],
@@ -243,6 +353,7 @@ export function computePlanStatus(
     }
   }
 
+  const issueRows: PlanIssueStatus[] = []
   const acc = new Map<string, { plannedH: number; deliveredH: number; openSpends: number[]; delivered: number; unsized: number }>()
   for (const l of plan.lines) acc.set(l.id, { plannedH: 0, deliveredH: 0, openSpends: [], delivered: 0, unsized: 0 })
   let unplannedCount = 0
@@ -255,14 +366,20 @@ export function computePlanStatus(
     if (!line) { unplannedCount++; continue }
     const bucket = acc.get(line.id)!
     const perf = perfByKey.get(key)
-    const { hours } = issueSize(issue, perf)
+    const { hours, source } = issueSize(issue, perf)
 
     if (hours == null) { bucket.unsized++; unsizedTotal++ } else { bucket.plannedH += hours; sizedCount++ }
 
     const spent = issueSpentH(issue, perf)
     const done = perf ? perf.deliveryMs != null : issue.status === 'done'
     if (done) { bucket.delivered++; bucket.deliveredH += spent } else { bucket.openSpends.push(spent) }
+
+    issueRows.push(assessIssue(issue, perf, hours, source, spent, done, line.id, devId, nowMs))
   }
+
+  issueRows.sort((a, b) => TRACK_ORDER[a.track] - TRACK_ORDER[b.track] || (b.overBySizePct ?? -1) - (a.overBySizePct ?? -1))
+  const tracks = Object.fromEntries(Object.keys(TRACK_ORDER).map((k) => [k, 0])) as Record<IssueTrack, number>
+  for (const r of issueRows) tracks[r.track]++
 
   const lines: PlanLineStatus[] = plan.lines.map((line) => {
     const b = acc.get(line.id)!
@@ -339,6 +456,8 @@ export function computePlanStatus(
 
   return {
     lines,
+    issues: issueRows,
+    tracks,
     allocatedH,
     plannedH: lines.reduce((s, l) => s + l.plannedH, 0),
     actualH: lines.reduce((s, l) => s + l.actualH, 0),
