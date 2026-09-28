@@ -18,6 +18,7 @@ import ConfirmDialog from '../ui/ConfirmDialog'
 import JiraConfigModal from '../modals/JiraConfigModal'
 import GitLabConfigModal from '../modals/GitLabConfigModal'
 import GitHubConfigModal from '../modals/GitHubConfigModal'
+import PlanEditor from './PlanEditor'
 
 interface Props {
   open: boolean
@@ -285,7 +286,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
 
   // Edit drawer state
   const [editingProjId, setEditingProjId] = useState<string | null>(null)
-  const [editTab, setEditTab] = useState<'settings' | 'team' | 'integrations'>('settings')
+  const [editTab, setEditTab] = useState<'settings' | 'team' | 'integrations' | 'plan'>('settings')
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [editColor, setEditColor] = useState(PALETTE[0])
@@ -556,7 +557,7 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
 
           {/* Tabs */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--surface3)', flexShrink: 0 }}>
-            {(['settings', 'team', 'integrations'] as const).map(tab => (
+            {(['settings', 'team', 'plan', 'integrations'] as const).map(tab => (
               <button key={tab} onClick={() => setEditTab(tab)} style={{
                 flex: 1, padding: '8px 0', fontSize: 10, fontWeight: 700,
                 border: 'none', borderBottom: `2px solid ${editTab === tab ? 'var(--accent)' : 'transparent'}`,
@@ -735,6 +736,14 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
             )}
 
             {/* ── Integrations ── */}
+            {editTab === 'plan' && editingProj && (
+              <PlanEditor
+                project={editingProj}
+                developers={developers}
+                onChange={(plan) => updateProject(editingProj.id, { plan })}
+              />
+            )}
+
             {editTab === 'integrations' && editingProjId && (() => {
               const jiraConns = jiraConnections.filter(c => c.projectId === editingProjId)
               const gitlabConns = gitlabConnections.filter(c => c.projectId === editingProjId)

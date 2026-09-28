@@ -21,6 +21,7 @@ import DailyView from './components/views/DailyView'
 import DeadlinesView from './components/views/DeadlinesView'
 import SearchView from './components/views/SearchView'
 import PerformanceView from './components/views/PerformanceView'
+import PlanView from './components/views/PlanView'
 import ScheduleView from './components/views/ScheduleView'
 import SprintView from './components/views/SprintView'
 import TimelineView from './components/views/TimelineView'
@@ -33,6 +34,7 @@ const VIEW_LABELS: Record<string, string> = {
   daily: 'Daily',
   deadlines: 'Deadlines',
   performance: 'Performance',
+  plan: 'Plan vs Actual',
   schedule: 'Schedule',
   timeline: 'Timeline',
   report: 'Report',
@@ -43,6 +45,7 @@ const VIEW_ICONS: Record<string, ReactNode> = {
   daily: <Icon name="daily" size={14} />,
   deadlines: <Icon name="deadlines" size={14} />,
   performance: <Icon name="performance" size={14} />,
+  plan: <Icon name="flag" size={14} />,
   schedule: <Icon name="schedule" size={14} />,
   sprint: <Icon name="sprint" size={14} />,
   timeline: <Icon name="timeline" size={14} />,
@@ -406,6 +409,7 @@ function AuthedApp() {
             {view === 'deadlines' && <DeadlinesView />}
             {view === 'search' && <SearchView />}
             {view === 'performance' && <PerformanceView />}
+            {view === 'plan' && <PlanView />}
             {view === 'schedule' && <ScheduleView />}
             {view === 'sprint' && <SprintView />}
             {view === 'timeline' && <TimelineView />}

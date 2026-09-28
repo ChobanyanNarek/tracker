@@ -1,7 +1,7 @@
 export type Status = 'todo' | 'inprogress' | 'review' | 'done' | 'blocked'
 export type Priority = 'low' | 'medium' | 'high' | 'critical'
 export type ScheduleType = 'work' | 'vacation' | 'dayoff' | 'sick' | 'holiday'
-export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'schedule' | 'sprint' | 'timeline' | 'report' | 'notes' | 'team'
+export type View = 'daily' | 'deadlines' | 'search' | 'performance' | 'plan' | 'schedule' | 'sprint' | 'timeline' | 'report' | 'notes' | 'team'
 
 export interface Note {
   id: string
