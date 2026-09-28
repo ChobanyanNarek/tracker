@@ -382,3 +382,36 @@ describe('sizing must not be circular', () => {
     expect(st.issues[0]!.plannedH).toBeGreaterThan(0)
   })
 })
+
+describe('the hours are the developer\'s working hours', () => {
+  it('does not charge a weekend to a branch that spanned one', () => {
+    // Opened Friday 17:00, merged Monday 11:00. Elapsed is ~66 hours; the developer's
+    // working week holds two of them on Friday and one on Monday.
+    const overWeekend = issue('W-1', {
+      prs: [{
+        url: 'https://github.com/x/y/pull/9', date: '2026-09-04', time: '17:00',
+        stateHistory: [
+          { state: 'open', at: '2026-09-04T17:00:00+04:00' },   // Friday
+          { state: 'merged', at: '2026-09-07T11:00:00+04:00' }, // Monday
+        ],
+      }],
+    })
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 40 }])
+    const st = status(proj, [task('t1', 'd1', [overWeekend])])!
+    const sized = st.issues[0]!
+
+    expect(sized.source).toBe('branch')
+    expect(sized.plannedH!).toBeLessThan(6)   // not the 66 hours that elapsed
+    expect(sized.plannedH!).toBeGreaterThan(2)
+  })
+
+  it('leaves a Jira estimate exactly as it was entered', () => {
+    // An estimate is already an estimate of work, so converting it would be wrong.
+    const estimated = issue('W-2', { timeOriginalEstimate: 6 * H })
+    const proj = project([{ id: 'fe', label: 'Frontend', target: { kind: 'roles', roles: ['Frontend'] }, hours: 40 }])
+    const st = status(proj, [task('t1', 'd1', [estimated])])!
+
+    expect(st.issues[0]!.source).toBe('estimate')
+    expect(st.issues[0]!.plannedH).toBeCloseTo(6, 3)
+  })
+})

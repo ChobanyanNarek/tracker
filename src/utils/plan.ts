@@ -137,8 +137,21 @@ export interface PlanStatus {
   feasibility: Feasibility
 }
 
-/** Hours an issue is expected to take, and where that number came from. */
-export function issueSize(issue: JiraIssue, perf?: IssuePerf): { hours: number | null; source: PlanSource } {
+/**
+ * Hours an issue is expected to take, and where that number came from.
+ *
+ * Everything this function derives is in the developer's own working hours — their
+ * schedule and timezone, part-time rate, leave and public holidays all taken out. The one
+ * number it does not touch is a figure a person entered in Jira: an original estimate is
+ * already an estimate of work, not of elapsed time, so converting it would be wrong.
+ */
+export function issueSize(
+  issue: JiraIssue,
+  perf?: IssuePerf,
+  dev?: Developer,
+  schedule: Record<string, Record<string, string>> = {},
+  scheduleHours: Record<string, Record<string, number>> = {},
+): { hours: number | null; source: PlanSource } {
   // A number someone actually committed to beats anything derived.
   if (issue.timeOriginalEstimate) return { hours: issue.timeOriginalEstimate / SEC_PER_HOUR, source: 'estimate' }
 
@@ -147,7 +160,7 @@ export function issueSize(issue: JiraIssue, perf?: IssuePerf): { hours: number |
    * started writing code, merged when it landed. It only exists where code was written, so
    * it covers development and not design or QA.
    */
-  const branch = branchWindowH(issue, perf)
+  const branch = branchWindowH(issue, dev, schedule, scheduleHours)
   if (branch != null) return { hours: branch, source: 'branch' }
 
   /*
@@ -165,7 +178,12 @@ export function issueSize(issue: JiraIssue, perf?: IssuePerf): { hours: number |
 }
 
 /** Working hours between a branch being opened and merged or closed, when both are known. */
-function branchWindowH(issue: JiraIssue, perf?: IssuePerf): number | null {
+function branchWindowH(
+  issue: JiraIssue,
+  dev: Developer | undefined,
+  schedule: Record<string, Record<string, string>>,
+  scheduleHours: Record<string, Record<string, number>>,
+): number | null {
   let earliestOpen: number | null = null
   let latestEnd: number | null = null
   for (const pr of issue.prs ?? []) {
@@ -181,12 +199,13 @@ function branchWindowH(issue: JiraIssue, perf?: IssuePerf): number | null {
   }
   if (earliestOpen == null || latestEnd == null || latestEnd <= earliestOpen) return null
   /*
-   * Calendar hours would count nights and weekends as work. Without the developer's
-   * schedule to hand here the engine's own span is the better scale when it exists, so the
-   * branch window is expressed as elapsed hours only when nothing better is available.
+   * The developer's working hours between the two, not elapsed time: a branch opened on
+   * Friday afternoon and merged on Monday morning is a couple of hours of work, not a
+   * weekend of it. Without a developer to ask there is no schedule to apply, and elapsed
+   * hours are the only thing left.
    */
-  if (perf?.flowSpanH != null && perf.flowSpanH > 0) return Math.min(perf.flowSpanH, (latestEnd - earliestOpen) / 3_600_000)
-  return (latestEnd - earliestOpen) / 3_600_000
+  if (!dev) return (latestEnd - earliestOpen) / 3_600_000
+  return availableHours(dev, earliestOpen, latestEnd, schedule, scheduleHours)
 }
 
 /** Hours actually spent on an issue: a logged figure if there is one, else measured effort. */
@@ -366,7 +385,7 @@ export function computePlanStatus(
     if (!line) { unplannedCount++; continue }
     const bucket = acc.get(line.id)!
     const perf = perfByKey.get(key)
-    const { hours, source } = issueSize(issue, perf)
+    const { hours, source } = issueSize(issue, perf, dev, schedule, scheduleHours)
 
     if (hours == null) { bucket.unsized++; unsizedTotal++ } else { bucket.plannedH += hours; sizedCount++ }
 
