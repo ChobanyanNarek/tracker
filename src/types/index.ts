@@ -293,6 +293,12 @@ export interface Project {
   boardIssueKeys?: string[]    // EXACT Jira issue keys on the selected board (e.g. ['COM-826','COM-813']); the accurate board-membership signal. Resolved on board save and refreshed each sync.
   /** The agreed hours-per-role document this project is delivered against. */
   plan?: ProjectPlan
+  /*
+   * Set when the project is finished and put away. Its data is untouched and still counts
+   * everywhere history is shown — it is only taken out of the picker and the main list, so
+   * finished work stops competing for attention with live work.
+   */
+  archivedAt?: string
 }
 
 export interface DeadlineItem {

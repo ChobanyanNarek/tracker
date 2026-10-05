@@ -194,9 +194,9 @@ function SortableDevRow({ dev, actions }: { dev: Developer; actions: DevRowActio
 
 // ── Connection card ──────────────────────────────────────────────────────────
 
-function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, onDeleteRequest }: {
+function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, onDeleteRequest, onArchive }: {
   p: Project; isActive: boolean; isEditing: boolean
-  onSelect: () => void; onEditToggle: () => void; onDeleteRequest: () => void
+  onSelect: () => void; onEditToggle: () => void; onDeleteRequest: () => void; onArchive: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: p.id })
   /*
@@ -255,8 +255,17 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
           onMouseLeave={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
         ><Icon name="edit" size={13} /></button>
         <button
+          onClick={e => { e.stopPropagation(); onArchive() }}
+          title="Archive — keeps everything, takes it out of the way"
+          aria-label={`Archive ${p.name}`}
+          style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
+        ><Icon name="archive" size={13} /></button>
+        <button
           onClick={e => { e.stopPropagation(); onDeleteRequest() }}
-          title="Delete"
+          title="Delete — removes the project and all its work"
+          aria-label={`Delete ${p.name}`}
           style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
           onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)' }}
           onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
@@ -313,10 +322,13 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
   const [showArchived, setShowArchived] = useState(false)
   const [deletingDevId, setDeletingDevId] = useState<string | null>(null)
   const [deletingProjId, setDeletingProjId] = useState<string | null>(null)
+  // Separate from the developer archive toggle a few lines up.
+  const [showArchivedProjects, setShowArchivedProjects] = useState(false)
 
   const {
     projects, selectedProject, jiraConnections, gitlabConnections, githubConnections,
-    developers, addProject, updateProject, deleteProject, reorderProject, setSelectedProject,
+    developers, addProject, updateProject, deleteProject, archiveProject, unarchiveProject,
+    projectDataCounts, reorderProject, setSelectedProject,
     addDeveloper, archiveDeveloper, unarchiveDeveloper, removeDeveloper, reorderDeveloper,
     syncJira, syncGitlab, syncGithub,
   } = useStore()
@@ -334,6 +346,8 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
     fetchJiraBoards(conn).then(b => setBoards(b.filter(x => x.type === 'scrum'))).catch(() => {}).finally(() => setLoadingBoards(false))
   }, [editMode, editJiraConnectionId, jiraConnections])
 
+  const liveProjects = useMemo(() => projects.filter(p => !p.archivedAt), [projects])
+  const archivedProjects = useMemo(() => projects.filter(p => p.archivedAt), [projects])
   const deletingProj = projects.find(p => p.id === deletingProjId)
   const deletingDev = developers.find(d => d.id === deletingDevId)
   const editingProj = projects.find(p => p.id === editingProjId)
@@ -505,8 +519,8 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
           {/* Projects — drag the handle to reorder */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleProjectDragEnd}>
-              <SortableContext items={projects.map(p => p.id)} strategy={verticalListSortingStrategy}>
-                {projects.map(p => (
+              <SortableContext items={liveProjects.map(p => p.id)} strategy={verticalListSortingStrategy}>
+                {liveProjects.map(p => (
                   <SortableProjectRow
                     key={p.id}
                     p={p}
@@ -515,12 +529,54 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                     onSelect={() => setSelectedProject(p.id)}
                     onEditToggle={() => editingProjId === p.id ? setEditingProjId(null) : startEdit(p.id)}
                     onDeleteRequest={() => setDeletingProjId(p.id)}
+                    onArchive={() => archiveProject(p.id, new Date().toISOString())}
                   />
                 ))}
               </SortableContext>
             </DndContext>
-            {projects.length === 0 && !showForm && (
-              <div style={{ padding: '28px 0', textAlign: 'center', fontSize: 13, color: 'var(--text3)' }}>No projects yet — click + to add one</div>
+            {liveProjects.length === 0 && !showForm && (
+              <div style={{ padding: '28px 0', textAlign: 'center', fontSize: 13, color: 'var(--text3)' }}>
+                {archivedProjects.length ? 'Every project is archived' : 'No projects yet — click + to add one'}
+              </div>
+            )}
+
+            {/* Archived — finished work, kept whole and out of the way */}
+            {archivedProjects.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  onClick={() => setShowArchivedProjects(v => !v)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 0, padding: '6px 2px', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}
+                >
+                  <Icon name="archive" size={12} color="var(--text3)" />
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.7px' }}>
+                    Archived · {archivedProjects.length}
+                  </span>
+                  <Icon name={showArchivedProjects ? 'chevron-down' : 'chevron-right'} size={12} color="var(--text3)" />
+                </button>
+
+                {showArchivedProjects && archivedProjects.map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 'var(--r)', opacity: 0.75 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    <button
+                      onClick={() => unarchiveProject(p.id)}
+                      title="Bring it back"
+                      aria-label={`Unarchive ${p.name}`}
+                      style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', fontSize: 11, padding: '3px 9px', borderRadius: 6, cursor: 'pointer' }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
+                    >Restore</button>
+                    <button
+                      onClick={() => setDeletingProjId(p.id)}
+                      title="Delete — removes the project and all its work"
+                      aria-label={`Delete ${p.name}`}
+                      style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 26, height: 26, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)' }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
+                    ><Icon name="trash" size={12} /></button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -780,8 +836,18 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
 
       {deletingProj && (
         <ConfirmDialog
-          title={`Delete "${deletingProj.name}"?`}
-          message="Checkpoints assigned to this project will keep their data but lose the project tag."
+          title={`Delete "${deletingProj.name}" and everything in it?`}
+          message={(() => {
+            const c = projectDataCounts(deletingProj.id)
+            const parts = [
+              c.tasks && `${c.tasks} checkpoint${c.tasks === 1 ? '' : 's'}${c.issues ? ` holding ${c.issues} issue${c.issues === 1 ? '' : 's'}` : ''}`,
+              c.sprints && `${c.sprints} sprint${c.sprints === 1 ? '' : 's'}`,
+              c.notes && `${c.notes} note${c.notes === 1 ? '' : 's'}`,
+            ].filter(Boolean) as string[]
+            const what = parts.length ? parts.join(', ') : 'no work yet'
+            return `This removes the project and ${what}, along with its Jira board link and its Time Allocation plan. It cannot be undone, and there is no way to attach the work to another project afterwards. Archive instead to keep all of it and just put the project away.`
+          })()}
+          confirmLabel="Delete everything"
           onConfirm={() => { deleteProject(deletingProj.id); setDeletingProjId(null) }}
           onCancel={() => setDeletingProjId(null)}
         />

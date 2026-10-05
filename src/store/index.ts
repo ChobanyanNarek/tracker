@@ -296,6 +296,10 @@ interface StoreActions {
   addProject: (p: Omit<Project, 'id'>) => void
   updateProject: (id: string, changes: Partial<Omit<Project, 'id'>>) => void
   deleteProject: (id: string) => void
+  archiveProject: (id: string, archivedAt: string) => void
+  unarchiveProject: (id: string) => void
+  /** What a delete would destroy, so the confirmation can name it. */
+  projectDataCounts: (id: string) => { tasks: number; issues: number; sprints: number; notes: number }
   reorderProject: (fromId: string, toId: string) => void
   toggleMember: (projId: string, devId: string) => void
 
@@ -666,15 +670,59 @@ export const useStore = create<Store>((set, get) => {
         return withSave({ ...s, projects: newProjects, tasks, selectedDate })
       }),
 
+    /*
+     * Deleting a project takes its work with it: checkpoints, sprints and the notes scoped
+     * to it. It used to leave the checkpoints behind with an empty projectId, which read as
+     * tidy but was worse — the work became unreachable, invisible to every project filter
+     * and to Report, Performance and Time Allocation, with no way to attach it to anything
+     * again. Archiving is there for keeping a finished project's history.
+     *
+     * The sync layer turns a task that has left the state into a tombstone on its own, so
+     * nothing here has to arrange that.
+     */
     deleteProject: (id) =>
       set((s) =>
         withSave({
           ...s,
           projects: s.projects.filter((p) => p.id !== id),
-          tasks: s.tasks.map((t) => (t.projectId === id ? { ...t, projectId: '' } : t)),
+          tasks: s.tasks.filter((t) => t.projectId !== id),
+          sprints: (s.sprints ?? []).filter((sp) => sp.projectId !== id),
+          notes: (s.notes ?? []).filter((n) => n.projectId !== id),
           selectedProject: s.selectedProject === id ? 'ALL' : s.selectedProject,
         }),
       ),
+
+    archiveProject: (id, archivedAt) =>
+      set((s) =>
+        withSave({
+          ...s,
+          projects: s.projects.map((p) => (p.id === id ? { ...p, archivedAt } : p)),
+          selectedProject: s.selectedProject === id ? 'ALL' : s.selectedProject,
+        }),
+      ),
+
+    unarchiveProject: (id) =>
+      set((s) =>
+        withSave({
+          ...s,
+          projects: s.projects.map((p) => {
+            if (p.id !== id) return p
+            const { archivedAt: _, ...rest } = p
+            return rest
+          }),
+        }),
+      ),
+
+    projectDataCounts: (id) => {
+      const s = get()
+      const tasks = s.tasks.filter((t) => t.projectId === id)
+      return {
+        tasks: tasks.length,
+        issues: tasks.reduce((n, t) => n + (t.jiras?.length ?? 0), 0),
+        sprints: (s.sprints ?? []).filter((sp) => sp.projectId === id).length,
+        notes: (s.notes ?? []).filter((n) => n.projectId === id).length,
+      }
+    },
 
     toggleMember: (projId, devId) =>
       set((s) =>

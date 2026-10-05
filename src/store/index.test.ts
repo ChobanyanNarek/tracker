@@ -232,3 +232,78 @@ describe('backup and restore', () => {
     expect(restored.jiraConnections.map((c) => c.id)).toEqual(['j_p1'])
   })
 })
+
+describe('deleting a project', () => {
+  beforeEach(() => {
+    useStore.setState({
+      projects: [
+        { id: 'p1', name: 'Mabrook', color: '#000', desc: '', members: ['d1'] },
+        { id: 'p2', name: 'Mindport', color: '#111', desc: '', members: ['d1'] },
+      ],
+      tasks: [
+        task('t1', 'mab', [issue('MAB-1', 'To Do', 'todo')]),
+        task('t2', 'min', [issue('MIN-1', 'To Do', 'todo')]),
+      ],
+      sprints: [
+        { id: 's1', projectId: 'p1', name: 'Sprint 1', startDate: '2026-09-01', endDate: '2026-09-14' },
+        { id: 's2', projectId: 'p2', name: 'Sprint 1', startDate: '2026-09-01', endDate: '2026-09-14' },
+      ],
+      notes: [
+        { id: 'n1', projectId: 'p1', title: 'Client call', body: '', createdAt: '', updatedAt: '' },
+        { id: 'n2', title: 'Unscoped', body: '', createdAt: '', updatedAt: '' },
+      ],
+    })
+    // The tasks above are keyed by their own project ids; point them at the real ones.
+    useStore.setState({
+      tasks: useStore.getState().tasks.map((t, i) => ({ ...t, projectId: i === 0 ? 'p1' : 'p2' })),
+    })
+  })
+
+  it('takes the project\'s work with it rather than orphaning it', () => {
+    // It used to blank the projectId, which left the work unreachable: invisible to every
+    // project filter, and impossible to attach to anything again.
+    useStore.getState().deleteProject('p1')
+    const s = useStore.getState()
+
+    expect(s.projects.map((p) => p.id)).toEqual(['p2'])
+    expect(s.tasks.map((t) => t.projectId)).toEqual(['p2'])
+    expect(s.sprints!.map((x) => x.id)).toEqual(['s2'])
+    expect(s.notes!.map((n) => n.id)).toEqual(['n2']) // the unscoped note survives
+  })
+
+  it('counts what a delete would destroy, for the confirmation to name', () => {
+    const c = useStore.getState().projectDataCounts('p1')
+    expect(c).toEqual({ tasks: 1, issues: 1, sprints: 1, notes: 1 })
+  })
+
+  it('leaves the other projects alone', () => {
+    useStore.getState().deleteProject('p1')
+    expect(useStore.getState().projectDataCounts('p2')).toEqual({ tasks: 1, issues: 1, sprints: 1, notes: 0 })
+  })
+})
+
+describe('archiving a project', () => {
+  beforeEach(() => {
+    useStore.setState({
+      projects: [{ id: 'p1', name: 'Mabrook', color: '#000', desc: '', members: ['d1'] }],
+      tasks: [{ ...task('t1', 'mab', [issue('MAB-1', 'To Do', 'todo')]), projectId: 'p1' }],
+      selectedProject: 'p1',
+    })
+  })
+
+  it('keeps every bit of the data and only puts the project away', () => {
+    useStore.getState().archiveProject('p1', '2026-10-05T10:00:00Z')
+    const s = useStore.getState()
+
+    expect(s.projects[0]!.archivedAt).toBe('2026-10-05T10:00:00Z')
+    expect(s.tasks).toHaveLength(1)
+    expect(s.tasks[0]!.projectId).toBe('p1') // still attached
+    expect(s.selectedProject).toBe('ALL')    // and no longer the one being looked at
+  })
+
+  it('comes back exactly as it was', () => {
+    useStore.getState().archiveProject('p1', '2026-10-05T10:00:00Z')
+    useStore.getState().unarchiveProject('p1')
+    expect(useStore.getState().projects[0]!.archivedAt).toBeUndefined()
+  })
+})
