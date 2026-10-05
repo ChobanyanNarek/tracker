@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { JiraConfig, JiraIssue, StatusGroup, Task } from '../types'
-import { useStore, getActiveJiraConn, getVisibleTasks, issueShowsOnBoard, jiraConnectionForProject } from './index'
+import { useStore, getActiveJiraConn, getVisibleTasks, issueShowsOnBoard, jiraConnectionForProject, taskInSelectedProject } from './index'
 
 type State = ReturnType<typeof useStore.getState>
 const DATE = '2026-09-21'
@@ -305,5 +305,58 @@ describe('archiving a project', () => {
     useStore.getState().archiveProject('p1', '2026-10-05T10:00:00Z')
     useStore.getState().unarchiveProject('p1')
     expect(useStore.getState().projects[0]!.archivedAt).toBeUndefined()
+  })
+})
+
+describe('archiving the project you are looking at', () => {
+  beforeEach(() => {
+    useStore.setState({
+      projects: [
+        { id: 'p1', name: 'Mabrook', color: '#000', desc: '', members: [] },
+        { id: 'p2', name: 'Mindport', color: '#111', desc: '', members: [] },
+        { id: 'p3', name: 'R8', color: '#222', desc: '', members: [] },
+      ],
+      selectedProject: 'p1',
+    })
+  })
+
+  it('moves to the next project rather than to All projects', () => {
+    // Landing on ALL left every view showing the work that had just been put away.
+    useStore.getState().archiveProject('p1', '2026-10-05T10:00:00Z')
+    expect(useStore.getState().selectedProject).toBe('p2')
+  })
+
+  it('falls back to the one before when the last is archived', () => {
+    useStore.setState({ selectedProject: 'p3' })
+    useStore.getState().archiveProject('p3', '2026-10-05T10:00:00Z')
+    expect(useStore.getState().selectedProject).toBe('p1')
+  })
+
+  it('leaves the selection alone when another project is archived', () => {
+    useStore.getState().archiveProject('p2', '2026-10-05T10:00:00Z')
+    expect(useStore.getState().selectedProject).toBe('p1')
+  })
+
+  it('only falls back to All projects when nothing is left', () => {
+    const { archiveProject } = useStore.getState()
+    archiveProject('p2', 'x'); archiveProject('p3', 'x'); archiveProject('p1', 'x')
+    expect(useStore.getState().selectedProject).toBe('ALL')
+  })
+})
+
+describe('"All projects" leaves archived work out', () => {
+  it('stops counting a task once its project is archived', () => {
+    const base = {
+      projects: [{ id: 'p1', name: 'Mabrook', color: '#000', desc: '', members: ['d1'] }],
+      selectedProject: 'ALL' as const,
+    }
+    expect(taskInSelectedProject(base.projects, 'ALL', 'p1')).toBe(true)
+
+    const archived = [{ ...base.projects[0]!, archivedAt: '2026-10-05T10:00:00Z' }]
+    expect(taskInSelectedProject(archived, 'ALL', 'p1')).toBe(false)
+    // Opening it on purpose still shows everything.
+    expect(taskInSelectedProject(archived, 'p1', 'p1')).toBe(true)
+    // Work belonging to no project is unaffected.
+    expect(taskInSelectedProject(archived, 'ALL', '')).toBe(true)
   })
 })

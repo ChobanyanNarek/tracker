@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from 'react'
-import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, getVisibleDevIds } from '../../store'
+import { taskInSelectedProject, useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, getVisibleDevIds } from '../../store'
 import { jiraDedupeKey, initials, hexRgb } from '../../utils/format'
 import { todayStr, formatDate, isoDate } from '../../utils/dates'
 import type { Developer, Project, JiraIssue } from '../../types'
@@ -113,7 +113,7 @@ export default function TimelineView() {
 
     for (const task of tasks) {
       if (selectedDev !== 'ALL' && task.devId !== selectedDev) continue
-      if (selectedProject !== 'ALL' && task.projectId !== selectedProject) continue
+      if (!taskInSelectedProject(projects, selectedProject, task.projectId)) continue
       if (!visibleDevIds.includes(task.devId)) continue
       if (!taskPassesBoardFilter(task, boardScope)) continue
 

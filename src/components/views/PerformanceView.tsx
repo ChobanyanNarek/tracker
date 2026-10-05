@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard } from '../../store'
+import { useStore, getBoardScope, taskInSelectedProject, taskPassesBoardFilter, jiraOnBoard } from '../../store'
 import { computeTeamPerformance } from '../../utils/performance'
 import type { IssuePerf, DevPerf, Verdict, PerfRange } from '../../utils/performance'
 import type { DeploymentRecord, Developer, Status } from '../../types'
@@ -554,7 +554,7 @@ export default function PerformanceView() {
     return selectedDev === 'ALL' ? inProject : inProject.filter((d) => d.id === selectedDev)
   }, [allDevelopers, proj, selectedDev])
   const tasks = useMemo(
-    () => (proj ? allTasks.filter((t) => t.projectId === selectedProject) : allTasks)
+    () => allTasks.filter((t) => taskInSelectedProject(projects, selectedProject, t.projectId))
       .filter((t) => taskPassesBoardFilter(t, boardScope))
       .map((t) => {
         if (!boardScope.active || !(t.jiras ?? []).length) return t

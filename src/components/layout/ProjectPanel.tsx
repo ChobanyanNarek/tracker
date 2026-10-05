@@ -559,9 +559,14 @@ export default function ProjectPanel({ open, onClose, topOffset, onToast }: Prop
                 </button>
 
                 {showArchivedProjects && archivedProjects.map(p => (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 'var(--r)', opacity: 0.75 }}>
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 'var(--r)', background: selectedProject === p.id ? 'var(--accent-dim)' : undefined, opacity: selectedProject === p.id ? 1 : 0.75 }}>
                     <span style={{ width: 10, height: 10, borderRadius: 3, background: p.color, flexShrink: 0 }} />
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    {/* Still openable: archived work is put away, not locked away. */}
+                    <button
+                      onClick={() => setSelectedProject(p.id)}
+                      title={`Open ${p.name}`}
+                      style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit', fontSize: 13, color: selectedProject === p.id ? 'var(--accent)' : 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >{p.name}</button>
                     <button
                       onClick={() => unarchiveProject(p.id)}
                       title="Bring it back"

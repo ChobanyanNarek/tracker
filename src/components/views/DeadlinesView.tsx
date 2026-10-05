@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useStore, getBoardScope, taskPassesBoardFilter, jiraOnBoard, jiraConnectionForProject } from '../../store'
+import { useStore, getBoardScope, taskInSelectedProject, taskPassesBoardFilter, jiraOnBoard, jiraConnectionForProject } from '../../store'
 import { dlInfo, latestWorkday, formatDate, isoDate } from '../../utils/dates'
 import DatePicker from '../ui/DatePicker'
 import { getJiras, jiraLabel, jiraDedupeKey, hexRgb, initials } from '../../utils/format'
@@ -144,7 +144,7 @@ export default function DeadlinesView() {
     // deleted, or stale issues that only exist on historical dates.
     if (task.date < rangeStart || task.date > rangeEnd) return
     if (selectedDev !== 'ALL' && task.devId !== selectedDev) return
-    if (selectedProject !== 'ALL' && task.projectId !== selectedProject) return
+    if (!taskInSelectedProject(projects, selectedProject, task.projectId)) return
     if (!taskPassesBoardFilter(task, boardScope)) return
 
     const allJiras = getJiras(task)

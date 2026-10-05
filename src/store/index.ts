@@ -693,13 +693,22 @@ export const useStore = create<Store>((set, get) => {
       ),
 
     archiveProject: (id, archivedAt) =>
-      set((s) =>
-        withSave({
-          ...s,
-          projects: s.projects.map((p) => (p.id === id ? { ...p, archivedAt } : p)),
-          selectedProject: s.selectedProject === id ? 'ALL' : s.selectedProject,
-        }),
-      ),
+      set((s) => {
+        /*
+         * Land on the next project still in play rather than on "All projects". Dropping to
+         * ALL left every view showing the work that had just been put away, which read as
+         * the archive having done nothing at all.
+         */
+        const projects = s.projects.map((p) => (p.id === id ? { ...p, archivedAt } : p))
+        let selectedProject = s.selectedProject
+        if (selectedProject === id) {
+          const live = projects.filter((p) => !p.archivedAt)
+          const wasAt = s.projects.findIndex((p) => p.id === id)
+          const next = live.find((p) => s.projects.findIndex((q) => q.id === p.id) > wasAt) ?? live[0]
+          selectedProject = next?.id ?? 'ALL'
+        }
+        return withSave({ ...s, projects, selectedProject })
+      }),
 
     unarchiveProject: (id) =>
       set((s) =>
@@ -1828,6 +1837,31 @@ export function getActiveBoardId(state: AppState): number | undefined {
 const normalizedKeys = new WeakMap<string[], string[]>()
 const keySets = new WeakMap<string[], Set<string>>()
 
+/*
+ * Projects put away. Their work stays whole and stays attached, but it drops out of
+ * "All projects" — an archive that still showed everything would not be an archive. The
+ * project is still selectable from the panel's Archived list when it needs looking at.
+ */
+const archivedIdCache = new WeakMap<Project[], Set<string>>()
+export function archivedProjectIds(projects: Project[]): Set<string> {
+  let out = archivedIdCache.get(projects)
+  if (!out) {
+    out = new Set(projects.filter((p) => p.archivedAt).map((p) => p.id))
+    archivedIdCache.set(projects, out)
+  }
+  return out
+}
+
+/** Does this task belong to what the project picker is currently pointing at? */
+export function taskInSelectedProject(
+  projects: Project[],
+  selectedProject: string,
+  projectId: string | undefined,
+): boolean {
+  if (selectedProject !== 'ALL') return projectId === selectedProject
+  return !projectId || !archivedProjectIds(projects).has(projectId)
+}
+
 export function getActiveBoardProjectKeys(state: AppState): string[] | undefined {
   if (state.selectedProject === 'ALL') return undefined
   const proj = state.projects.find((p) => p.id === state.selectedProject)
@@ -2072,7 +2106,7 @@ function computeVisibleTasks(state: AppState, devId?: string): Task[] {
 
   const base = state.tasks.filter((t) => {
     const dv = devId ? t.devId === devId : state.selectedDev === 'ALL' || t.devId === state.selectedDev
-    const pj = state.selectedProject === 'ALL' || t.projectId === state.selectedProject
+    const pj = taskInSelectedProject(state.projects, state.selectedProject, t.projectId)
     if (!dv || !pj || t.date !== state.selectedDate) return false
     const proj = state.projects.find((p) => p.id === t.projectId)
     const nwd = proj?.nonWorkingDays ?? [0, 6]

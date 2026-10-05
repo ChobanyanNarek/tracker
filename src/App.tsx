@@ -4,7 +4,7 @@ import { getSubscriptionStatus, confirmPayment } from './utils/payment-api'
 import LoginPage from './components/auth/LoginPage'
 import AdminPage from './components/admin/AdminPage'
 import PaywallScreen from './components/subscription/PaywallScreen'
-import { useStore, countUrgentDeadlines, syncCloudToStore, pullRemoteChanges, sprintMatchesBoard, getBoardScope } from './store'
+import { useStore, countUrgentDeadlines, syncCloudToStore, pullRemoteChanges, sprintMatchesBoard, getBoardScope, taskInSelectedProject } from './store'
 import { useDeadlineNotifications } from './hooks/useDeadlineNotifications'
 import { useNoteReminders } from './hooks/useNoteReminders'
 import { useAutoSync } from './hooks/useAutoSync'
@@ -243,10 +243,10 @@ function AuthedApp() {
   // store write, which includes every keystroke in the search box.
   const boardScope = getBoardScope(useStore.getState())
   const urgentCount = useMemo(() => {
-    const filteredTasks = urgentProj ? tasks.filter((t) => t.projectId === selectedProject) : tasks
+    const filteredTasks = tasks.filter((t) => taskInSelectedProject(projects, selectedProject, t.projectId))
     const filteredDevs = urgentProj ? developers.filter((d) => urgentProj.members.includes(d.id)) : developers
     return countUrgentDeadlines(filteredTasks, filteredDevs, boardScope)
-  }, [tasks, developers, urgentProj, selectedProject, boardScope])
+  }, [tasks, developers, projects, urgentProj, selectedProject, boardScope])
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showToast = useCallback((msg: string) => {
