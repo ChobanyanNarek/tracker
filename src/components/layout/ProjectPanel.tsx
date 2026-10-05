@@ -32,7 +32,11 @@ const DAY_FULL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const DOW_NAME = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const SCHED_DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
-const PANEL_W = 280
+/*
+ * Wide enough for a project name beside its three actions. At 280 the name had about
+ * 65px — "Mabrook" came out as "Ma…" and the line beneath it wrapped into three.
+ */
+const PANEL_W = 320
 const EDIT_W = 320
 
 // ── Shared field styles ──────────────────────────────────────────────────────
@@ -215,7 +219,7 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
       onClick={() => !isEditing && onSelect()}
       style={{
         transform: CSS.Transform.toString(transform), transition,
-        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12,
+        display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', borderRadius: 12,
         cursor: isEditing ? 'default' : 'pointer',
         border: `1.5px solid ${isDragging ? 'var(--accent)' : isActive ? 'var(--accent)' : isEditing ? 'var(--accent)' : 'transparent'}`,
         background: isActive ? 'var(--accent-dim)' : 'var(--surface2)',
@@ -229,15 +233,15 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
         style={{ cursor: 'grab', color: 'var(--text4)', fontSize: 15, lineHeight: 1, userSelect: 'none', flexShrink: 0 }}>⠿</span>
 
       {/* Color */}
-      <div style={{ width: 38, height: 38, borderRadius: 10, background: p.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <div style={{ width: 14, height: 14, borderRadius: 4, background: p.color }} />
+      <div style={{ width: 32, height: 32, borderRadius: 9, background: p.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <div style={{ width: 13, height: 13, borderRadius: 4, background: p.color }} />
       </div>
 
       {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: isActive ? 'var(--accent)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, minWidth: 0 }}>
+          <span style={{ fontSize: 11, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {memberCount} dev{memberCount !== 1 ? 's' : ''}
             {(p.nonWorkingDays ?? [0, 6]).length > 0 && <span> · off {(p.nonWorkingDays ?? [0, 6]).map(d => DOW_NAME[d]).join(',')}</span>}
           </span>
@@ -246,11 +250,11 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
       </div>
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
         <button
           onClick={e => { e.stopPropagation(); onEditToggle() }}
           title={isEditing ? 'Close' : 'Edit'}
-          style={{ background: isEditing ? 'var(--accent-dim)' : 'none', border: `1.5px solid ${isEditing ? 'var(--accent)' : 'var(--border)'}`, color: isEditing ? 'var(--accent)' : 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          style={{ background: isEditing ? 'var(--accent-dim)' : 'none', border: `1.5px solid ${isEditing ? 'var(--accent)' : 'var(--border)'}`, color: isEditing ? 'var(--accent)' : 'var(--text3)', width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
           onMouseEnter={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' } }}
           onMouseLeave={e => { if (!isEditing) { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' } }}
         ><Icon name="edit" size={13} /></button>
@@ -258,7 +262,7 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
           onClick={e => { e.stopPropagation(); onArchive() }}
           title="Archive — keeps everything, takes it out of the way"
           aria-label={`Archive ${p.name}`}
-          style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
           onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)' }}
           onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
         ><Icon name="archive" size={13} /></button>
@@ -266,7 +270,7 @@ function SortableProjectRow({ p, isActive, isEditing, onSelect, onEditToggle, on
           onClick={e => { e.stopPropagation(); onDeleteRequest() }}
           title="Delete — removes the project and all its work"
           aria-label={`Delete ${p.name}`}
-          style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          style={{ background: 'none', border: '1.5px solid var(--border)', color: 'var(--text3)', width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
           onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'var(--red)' }}
           onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)'; e.currentTarget.style.borderColor = 'var(--border)' }}
         ><Icon name="trash" size={13} /></button>
