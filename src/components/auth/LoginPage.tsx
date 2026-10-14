@@ -455,7 +455,13 @@ export default function LoginPage({ onAuth, adminMode, notice }: Props) {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
                 required
-                minLength={6}
+                /*
+                 * Six characters is what we require when an account is created. Applied to
+                 * sign-in too, it locked out every account whose password predates the rule:
+                 * the browser refused to submit the form, so the right password never
+                 * reached the server and nothing on screen said why.
+                 */
+                minLength={tab === 'register' ? 6 : undefined}
               />
               <button
                 type="button"
