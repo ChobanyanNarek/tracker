@@ -118,14 +118,22 @@ export function authHeaders(): HeadersInit {
   return headers
 }
 
-export async function fetchAndStoreUserInfo(): Promise<StoredUser | null> {
+/*
+ * A failure here used to be swallowed as a plain null, so a sign-in with the right
+ * password could still land back on the login form with nothing said -- the role was
+ * simply never stored, and every later check read it as "not an admin". Say what went
+ * wrong, so the caller can put it on screen instead of looping.
+ */
+export interface MeResult { user: StoredUser | null; error?: string }
+
+export async function fetchAndStoreUserInfo(): Promise<MeResult> {
   try {
     const res = await fetch(`${API_URL}/auth/me`, { headers: authHeaders() })
-    if (!res.ok) return null
+    if (!res.ok) return { user: null, error: `HTTP ${res.status}` }
     const data = await res.json() as StoredUser
     setUserInfo(data)
-    return data
-  } catch { return null }
+    return { user: data }
+  } catch { return { user: null, error: 'network' } }
 }
 
 interface TokenPayload { token: string; expiresIn?: number }

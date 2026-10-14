@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { apiLogin, apiRegister, apiSendRegistrationCode, fetchAndStoreUserInfo, setToken } from '../../utils/auth'
+import { apiLogin, apiRegister, apiSendRegistrationCode, clearToken, fetchAndStoreUserInfo, setToken } from '../../utils/auth'
 import Icon from '../ui/Icon'
 
 interface Country { flag: string; name: string; code: string }
@@ -47,10 +47,13 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 const EyeIcon = ({ open }: { open: boolean }) => <Icon name={open ? 'eye' : 'eye-off'} size={15} />
 
-interface Props { onAuth: () => void; adminMode?: boolean }
+interface Props { onAuth: () => void; adminMode?: boolean; notice?: string }
 
-export default function LoginPage({ onAuth, adminMode }: Props) {
+export default function LoginPage({ onAuth, adminMode, notice }: Props) {
   const [tab, setTab] = useState<'login' | 'register'>('login')
+  // Why the last attempt put them back here, e.g. an account without admin access.
+  // It stands until they try again, then the real result of that attempt replaces it.
+  const [noticeShown, setNoticeShown] = useState(true)
 
   // login
   const [credential, setCredential] = useState('')
@@ -139,6 +142,7 @@ export default function LoginPage({ onAuth, adminMode }: Props) {
     }
 
     setLoading(true)
+    setNoticeShown(false)
     try {
       let token: string
       if (tab === 'login') {
@@ -148,7 +152,14 @@ export default function LoginPage({ onAuth, adminMode }: Props) {
         token = await apiRegister(firstName.trim(), lastName.trim(), email.trim(), password, code.trim(), fullPhone)
       }
       setToken(token)
-      await fetchAndStoreUserInfo()
+      const me = await fetchAndStoreUserInfo()
+      if (!me.user) {
+        // The password was right; the account just didn't come back. Stop here rather
+        // than continuing with no role and being bounced out without a word.
+        clearToken()
+
+        throw new Error(`Signed in, but your account could not be loaded (${me.error ?? 'unknown'}). Please try again.`)
+      }
       onAuth()
     } catch (err) {
       setError((err as Error).message)
@@ -460,13 +471,13 @@ export default function LoginPage({ onAuth, adminMode }: Props) {
             </div>
           </div>
 
-          {error && (
+          {(error ?? (noticeShown ? notice : null)) && (
             <div style={{
               padding: '10px 13px', borderRadius: 9, fontSize: 12,
               background: 'var(--red-dim)', color: 'var(--red)',
               border: '1px solid var(--red-border)', fontFamily: 'var(--sans)', fontWeight: 500,
             }}>
-              {error}
+              {error ?? notice}
             </div>
           )}
 

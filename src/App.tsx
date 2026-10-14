@@ -135,6 +135,8 @@ function AuthApp() {
   }, [])
   const [adminOpen, setAdminOpen] = useState(false)
   const [subscribed, setSubscribed] = useState<boolean | null>(null)
+  // Why the last attempt bounced back to the form, when the credentials were accepted.
+  const [loginNotice, setLoginNotice] = useState<string | null>(null)
 
   useEffect(() => {
     if (authed) {
@@ -182,6 +184,16 @@ function AuthApp() {
 
   const handleAuth = useCallback(async () => {
     await syncCloudToStore()
+    /*
+     * The first load runs on a token minted seconds ago. If it still comes back 401 the
+     * session is already cleared underneath us, and simply not setting `authed` returns a
+     * blank login form -- which reads as the password having failed. Name it instead.
+     */
+    if (!isAuthenticated()) {
+      setLoginNotice('Signed in, but the server rejected the session straight away. Please try again.')
+
+      return
+    }
     setAuthed(true)
   }, [])
 
@@ -192,15 +204,28 @@ function AuthApp() {
 
   const isAdminPath = window.location.pathname === '/admin'
 
+  /*
+   * /admin is for super admins only. Dropping the session and reloading was invisible:
+   * correct credentials put you straight back on the login form with nothing said, which
+   * reads as "my password stopped working". Say which half failed instead.
+   */
+  useEffect(() => {
+    if (!authed || !isAdminPath || isSuperAdmin()) return
+    setLoginNotice('Signed in, but this account has no admin access.')
+    clearToken()
+  }, [authed, isAdminPath])
+
   if (!authed) {
-    return <LoginPage onAuth={() => { void handleAuth() }} adminMode={isAdminPath} />
+    return (
+      <LoginPage
+        onAuth={() => { void handleAuth() }}
+        adminMode={isAdminPath}
+        notice={loginNotice ?? undefined}
+      />
+    )
   }
 
-  if (isAdminPath && !isSuperAdmin()) {
-    clearToken()
-    window.location.reload()
-    return null
-  }
+  if (isAdminPath && !isSuperAdmin()) return null
 
   if (adminOpen && isSuperAdmin()) {
     return <AdminPage onBack={() => setAdminOpen(false)} />
